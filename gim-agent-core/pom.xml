@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.gettyio.gim</groupId>
+        <artifactId>gim-agent-gui</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>gim-agent-core</artifactId>
+    <name>gim-agent-core</name>
+    <description>AgentScope 装配、workspace 管理、模型工厂、事件模型、韧性工具</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.gettyio.gim</groupId>
+            <artifactId>gim-agent-domain</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.agentscope</groupId>
+            <artifactId>agentscope-harness</artifactId>
+        </dependency>
+    </dependencies>
+</project>

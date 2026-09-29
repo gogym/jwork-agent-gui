@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ListView?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.TextField?>
+<?import javafx.scene.control.ToggleButton?>
+<?import javafx.scene.control.ToggleGroup?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.gettyio.gim.agent.ui.controller.MainController"
+            prefWidth="1200.0" prefHeight="760.0" styleClass="content-area">
+    <fx:define>
+        <ToggleGroup fx:id="pageGroup"/>
+    </fx:define>
+    <left>
+        <VBox prefWidth="250.0" minWidth="250.0" maxWidth="250.0" styleClass="sidebar">
+            <ToggleButton fx:id="navChat" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup"
+                          selected="true" onAction="#handleNewSession">
+                <graphic>
+                    <HBox spacing="10.0" alignment="CENTER_LEFT">
+                        <Label styleClass="icon" text="&#xE710;"/>
+                        <Label fx:id="navChatLabel" text="新任务"/>
+                    </HBox>
+                </graphic>
+            </ToggleButton>
+            <Label fx:id="sectionWorkspace" text="工作区" styleClass="section-title"/>
+            <Label fx:id="sectionRecent" text="最近任务" styleClass="sub-title"/>
+            <ListView fx:id="sessionListView" styleClass="session-list" VBox.vgrow="ALWAYS"/>
+            <Separator styleClass="sidebar-sep"/>
+            <ToggleButton fx:id="navTasks" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup">
+                <graphic>
+                    <HBox spacing="10.0" alignment="CENTER_LEFT">
+                        <Label styleClass="icon" text="&#xE823;"/>
+                        <Label fx:id="navTasksLabel" text="定时任务"/>
+                    </HBox>
+                </graphic>
+            </ToggleButton>
+            <ToggleButton fx:id="navSkills" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup">
+                <graphic>
+                    <HBox spacing="10.0" alignment="CENTER_LEFT">
+                        <Label styleClass="icon" text="&#xE945;"/>
+                        <Label fx:id="navSkillsLabel" text="技能"/>
+                    </HBox>
+                </graphic>
+            </ToggleButton>
+            <HBox styleClass="user-bar">
+                <Label text="G" styleClass="avatar"/>
+                <Label fx:id="userNameLabel" text="本地用户" styleClass="user-name"/>
+                <Region HBox.hgrow="ALWAYS"/>
+                <Button fx:id="themeMenuButton" styleClass="nav-item">
+                    <graphic>
+                        <Label styleClass="icon" text="&#xE713;"/>
+                    </graphic>
+                </Button>
+            </HBox>
+        </VBox>
+    </left>
+    <center>
+        <StackPane styleClass="content-margin">
+            <StackPane fx:id="mainPages" styleClass="content-panel">
+            <BorderPane fx:id="chatPage">
+                <center>
+                    <StackPane>
+                        <ScrollPane fx:id="scrollPane" fitToWidth="true">
+                            <content>
+                                <VBox fx:id="messagesContainer" styleClass="messages"/>
+                            </content>
+                        </ScrollPane>
+                        <VBox fx:id="welcomePane" styleClass="welcome" maxWidth="640.0" mouseTransparent="true">
+                            <Label fx:id="welcomeTitle" text="不止于对话" styleClass="welcome-title"/>
+                            <Label fx:id="welcomeSubtitle" text="用 Gim Agent 把日常事务交给 AI" styleClass="welcome-subtitle"/>
+                        </VBox>
+                    </StackPane>
+                </center>
+                <bottom>
+                    <VBox styleClass="input-wrap">
+                        <VBox styleClass="input-card">
+                            <TextField fx:id="inputField" styleClass="input-field"
+                                       promptText="描述任务，Enter 发送" onAction="#handleSend"/>
+                            <HBox styleClass="card-footer">
+                                <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
+                                <Region HBox.hgrow="ALWAYS"/>
+                                <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSend">
+                                    <graphic>
+                                        <Label styleClass="send-icon" text="&#xE724;"/>
+                                    </graphic>
+                                </Button>
+                            </HBox>
+                        </VBox>
+                    </VBox>
+                </bottom>
+            </BorderPane>
+            </StackPane>
+        </StackPane>
+    </center>
+</BorderPane>

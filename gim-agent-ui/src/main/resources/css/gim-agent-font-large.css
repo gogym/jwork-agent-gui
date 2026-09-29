@@ -1,0 +1,21 @@
+/* 大号字档：覆盖主要显式字号（在基础表之后加载） */
+
+.root { -fx-font-size: 15px; }
+
+.welcome-title   { -fx-font-size: 34px; }
+.welcome-subtitle { -fx-font-size: 22px; }
+.page-h1         { -fx-font-size: 25px; }
+.page-title      { -fx-font-size: 22px; }
+.brand-title     { -fx-font-size: 17px; }
+.card-title      { -fx-font-size: 16px; }
+.input-field     { -fx-font-size: 15px; }
+.nav-item .label { -fx-font-size: 14px; }
+.settings-toggle { -fx-font-size: 14px; }
+.link-btn        { -fx-font-size: 13px; }
+.badge           { -fx-font-size: 12px; }
+.mono            { -fx-font-size: 13px; }
+.empty-title     { -fx-font-size: 17px; }
+.empty-desc      { -fx-font-size: 13px; }
+.card-desc, .card-meta, .page-desc, .page-subtitle,
+.model-hint, .status-label, .info-key, .info-val,
+.section-title, .sub-title, .user-bar .user-name { -fx-font-size: 13px; }

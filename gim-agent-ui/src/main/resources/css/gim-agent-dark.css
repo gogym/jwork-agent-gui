@@ -1,0 +1,87 @@
+/* ============================================================
+ * Gim Agent 深色模式：只覆盖语义色变量（在 gim-agent.css 之后加载）
+ * ============================================================ */
+
+.root {
+    -gim-accent: #3fb26f;
+    -gim-accent-hover: #35a062;
+    -gim-accent-press: #2c8c54;
+    -gim-accent-disabled: #2f4a38;
+    -gim-faint-focus: #3fb26f22;
+
+    -gim-bg: #1e1e1d;
+    -gim-panel: #262625;
+    -gim-panel-2: #2a2a29;
+    /* 深色：统一背景最暗，内容区略亮（浮起） */
+    -gim-canvas: #1a1a19;
+    -gim-content: #262625;
+    -gim-hover: #313130;
+    -gim-press: #3a3a38;
+
+    -gim-btn: #333331;
+    -gim-btn-hover: #3d3d3b;
+    -gim-btn-press: #474745;
+
+    -gim-border: #3a3a38;
+    -gim-border-2: #454543;
+    -gim-border-3: #3a3a38;
+    -gim-border-4: #3b3b39;
+    -gim-border-5: #353533;
+    -gim-border-6: #3b3b39;
+    -gim-border-hover: #4d6b52;
+
+    -gim-text: #dededa;
+    -gim-text-strong: #f0f0ec;
+    -gim-text-title: #ececea;
+    -gim-text-2: #c9c9c4;
+    -gim-text-3: #b5b5b0;
+    -gim-text-4: #96968f;
+    -gim-text-5: #80807a;
+    -gim-text-nav: #d5d5d0;
+    -gim-icon: #a8a8a2;
+
+    -gim-tint: #2b3a2f;
+    -gim-tint-2: #324536;
+    -gim-tint-3: #2f3a31;
+    -gim-tint-4: #3d3d3b;
+    -gim-tint-5: #2f3a31;
+    -gim-tint-fg: #8fd0a5;
+    -gim-tint-fg-2: #cfe8d6;
+    -gim-tint-fg-3: #8fd0a5;
+    -gim-tint-fg-4: #b8ccbd;
+
+    -gim-scrollbar: #4a4a48;
+    -gim-scrollbar-hover: #5c5c5a;
+
+    -gim-badge-green-bg: #2b3a2f;
+    -gim-badge-gray-bg: #383836;
+    -gim-badge-gray-fg: #a8a8a2;
+    -gim-badge-blue-bg: #2a3644;
+    -gim-badge-blue-fg: #8fb8dc;
+    -gim-badge-red-bg: #442c2b;
+    -gim-badge-red-fg: #e09a97;
+
+    -gim-empty-icon: #4a4a48;
+    -gim-check-border: #555553;
+    -gim-arrow: #a8a8a2;
+    -gim-section: #96968f;
+    -gim-subtitle: #80807a;
+    -gim-mono-fg: #a0a09a;
+    -gim-desc: #bdbdb7;
+    -gim-cell-hover: #303030;
+    -gim-selection-nonfocus: #383836;
+    -gim-input-bg: #2a2a29;
+
+    /* Modena 基础色（控件默认态跟随深色） */
+    -fx-base: #333331;
+    -fx-background: -gim-bg;
+    -fx-control-inner-background: -gim-input-bg;
+    -fx-text-base-color: -gim-text;
+    -fx-selection-bar: -gim-tint;
+    -fx-selection-bar-non-focused: -gim-selection-nonfocus;
+}
+
+/* 深色下阴影不可见，去掉卡片/输入卡/内容面板投影避免脏边 */
+.input-card, .task-card, .skill-card, .context-menu, .content-panel {
+    -fx-effect: none;
+}

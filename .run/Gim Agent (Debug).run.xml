@@ -1,0 +1,12 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Gim Agent (Debug)" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.gettyio.gim.agent.ui.Launcher" />
+    <module name="gim-agent-ui" />
+    <option name="VM_PARAMETERS" value="-Dfile.encoding=UTF-8" />
+    <shortName>gimAgentDebug</shortName>
+    <Extension name="coverage" enabled="false" runner="idea" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>

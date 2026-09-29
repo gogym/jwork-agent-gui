@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.gettyio.gim</groupId>
+        <artifactId>gim-agent-gui</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>gim-agent-tools</artifactId>
+    <name>gim-agent-tools</name>
+    <description>工具三层门面、安全拦截链 SPI、HITL 确认接口</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.gettyio.gim</groupId>
+            <artifactId>gim-agent-core</artifactId>
+        </dependency>
+    </dependencies>
+</project>
