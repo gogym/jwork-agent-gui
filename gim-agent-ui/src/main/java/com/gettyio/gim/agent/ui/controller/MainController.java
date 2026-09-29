@@ -35,6 +35,7 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.Parent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
@@ -270,16 +271,11 @@ public class MainController {
 
         menu.getItems().addAll(settings, new SeparatorMenuItem(),
                 appearance, langMenu, new SeparatorMenuItem(), about);
-        themeMenuButton.setContextMenu(menu);
-        // 左键点击即时弹出菜单（setContextMenu 仅响应右键/菜单键）；
-        // 齿轮位于侧栏底部，从按钮右上角弹出，超出屏幕时 JavaFX 自动上翻
-        themeMenuButton.setOnAction(e -> {
-            if (!menu.isShowing()) {
-                Bounds b = themeMenuButton.localToScreen(themeMenuButton.getBoundsInLocal());
-                if (b != null) {
-                    menu.show(themeMenuButton, b.getMaxX(), b.getMinY());
-                }
-            }
+        // 左键/右键统一弹出菜单，固定锚定在按钮左上角；超出屏幕时 JavaFX 自动调整
+        themeMenuButton.setOnAction(e -> showThemeMenu(menu));
+        themeMenuButton.setOnContextMenuRequested(e -> {
+            e.consume();
+            showThemeMenu(menu);
         });
 
         // 全局快捷键 Ctrl+,（菜单未展开时也生效）
@@ -291,6 +287,30 @@ public class MainController {
                         this::handleOpenSettings);
             }
         });
+    }
+
+    /** 弹出设置菜单：整体落在齿轮按钮左上角（菜单右上角对齐按钮右上角） */
+    private void showThemeMenu(ContextMenu menu) {
+        if (menu.isShowing()) {
+            return;
+        }
+        Bounds b = themeMenuButton.localToScreen(themeMenuButton.getBoundsInLocal());
+        if (b == null) {
+            return;
+        }
+        // 先临时弹出以量取真实尺寸，再把菜单右上角精确对齐按钮右上角（左上角视图）
+        menu.show(themeMenuButton, b.getMaxX(), b.getMinY());
+        Parent skin = (Parent) menu.getSkin().getNode();
+        skin.applyCss();
+        skin.layout();
+        double w = skin.getBoundsInLocal().getWidth();
+        double h = skin.getBoundsInLocal().getHeight();
+        if (w > 0) {
+            menu.setX(b.getMaxX() - w);
+        }
+        if (h > 0) {
+            menu.setY(b.getMinY() - h);
+        }
     }
 
     private void showAbout() {
