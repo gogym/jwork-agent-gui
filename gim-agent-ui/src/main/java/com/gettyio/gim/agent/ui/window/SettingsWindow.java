@@ -12,6 +12,7 @@ import com.gettyio.gim.agent.domain.enums.McpTransportType;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.view.McpView;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
@@ -22,9 +23,7 @@ import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
-import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -44,7 +43,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextAlignment;
-import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -107,16 +106,8 @@ public class SettingsWindow {
     private final ComboBox<String> defaultModelCombo = new ComboBox<>();
     private final Label statusLabel = new Label("");
 
-    private final ListView<McpServerConfig> mcpListView = new ListView<>();
-    private final VBox mcpCardsBox = new VBox(12);
-    private final TextField mcpCodeField = new TextField();
-    private final TextField mcpNameField = new TextField();
-    private final ComboBox<String> mcpTransportCombo = new ComboBox<>();
-    private final TextField mcpCommandField = new TextField();
-    private final TextField mcpArgsField = new TextField();
-    private final TextField mcpBaseUrlField = new TextField();
-    private final TextField mcpTimeoutField = new TextField();
-    private final ToggleSwitch mcpEnabledCheck = new ToggleSwitch();
+    /** MCP 服务页复用组件（自包含）；与拓展页各自实例化，互不干扰场景图父子关系。 */
+    private McpView mcpView;
 
     private final ListView<ToolPermissionRule> permissionListView = new ListView<>();
 
@@ -651,14 +642,14 @@ public class SettingsWindow {
         return b;
     }
 
-    /** 弹出模态窗口新增/编辑提供商；{@code editing} 为 null 表示新增。 */
+    /** 宿主窗口：作为无边框对话框的 owner（窗口模态并居中）。 */
+    private Window hostWindow() {
+        return hostScene == null ? null : hostScene.getWindow();
+    }
+
+    /** 弹出无边框模态窗口新增/编辑提供商；{@code editing} 为 null 表示新增。 */
     private void openProviderDialog(ModelProviderConfig editing) {
-        Stage dialog = new Stage();
-        dialog.initModality(javafx.stage.Modality.WINDOW_MODAL);
-        if (hostScene != null) {
-            dialog.initOwner(hostScene.getWindow());
-        }
-        dialog.setTitle(I18n.t(editing == null
+        GimDialog.Shell shell = GimDialog.shell(hostWindow(), I18n.t(editing == null
                 ? "settings.provider.addTitle" : "settings.provider.editTitle"));
 
         if (editing == null) {
@@ -671,25 +662,19 @@ public class SettingsWindow {
         form.setPrefWidth(440);
 
         Button cancel = new Button(I18n.t("common.cancel"));
-        cancel.setOnAction(e -> dialog.close());
+        cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
         save.getStyleClass().add("btn-primary");
         save.setOnAction(e -> {
             if (commitProviderForm()) {
-                dialog.close();
+                shell.stage().close();
             }
         });
         HBox btns = new HBox(8, cancel, save);
         btns.setAlignment(Pos.CENTER_RIGHT);
 
-        VBox content = new VBox(16, form, btns);
-        content.getStyleClass().add("provider-dialog");
-        content.setPadding(new Insets(20));
-
-        Scene scene = new Scene(content, 480, 540);
-        UiTheme.apply(scene);
-        dialog.setScene(scene);
-        dialog.showAndWait();
+        shell.body().getChildren().addAll(form, btns);
+        shell.showAndWait();
     }
 
     // ---- 模型页 ----
@@ -791,14 +776,9 @@ public class SettingsWindow {
         return card;
     }
 
-    /** 弹出模态窗口新增/编辑模型；{@code editing} 为 null 表示新增。 */
+    /** 弹出无边框模态窗口新增/编辑模型；{@code editing} 为 null 表示新增。 */
     private void openModelDialog(ModelConfig editing) {
-        Stage dialog = new Stage();
-        dialog.initModality(javafx.stage.Modality.WINDOW_MODAL);
-        if (hostScene != null) {
-            dialog.initOwner(hostScene.getWindow());
-        }
-        dialog.setTitle(I18n.t(editing == null
+        GimDialog.Shell shell = GimDialog.shell(hostWindow(), I18n.t(editing == null
                 ? "settings.model.addTitle" : "settings.model.editTitle"));
 
         if (editing == null) {
@@ -811,25 +791,19 @@ public class SettingsWindow {
         form.setPrefWidth(440);
 
         Button cancel = new Button(I18n.t("common.cancel"));
-        cancel.setOnAction(e -> dialog.close());
+        cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
         save.getStyleClass().add("btn-primary");
         save.setOnAction(e -> {
             if (commitModelForm()) {
-                dialog.close();
+                shell.stage().close();
             }
         });
         HBox btns = new HBox(8, cancel, save);
         btns.setAlignment(Pos.CENTER_RIGHT);
 
-        VBox content = new VBox(16, form, btns);
-        content.getStyleClass().add("provider-dialog");
-        content.setPadding(new Insets(20));
-
-        Scene scene = new Scene(content, 480, 460);
-        UiTheme.apply(scene);
-        dialog.setScene(scene);
-        dialog.showAndWait();
+        shell.body().getChildren().addAll(form, btns);
+        shell.showAndWait();
     }
 
     // ---- 默认模型页 ----
@@ -855,143 +829,8 @@ public class SettingsWindow {
     // ---- MCP 服务页 ----
 
     private VBox buildMcpPage() {
-        VBox box = new VBox();
-        box.getStyleClass().add("settings-page");
-        box.setMaxWidth(Double.MAX_VALUE);
-        box.setMaxHeight(Double.MAX_VALUE);
-
-        VBox headText = new VBox(4);
-        Label title = new Label(I18n.t("settings.menu.mcp"));
-        title.getStyleClass().add("page-title");
-        Label subtitle = new Label(I18n.t("settings.mcp.subtitle"));
-        subtitle.getStyleClass().add("page-subtitle");
-        subtitle.setWrapText(true);
-        headText.getChildren().addAll(title, subtitle);
-
-        Button addBtn = new Button(I18n.t("settings.mcp.add"));
-        addBtn.getStyleClass().add("btn-primary");
-        Label addIcon = new Label("\uE710");
-        addIcon.getStyleClass().add("icon");
-        addBtn.setGraphic(addIcon);
-        addBtn.setOnAction(e -> openMcpDialog(null));
-
-        Region spacer = new Region();
-        HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox header = new HBox(headText, spacer, addBtn);
-        header.setAlignment(Pos.CENTER_LEFT);
-
-        mcpCardsBox.getStyleClass().add("provider-cards");
-        mcpCardsBox.setFillWidth(false);
-        VBox.setVgrow(mcpCardsBox, Priority.ALWAYS);
-        box.getChildren().addAll(header, mcpCardsBox);
-        return box;
-    }
-
-    /** 依据库中数据重绘 MCP 服务信息卡片。 */
-    private void renderMcpCards() {
-        mcpCardsBox.getChildren().clear();
-        List<McpServerConfig> servers = mcpAdminService.list();
-        if (servers.isEmpty()) {
-            mcpCardsBox.setAlignment(Pos.CENTER);
-            mcpCardsBox.getChildren().add(mcpEmptyState());
-            return;
-        }
-        mcpCardsBox.setAlignment(Pos.TOP_LEFT);
-        for (McpServerConfig m : servers) {
-            mcpCardsBox.getChildren().add(mcpCard(m));
-        }
-    }
-
-    private VBox mcpEmptyState() {
-        VBox box = new VBox();
-        box.getStyleClass().add("empty-state");
-        box.setMaxWidth(Double.MAX_VALUE);
-        box.setFillWidth(false);
-        Label icon = new Label("\uE71B");
-        icon.getStyleClass().add("empty-icon");
-        Label t = new Label(I18n.t("settings.mcp.empty"));
-        t.getStyleClass().add("empty-title");
-        t.setTextAlignment(TextAlignment.CENTER);
-        Label d = new Label(I18n.t("settings.mcp.emptyDesc"));
-        d.getStyleClass().add("empty-desc");
-        d.setWrapText(true);
-        d.setTextAlignment(TextAlignment.CENTER);
-        d.setMaxWidth(460);
-        box.getChildren().addAll(icon, t, d);
-        return box;
-    }
-
-    private VBox mcpCard(McpServerConfig m) {
-        boolean enabled = EnabledStatus.isEnabled(m.getEnabled());
-        Label name = new Label(m.getServerName() == null || m.getServerName().isBlank()
-                ? m.getServerCode() : m.getServerName());
-        name.getStyleClass().add("provider-card-title");
-        Label badge = new Label(I18n.t(enabled ? "settings.mcp.enabled" : "settings.mcp.disabled"));
-        badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
-        HBox titleRow = new HBox(10, name, badge);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
-
-        Button edit = iconTextButton("\uE70F", I18n.t("common.edit"), () -> openMcpDialog(m));
-        edit.getStyleClass().add("link-btn");
-        Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteMcp(m));
-        del.getStyleClass().addAll("link-btn", "link-btn-danger");
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
-        HBox head = new HBox(titleRow, sp, edit, del);
-        head.setAlignment(Pos.CENTER_LEFT);
-
-        VBox card = new VBox(8, head,
-                kvLine(I18n.t("settings.mcp.code"), m.getServerCode()),
-                kvLine(I18n.t("settings.mcp.transport"), m.getTransportType()),
-                kvLine(I18n.t("settings.mcp.command"), m.getCommand()),
-                kvLine(I18n.t("settings.mcp.baseUrl"), m.getBaseUrl()),
-                kvLine(I18n.t("settings.mcp.timeout"), String.valueOf(m.getTimeout())),
-                kvLine(I18n.t("common.status"), m.getStatus()));
-        card.getStyleClass().add("provider-card");
-        card.setPrefWidth(CARD_WIDTH);
-        card.setMaxWidth(CARD_WIDTH);
-        return card;
-    }
-
-    /** 弹出模态窗口新增/编辑 MCP 服务；{@code editing} 为 null 表示新增。 */
-    private void openMcpDialog(McpServerConfig editing) {
-        Stage dialog = new Stage();
-        dialog.initModality(javafx.stage.Modality.WINDOW_MODAL);
-        if (hostScene != null) {
-            dialog.initOwner(hostScene.getWindow());
-        }
-        dialog.setTitle(I18n.t(editing == null
-                ? "settings.mcp.addTitle" : "settings.mcp.editTitle"));
-
-        if (editing == null) {
-            clearMcpForm();
-        } else {
-            loadMcpToForm(editing);
-        }
-
-        GridPane form = buildMcpForm();
-        form.setPrefWidth(440);
-
-        Button cancel = new Button(I18n.t("common.cancel"));
-        cancel.setOnAction(e -> dialog.close());
-        Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
-        save.setOnAction(e -> {
-            if (commitMcpForm()) {
-                dialog.close();
-            }
-        });
-        HBox btns = new HBox(8, cancel, save);
-        btns.setAlignment(Pos.CENTER_RIGHT);
-
-        VBox content = new VBox(16, form, btns);
-        content.getStyleClass().add("provider-dialog");
-        content.setPadding(new Insets(20));
-
-        Scene scene = new Scene(content, 500, 560);
-        UiTheme.apply(scene);
-        dialog.setScene(scene);
-        dialog.showAndWait();
+        mcpView = new McpView(mcpAdminService);
+        return mcpView.getNode();
     }
 
     // ---- 工具权限页（撤销 HITL"总是允许"授权） ----
@@ -1034,8 +873,6 @@ public class SettingsWindow {
                         ApiProtocol.ANTHROPIC_COMPATIBLE.name(), ApiProtocol.OLLAMA.name())));
         authCombo.setItems(FXCollections.observableArrayList(
                 List.of(AuthMethod.X_API_KEY.name(), AuthMethod.BEARER_TOKEN.name())));
-        mcpTransportCombo.setItems(FXCollections.observableArrayList(
-                McpTransportType.STDIO.name(), McpTransportType.HTTP.name(), McpTransportType.SSE.name()));
     }
 
     private GridPane buildProviderForm() {
@@ -1060,20 +897,6 @@ public class SettingsWindow {
         g.addRow(r++, new Label(I18n.t("settings.model.name")), modelNameField);
         g.addRow(r++, new Label(I18n.t("settings.model.priority")), priorityField);
         g.addRow(r, new Label(I18n.t("common.enable")), modelEnabledCheck);
-        return g;
-    }
-
-    private GridPane buildMcpForm() {
-        GridPane g = grid();
-        int r = 0;
-        g.addRow(r++, new Label(I18n.t("settings.mcp.code")), mcpCodeField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.name")), mcpNameField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.transport")), mcpTransportCombo);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.command")), mcpCommandField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.args")), mcpArgsField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.baseUrl")), mcpBaseUrlField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.timeout")), mcpTimeoutField);
-        g.addRow(r, new Label(I18n.t("common.enable")), mcpEnabledCheck);
         return g;
     }
 
@@ -1136,14 +959,8 @@ public class SettingsWindow {
     }
 
     private void handleDeleteProvider(ModelProviderConfig sel) {
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                I18n.t("settings.provider.deleteConfirm", sel.getProviderCode()),
-                ButtonType.OK, ButtonType.CANCEL);
-        confirm.setTitle(I18n.t("settings.menu.providers"));
-        if (hostScene != null) {
-            confirm.initOwner(hostScene.getWindow());
-        }
-        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
+        if (!GimDialog.confirm(hostWindow(), I18n.t("settings.menu.providers"),
+                I18n.t("settings.provider.deleteConfirm", sel.getProviderCode()))) {
             return;
         }
         adminService.deleteProvider(sel.getProviderCode());
@@ -1198,14 +1015,8 @@ public class SettingsWindow {
     }
 
     private void handleDeleteModel(ModelConfig sel) {
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                I18n.t("settings.model.deleteConfirm", sel.getModelCode()),
-                ButtonType.OK, ButtonType.CANCEL);
-        confirm.setTitle(I18n.t("settings.menu.models"));
-        if (hostScene != null) {
-            confirm.initOwner(hostScene.getWindow());
-        }
-        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
+        if (!GimDialog.confirm(hostWindow(), I18n.t("settings.menu.models"),
+                I18n.t("settings.model.deleteConfirm", sel.getModelCode()))) {
             return;
         }
         adminService.deleteModel(sel.getModelCode());
@@ -1224,82 +1035,6 @@ public class SettingsWindow {
         }
         adminService.setDefault(provider, model);
         statusLabel.setText(I18n.t("settings.status.setDefault", provider, model));
-    }
-
-    // ---- MCP 操作 ----
-
-    private void clearMcpForm() {
-        loading = true;
-        mcpListView.getSelectionModel().clearSelection();
-        mcpCodeField.clear();
-        mcpNameField.clear();
-        mcpCommandField.clear();
-        mcpArgsField.clear();
-        mcpBaseUrlField.clear();
-        mcpTimeoutField.setText("30");
-        mcpTransportCombo.setValue(McpTransportType.STDIO.name());
-        mcpEnabledCheck.setSelected(true);
-        mcpCodeField.setDisable(false);
-        loading = false;
-        statusLabel.setText(I18n.t("settings.status.newMcp"));
-    }
-
-    private void loadMcpToForm(McpServerConfig m) {
-        loading = true;
-        mcpCodeField.setText(m.getServerCode());
-        mcpCodeField.setDisable(true);
-        mcpNameField.setText(m.getServerName());
-        mcpTransportCombo.setValue(m.getTransportType());
-        mcpCommandField.setText(m.getCommand());
-        mcpArgsField.setText(m.getArgsJson());
-        mcpBaseUrlField.setText(m.getBaseUrl());
-        mcpTimeoutField.setText(String.valueOf(m.getTimeout()));
-        mcpEnabledCheck.setSelected(EnabledStatus.isEnabled(m.getEnabled()));
-        loading = false;
-    }
-
-    private boolean commitMcpForm() {
-        if (mcpCodeField.getText().isBlank()) {
-            statusLabel.setText(I18n.t("settings.status.mcpCodeEmpty"));
-            return false;
-        }
-        McpServerConfig m = new McpServerConfig();
-        m.setServerCode(mcpCodeField.getText().trim());
-        m.setServerName(mcpNameField.getText().trim());
-        m.setTransportType(mcpTransportCombo.getValue());
-        m.setCommand(mcpCommandField.getText().trim());
-        m.setArgsJson(mcpArgsField.getText().trim());
-        m.setBaseUrl(mcpBaseUrlField.getText().trim());
-        m.setTimeout(parseInt(mcpTimeoutField.getText(), 30));
-        m.setEnabled(mcpEnabledCheck.isSelected() ? 1 : 0);
-        // 保留库中未暴露于表单的字段（环境变量 / 请求头 JSON / 连接状态）
-        mcpAdminService.list().stream()
-                .filter(ex -> ex.getServerCode().equals(m.getServerCode()))
-                .findFirst().ifPresent(ex -> {
-                    m.setEnvJson(ex.getEnvJson());
-                    m.setHeadersJson(ex.getHeadersJson());
-                    m.setStatus(ex.getStatus());
-                });
-        mcpAdminService.save(m);
-        statusLabel.setText(I18n.t("settings.status.savedMcp", m.getServerCode()));
-        reloadAll();
-        return true;
-    }
-
-    private void handleDeleteMcp(McpServerConfig sel) {
-        Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
-                I18n.t("settings.mcp.deleteConfirm", sel.getServerCode()),
-                ButtonType.OK, ButtonType.CANCEL);
-        confirm.setTitle(I18n.t("settings.menu.mcp"));
-        if (hostScene != null) {
-            confirm.initOwner(hostScene.getWindow());
-        }
-        if (confirm.showAndWait().orElse(ButtonType.CANCEL) != ButtonType.OK) {
-            return;
-        }
-        mcpAdminService.delete(sel.getServerCode());
-        statusLabel.setText(I18n.t("settings.status.deletedMcp", sel.getServerCode()));
-        reloadAll();
     }
 
     // ---- 工具权限操作 ----
@@ -1338,9 +1073,10 @@ public class SettingsWindow {
             loadDefaultModels(p);
         });
         adminService.getDefaultModelCode().ifPresent(defaultModelCombo::setValue);
-        // MCP 与权限列表
-        mcpListView.setItems(FXCollections.observableArrayList(mcpAdminService.list()));
-        renderMcpCards();
+        // MCP 由复用组件自管理刷新；仅刷新权限列表
+        if (mcpView != null) {
+            mcpView.reload();
+        }
         permissionListView.setItems(FXCollections.observableArrayList(securityAdminService.list()));
         loading = false;
     }

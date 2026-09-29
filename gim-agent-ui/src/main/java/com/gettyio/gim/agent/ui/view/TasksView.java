@@ -4,14 +4,11 @@ import com.gettyio.gim.agent.domain.entity.ScheduledTask;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
 import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.config.TaskAdminService;
+import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
-import javafx.scene.Scene;
-import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.CheckBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
@@ -25,8 +22,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
-import javafx.stage.Modality;
-import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.quartz.CronExpression;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -226,12 +222,9 @@ public class TasksView {
     // ---- 新建 / 编辑表单弹窗 ----
 
     private void openForm(ScheduledTask editing) {
-        Stage dialog = new Stage();
-        dialog.initModality(Modality.WINDOW_MODAL);
-        if (root.getScene() != null) {
-            dialog.initOwner(root.getScene().getWindow());
-        }
-        dialog.setTitle(editing == null ? I18n.t("tasks.form.newTitle") : I18n.t("tasks.form.editTitle"));
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        GimDialog.Shell shell = GimDialog.shell(owner,
+                editing == null ? I18n.t("tasks.form.newTitle") : I18n.t("tasks.form.editTitle"));
 
         TextField nameField = new TextField(editing == null ? "" : editing.getTaskName());
         nameField.setPromptText(I18n.t("tasks.form.namePrompt"));
@@ -251,6 +244,7 @@ public class TasksView {
         form.addRow(1, new Label(I18n.t("tasks.form.cron")), cronField);
         form.addRow(2, new Label(I18n.t("tasks.form.prompt")), promptArea);
         form.addRow(3, new Label(""), onceCheck);
+        form.setPrefWidth(420);
 
         Label err = new Label();
         err.setStyle("-fx-text-fill: #b3403f; -fx-font-size: 12px;");
@@ -275,33 +269,25 @@ public class TasksView {
             t.setOnce(onceCheck.isSelected() ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
             try {
                 taskAdminService.save(t);
-                dialog.close();
+                shell.stage().close();
                 reload();
             } catch (Exception ex) {
                 err.setText(I18n.t("tasks.form.err.save", ex.getMessage()));
             }
         });
         Button cancel = new Button(I18n.t("common.cancel"));
-        cancel.setOnAction(e -> dialog.close());
+        cancel.setOnAction(e -> shell.stage().close());
         HBox btns = new HBox(8, save, cancel);
         btns.setAlignment(Pos.CENTER_RIGHT);
 
-        VBox box = new VBox(12, form, err, btns);
-        box.setPadding(new javafx.geometry.Insets(18));
-        Scene scene = new Scene(box, 460, 360);
-        UiTheme.apply(scene);
-        dialog.setScene(scene);
-        dialog.show();
+        shell.body().getChildren().addAll(form, err, btns);
+        shell.show();
     }
 
     private void confirmDelete(ScheduledTask t) {
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
-                I18n.t("tasks.deleteConfirm", t.getTaskName()),
-                ButtonType.OK, ButtonType.CANCEL);
-        if (root.getScene() != null) {
-            alert.initOwner(root.getScene().getWindow());
-        }
-        if (alert.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK) {
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        if (GimDialog.confirm(owner, I18n.t("nav.tasks"),
+                I18n.t("tasks.deleteConfirm", t.getTaskName()))) {
             taskAdminService.delete(t.getTaskCode());
             reload();
         }

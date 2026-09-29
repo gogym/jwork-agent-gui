@@ -4,14 +4,10 @@ import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
-import javafx.geometry.Insets;
+import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
-import javafx.scene.Scene;
-import javafx.scene.control.Alert;
 import javafx.scene.control.Button;
-import javafx.scene.control.ButtonType;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
@@ -24,8 +20,7 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
-import javafx.stage.Modality;
-import javafx.stage.Stage;
+import javafx.stage.Window;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -64,6 +59,14 @@ public class SkillsView {
 
     public VBox getNode() {
         return root;
+    }
+
+    /** 控制页头一级标题显隐（拓展页 Tab 内隐藏，避免与标签名重复）。 */
+    public void showHeaderTitle(boolean visible) {
+        if (titleLabel != null) {
+            titleLabel.setVisible(visible);
+            titleLabel.setManaged(visible);
+        }
     }
 
     private void buildUi() {
@@ -241,49 +244,39 @@ public class SkillsView {
     }
 
     private void confirmDelete(SkillPackage s) {
-        Alert alert = new Alert(Alert.AlertType.CONFIRMATION,
-                I18n.t("skills.deleteConfirm", s.getSkillName()),
-                ButtonType.OK, ButtonType.CANCEL);
-        if (root.getScene() != null) {
-            alert.initOwner(root.getScene().getWindow());
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        if (!GimDialog.confirm(owner, I18n.t("skills.action.delete"),
+                I18n.t("skills.deleteConfirm", s.getSkillName()))) {
+            return;
         }
-        if (alert.showAndWait().orElse(ButtonType.CANCEL) == ButtonType.OK) {
-            try {
-                skillService.delete(s.getSkillCode());
-                reload();
-            } catch (Exception e) {
-                error(I18n.t("skills.delete.failTitle"), e.getMessage());
-            }
+        try {
+            skillService.delete(s.getSkillCode());
+            reload();
+        } catch (Exception e) {
+            error(I18n.t("skills.delete.failTitle"), e.getMessage());
         }
     }
 
     private void openDetail(SkillPackage s) {
-        Stage dialog = new Stage();
-        dialog.initModality(Modality.WINDOW_MODAL);
-        if (root.getScene() != null) {
-            dialog.initOwner(root.getScene().getWindow());
-        }
-        dialog.setTitle(I18n.t("skills.detailTitle", s.getSkillCode()));
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        GimDialog.Shell shell = GimDialog.shell(owner, I18n.t("skills.detailTitle", s.getSkillCode()));
 
         Label head = new Label(s.getSkillName() + "（" + s.getSkillCode() + "）");
-        head.getStyleClass().add("page-h1");
+        head.getStyleClass().add("dialog-header");
         TextArea content = new TextArea(skillService.readContent(s.getSkillCode()));
         content.setEditable(false);
         content.setWrapText(true);
+        content.setPrefWidth(600);
+        content.setPrefHeight(420);
         content.setStyle("-fx-font-family: \"Cascadia Mono\", \"Consolas\", monospace; -fx-font-size: 12px;");
-        VBox.setVgrow(content, Priority.ALWAYS);
 
         Button close = new Button(I18n.t("common.close"));
-        close.setOnAction(e -> dialog.close());
+        close.setOnAction(e -> shell.stage().close());
         HBox btns = new HBox(8, close);
         btns.setAlignment(Pos.CENTER_RIGHT);
 
-        VBox box = new VBox(12, head, content, btns);
-        box.setPadding(new Insets(18));
-        Scene scene = new Scene(box, 640, 520);
-        UiTheme.apply(scene);
-        dialog.setScene(scene);
-        dialog.show();
+        shell.body().getChildren().addAll(head, content, btns);
+        shell.show();
     }
 
     // ---- 小工具 ----
@@ -307,21 +300,14 @@ public class SkillsView {
     }
 
     private void info(String header, String msg) {
-        Alert a = new Alert(Alert.AlertType.INFORMATION, msg, ButtonType.OK);
-        a.setHeaderText(header);
-        if (root.getScene() != null) {
-            a.initOwner(root.getScene().getWindow());
-        }
-        a.showAndWait();
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        GimDialog.message(owner, header, null, msg);
     }
 
     private void error(String header, String msg) {
-        Alert a = new Alert(Alert.AlertType.ERROR, msg == null ? I18n.t("common.error.unknown") : msg, ButtonType.OK);
-        a.setHeaderText(header);
-        if (root.getScene() != null) {
-            a.initOwner(root.getScene().getWindow());
-        }
-        a.showAndWait();
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        GimDialog.message(owner, header, null,
+                msg == null ? I18n.t("common.error.unknown") : msg);
     }
 
     private static String initial(String name, String code) {

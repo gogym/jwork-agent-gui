@@ -116,13 +116,37 @@ public class ChatService {
         return db.sessionDao().findAll();
     }
 
+    /** 指定工作区分组下的会话列表 */
+    public List<ChatSession> listSessions(String workspaceId) {
+        return db.sessionDao().findByWorkspace(workspaceId);
+    }
+
+    /** 删除会话及其全部消息 */
+    public void deleteSession(String sessionId) {
+        db.conversationDao().deleteBySession(sessionId);
+        db.sessionDao().deleteBySessionId(sessionId);
+        log.info("删除会话: {}", sessionId);
+    }
+
+    /** 将会话移动至指定工作区分组（workspaceId 为 null 表示移出分组） */
+    public void moveSession(String sessionId, String workspaceId) {
+        db.sessionDao().updateWorkspace(sessionId, workspaceId);
+        log.info("移动会话 {} 至分组 {}", sessionId, workspaceId);
+    }
+
     /** 新建空会话，立即落盘并返回 sessionId */
     public String createSession(String agentCode) {
+        return createSession(agentCode, null);
+    }
+
+    /** 新建空会话并归入指定工作区分组（workspaceId 为 null 则不分组） */
+    public String createSession(String agentCode, String workspaceId) {
         String sessionId = UUID.randomUUID().toString();
         ChatSession session = new ChatSession();
         session.setSessionId(sessionId);
         session.setAgentCode(agentCode);
         session.setTitle("新会话");
+        session.setWorkspaceId(workspaceId);
         session.setStatus(SessionStatus.ACTIVE.name());
         session.setMessageCount(0);
         session.setCreatedAt(LocalDateTime.now());

@@ -289,18 +289,10 @@
     -fx-padding: 6 12 2 12;
 }
 
-.session-list {
-    -fx-background-color: transparent;
-    -fx-border-color: transparent;
-    -fx-padding: 0;
-}
-.session-list .list-cell {
-    -fx-text-fill: -gim-text-3;
-    -fx-padding: 7 12 7 12;
-}
-.session-list .list-cell:filled:hover    { -fx-background-color: -gim-cell-hover; }
-.session-list .list-cell:filled:selected { -fx-background-color: -gim-tint-5; -fx-text-fill: -gim-text-title; }
-.session-list .list-cell:empty { -fx-opacity: 0; }
+/* 侧栏中段滚动区：工作区 + 最近任务（底部菜单固定，内容溢出时出现滚动条） */
+.sidebar-scroll { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 0; }
+.sidebar-scroll > .viewport { -fx-background-color: transparent; }
+.session-box { -fx-padding: 0 8 0 6; }
 
 .sidebar-sep { -fx-padding: 6 4 6 4; -fx-opacity: 1.0; }
 .sidebar-sep .line {
@@ -462,6 +454,16 @@
 .win-close:hover { -fx-background-color: #e81123; }
 .win-close:hover .win-btn-icon { -fx-text-fill: #ffffff; }
 
+/* ---------- 统一无边框对话框内容（GimDialog） ---------- */
+.dialog-body {
+    -fx-background-color: -gim-bg;
+    -fx-padding: 18 22 16 22;
+    -fx-spacing: 14;
+}
+.dialog-header { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -gim-text-strong; }
+.dialog-message { -fx-font-size: 13px; -fx-text-fill: -gim-text-2; -fx-line-spacing: 2; }
+.dialog-actions { -fx-alignment: center-right; -fx-padding: 4 0 0 0; }
+
 /* ============================================================
  * 设置窗口：左侧分类菜单 + 右侧内容页
  * ============================================================ */
@@ -514,7 +516,6 @@
 .provider-card-key { -fx-font-size: 12px; -fx-text-fill: -gim-section; -fx-min-width: 84; }
 .provider-card-val { -fx-font-size: 13px; -fx-text-fill: -gim-text-title; }
 .provider-empty { -fx-font-size: 13px; -fx-text-fill: -gim-section; -fx-padding: 28 0 0 2; }
-.provider-dialog { -fx-background-color: -gim-bg; }
 .settings-section {
     -fx-text-fill: -gim-section;
     -fx-font-size: 12px;
@@ -738,4 +739,127 @@
     -fx-font-size: 16px;
     -fx-font-weight: bold;
     -fx-text-fill: -gim-tint-fg;
+}
+
+/* ============================================================
+ * 拓展页：左上角标签页（技能 / MCP 服务）——对标顶部细横线 + accent 下划线
+ * ============================================================ */
+.extensions-root { -fx-background-color: -gim-bg; }
+.extensions-tabs {
+    -fx-background-color: -gim-bg;
+    -fx-tab-min-height: 30;
+    -fx-tab-max-height: 30;
+}
+.extensions-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+}
+.extensions-tabs > .tab-header-area { -fx-padding: 6 0 6 26; }
+.extensions-tabs > .tab-content-area { -fx-background-color: -gim-bg; }
+.extensions-tabs .tab {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-shape: null;
+    -fx-padding: 0;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+.extensions-tabs .tab:selected { -fx-background-color: transparent; }
+.extensions-tabs .tab .tab-label {
+    -fx-text-fill: -gim-text-3;
+    -fx-font-size: 14px;
+    -fx-padding: 0 14 0 14;
+}
+.extensions-tabs .tab:hover .tab-label { -fx-text-fill: -gim-text-title; }
+.extensions-tabs .tab:selected .tab-label {
+    -fx-text-fill: -gim-tint-fg-3;
+    -fx-font-weight: bold;
+}
+/* 选中项不再加底部下划线（仅靠加粗 + 主色区分） */
+.extensions-tabs .tab:selected .focus-indicator {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-border-insets: 0;
+    -fx-border-radius: 0;
+}
+
+/* ============================================================
+ * 侧栏：工作区分组（可新建/展开/右键）
+ * ============================================================ */
+.section-header {
+    -fx-padding: 12 8 4 12;
+    -fx-spacing: 6;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+/* 标题自身不再带不对称内边距，避免与右侧「+」/箭头错位 */
+.section-header .section-title { -fx-padding: 0; }
+.section-header .sub-title { -fx-padding: 0; }
+
+.workspace-box { -fx-padding: 0 8 0 6; }
+
+.ws-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 6 6 6 6;
+    -fx-cursor: hand;
+}
+.ws-row:hover { -fx-background-color: -gim-hover; }
+/* 小实心三角：统一 ▼ 字形（收起时旋转 -90° 成 ▶），固定格子保证两种状态大小一致 */
+.ws-caret {
+    -fx-text-fill: -gim-text-4;
+    -fx-font-size: 9px;
+    -fx-min-width: 10px;
+    -fx-alignment: center;
+}
+.ws-name { -fx-font-size: 13px; -fx-text-fill: -gim-text-nav; }
+
+.ws-mini-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 1 4 1 4;
+    -fx-cursor: hand;
+}
+.ws-mini-btn:hover { -fx-background-color: -gim-press; }
+.ws-mini-btn .icon { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+
+.ws-session-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 7;
+    -fx-padding: 5 6 5 8;
+    -fx-cursor: hand;
+}
+.ws-session-row:hover { -fx-background-color: -gim-cell-hover; }
+.ws-session-row-selected { -fx-background-color: -gim-tint-5; }
+.ws-session-row-selected .ws-session-name { -fx-text-fill: -gim-text-title; }
+/* 分组内会话行左缩进 */
+.ws-session-indent { -fx-padding: 5 6 5 22; }
+.ws-session-dot { -fx-text-fill: -gim-text-5; -fx-font-size: 12px; }
+.ws-session-name { -fx-font-size: 12px; -fx-text-fill: -gim-text-3; }
+/* 会话行「⋯」按钮：默认隐藏，悬停行或选中时显示（保留占位不引起布局跳动） */
+.ws-session-menu { -fx-opacity: 0; }
+.ws-session-row:hover .ws-session-menu,
+.ws-session-row-selected .ws-session-menu { -fx-opacity: 1; }
+
+/* 新建/编辑分组对话框 */
+.workspace-dialog { -fx-background-color: -gim-bg; }
+.workspace-form { -fx-padding: 16 18 8 18; }
+.ws-icon-opt {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 8;
+    -fx-padding: 4 8 4 8;
+    -fx-cursor: hand;
+}
+.ws-icon-opt:hover { -fx-background-color: -gim-btn-hover; }
+.ws-icon-opt:selected { -fx-background-color: -gim-tint-2; }
+.ws-icon-opt .icon { -fx-text-fill: -gim-icon; }
+.ws-swatch {
+    -fx-background-radius: 999;
+    -fx-min-width: 22px; -fx-min-height: 22px;
+    -fx-pref-width: 22px; -fx-pref-height: 22px;
+    -fx-padding: 0;
+    -fx-cursor: hand;
 }

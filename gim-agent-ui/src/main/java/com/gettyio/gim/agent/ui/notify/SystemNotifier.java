@@ -2,8 +2,8 @@ package com.gettyio.gim.agent.ui.notify;
 
 import com.gettyio.gim.agent.core.task.TaskCompletedEvent;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.application.Platform;
-import javafx.scene.control.Alert;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -33,12 +33,7 @@ public class SystemNotifier {
             trayNotifier.notify(title, head + "\n" + event.getSummary());
             return;
         }
-        Platform.runLater(() -> {
-            Alert alert = new Alert(event.isSuccess() ? Alert.AlertType.INFORMATION : Alert.AlertType.WARNING);
-            alert.setTitle(I18n.t("notify.windowTitle"));
-            alert.setHeaderText(head);
-            alert.setContentText(event.getSummary());
-            alert.showAndWait();
-        });
+        Platform.runLater(() -> GimDialog.message(null,
+                I18n.t("notify.windowTitle"), head, event.getSummary()));
     }
 }

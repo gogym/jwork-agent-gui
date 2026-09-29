@@ -31,9 +31,29 @@
                     </HBox>
                 </graphic>
             </ToggleButton>
-            <Label fx:id="sectionWorkspace" text="工作区" styleClass="section-title"/>
-            <Label fx:id="sectionRecent" text="最近任务" styleClass="sub-title"/>
-            <ListView fx:id="sessionListView" styleClass="session-list" VBox.vgrow="ALWAYS"/>
+            <ScrollPane fx:id="sidebarScroll" styleClass="sidebar-scroll" fitToWidth="true"
+                        hbarPolicy="NEVER" VBox.vgrow="ALWAYS">
+                <content>
+                    <VBox>
+                        <HBox fx:id="workspaceHeader" styleClass="section-header" alignment="CENTER_LEFT">
+                            <Label fx:id="workspaceSectionCaret" text="&#x25BC;" styleClass="ws-caret"/>
+                            <Label fx:id="sectionWorkspace" text="工作区" styleClass="section-title"/>
+                            <Region HBox.hgrow="ALWAYS"/>
+                            <Button fx:id="addWorkspaceButton" styleClass="ws-mini-btn" onAction="#handleAddWorkspace">
+                                <graphic>
+                                    <Label styleClass="icon" text="&#xE710;"/>
+                                </graphic>
+                            </Button>
+                        </HBox>
+                        <VBox fx:id="workspaceBox" spacing="2" styleClass="workspace-box"/>
+                        <HBox fx:id="recentHeader" styleClass="section-header" alignment="CENTER_LEFT">
+                            <Label fx:id="sectionRecentCaret" text="&#x25BC;" styleClass="ws-caret"/>
+                            <Label fx:id="sectionRecent" text="最近任务" styleClass="sub-title"/>
+                        </HBox>
+                        <VBox fx:id="recentBox" spacing="2" styleClass="session-box"/>
+                    </VBox>
+                </content>
+            </ScrollPane>
             <Separator styleClass="sidebar-sep"/>
             <ToggleButton fx:id="navTasks" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup">
                 <graphic>

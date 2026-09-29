@@ -8,6 +8,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.sql.Connection;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.stream.Collectors;
 
@@ -38,9 +40,34 @@ public class SqlSchemaInitializer {
             for (String stmt : splitStatements(script)) {
                 st.execute(stmt);
             }
+            migrate(st);
             log.info("SQLite schema 初始化完成（资源 {}）", classpathResource);
         } catch (Exception e) {
             throw new PersistException("初始化 SQLite schema 失败", e);
+        }
+    }
+
+    /**
+     * 增量迁移：为既有数据库补齐后续新增的列（幂等）。
+     * <p>CREATE TABLE IF NOT EXISTS 不会给已存在的表加列，故对老库用 ALTER 补齐。</p>
+     */
+    private void migrate(Statement st) throws SQLException {
+        addColumnIfMissing(st, "sessions", "workspace_id", "TEXT");
+    }
+
+    private void addColumnIfMissing(Statement st, String table, String column, String type) throws SQLException {
+        boolean exists = false;
+        try (ResultSet rs = st.executeQuery("PRAGMA table_info(" + table + ")")) {
+            while (rs.next()) {
+                if (column.equalsIgnoreCase(rs.getString("name"))) {
+                    exists = true;
+                    break;
+                }
+            }
+        }
+        if (!exists) {
+            st.execute("ALTER TABLE " + table + " ADD COLUMN " + column + " " + type);
+            log.info("迁移：为表 {} 增加列 {}", table, column);
         }
     }
 

@@ -19,6 +19,9 @@ public class ChatSession {
 
     private String title;
 
+    /** 所属工作区分组 ID（可空，未分组为 null） */
+    private String workspaceId;
+
     private String modelCode;
 
     private Integer messageCount = 0;

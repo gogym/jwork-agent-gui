@@ -126,6 +126,11 @@ public class GimAgentConfiguration {
     }
 
     @Bean
+    public WorkspaceAdminService workspaceAdminService(GimDatabase db) {
+        return new WorkspaceAdminService(db);
+    }
+
+    @Bean
     public SecurityAdminService securityAdminService(GimDatabase db) {
         return new SecurityAdminService(db);
     }

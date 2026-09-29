@@ -26,9 +26,21 @@ CREATE TABLE IF NOT EXISTS sessions (
     session_id    TEXT NOT NULL UNIQUE,
     agent_code    TEXT,
     title         TEXT,
+    workspace_id  TEXT,
     model_code    TEXT,
     message_count INTEGER DEFAULT 0,
     status        TEXT DEFAULT 'ACTIVE',
+    created_at    TEXT,
+    updated_at    TEXT
+);
+
+CREATE TABLE IF NOT EXISTS workspaces (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    workspace_id  TEXT NOT NULL UNIQUE,
+    name          TEXT NOT NULL,
+    folder_path   TEXT,
+    icon          TEXT,
+    color         TEXT,
     created_at    TEXT,
     updated_at    TEXT
 );

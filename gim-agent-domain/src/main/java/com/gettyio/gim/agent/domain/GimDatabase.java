@@ -16,6 +16,7 @@ public class GimDatabase {
     private final AgentDefinitionDao agentDao;
     private final ChatSessionDao sessionDao;
     private final ChatConversationDao conversationDao;
+    private final WorkspaceGroupDao workspaceDao;
     private final ModelProviderDao modelProviderDao;
     private final ModelConfigDao modelConfigDao;
     private final McpServerDao mcpServerDao;
@@ -30,6 +31,7 @@ public class GimDatabase {
         this.agentDao = new AgentDefinitionDao(runner);
         this.sessionDao = new ChatSessionDao(runner);
         this.conversationDao = new ChatConversationDao(runner);
+        this.workspaceDao = new WorkspaceGroupDao(runner);
         this.modelProviderDao = new ModelProviderDao(runner);
         this.modelConfigDao = new ModelConfigDao(runner);
         this.mcpServerDao = new McpServerDao(runner);
@@ -58,6 +60,10 @@ public class GimDatabase {
 
     public ChatConversationDao conversationDao() {
         return conversationDao;
+    }
+
+    public WorkspaceGroupDao workspaceDao() {
+        return workspaceDao;
     }
 
     public ModelProviderDao modelProviderDao() {
