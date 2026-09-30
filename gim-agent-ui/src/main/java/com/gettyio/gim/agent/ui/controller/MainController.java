@@ -38,6 +38,7 @@ import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.Parent;
+import javafx.scene.Node;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
@@ -78,6 +79,14 @@ public class MainController {
     private static final Duration FRAME_WINDOW = Duration.ofMillis(33);
     /** 侧栏偏好键：记住上次选择的智能体，新建会话默认归它 */
     private static final String PREF_SIDEBAR_AGENT = "sidebar.agent";
+    /** 智能体弹框的横向固定开销：弹框内边距 6×2 + 条目内边距 12×2（见 .context-menu / .menu-item） */
+    private static final double AGENT_MENU_CHROME = 36;
+    /** 卡片还没参与布局时的兜底弹框宽度：侧栏固定 250 扣掉左右内边距各 10 */
+    private static final double AGENT_MENU_FALLBACK_WIDTH = 230;
+    /** 弹框条目里的头像列：头像 26 + 头像与文字间距 8 */
+    private static final double AGENT_ITEM_AVATAR_WIDTH = 34;
+    /** 弹框条目里的图标列：Segoe 图标 15 + 图标与文字间距 8，向上取整留点余量 */
+    private static final double AGENT_ITEM_ICON_WIDTH = 26;
 
     @FXML
     private ScrollPane scrollPane;
@@ -572,18 +581,29 @@ public class MainController {
      */
     private void showAgentMenu() {
         ContextMenu menu = new ContextMenu();
+        // 弹框宽度钉成卡片宽度。宽度写在菜单的 style 上：ContextMenuSkin 把菜单的
+        // styleProperty 绑到弹框根节点，根节点是 Region，会采纳 -fx-*-width；
+        // 而 setPrefWidth/setMaxWidth 走的是 PopupControl 的同名属性，弹框尺寸计算不读它
+        double menuWidth = agentSwitcher.getWidth() > 0
+                ? agentSwitcher.getWidth()
+                : AGENT_MENU_FALLBACK_WIDTH;
+        menu.setStyle(String.format(Locale.ROOT,
+                "-fx-min-width: %.0fpx; -fx-pref-width: %.0fpx; -fx-max-width: %.0fpx;",
+                menuWidth, menuWidth, menuWidth));
+        double contentWidth = menuWidth - AGENT_MENU_CHROME;
+
         String current = currentAgentCode();
         for (AgentDefinition a : agentAdminService.list()) {
-            menu.getItems().add(agentMenuItem(a, a.getAgentCode().equals(current)));
+            menu.getItems().add(agentMenuItem(a, a.getAgentCode().equals(current), contentWidth));
         }
         menu.getItems().add(new SeparatorMenuItem());
         agentAdminService.find(current).ifPresent(def -> {
-            MenuItem configure = new MenuItem(I18n.t("sidebar.agent.configure"), UiTheme.icon("\uE70F"));
+            MenuItem configure = commandMenuItem(I18n.t("sidebar.agent.configure"), "\uE70F", contentWidth);
             configure.setOnAction(e -> AgentDialog.edit(currentWindow(), agentAdminService, def)
                     .ifPresent(saved -> adoptAgent(saved.getAgentCode())));
             menu.getItems().add(configure);
         });
-        MenuItem create = new MenuItem(I18n.t("sidebar.agent.new"), UiTheme.icon("\uE710"));
+        MenuItem create = commandMenuItem(I18n.t("sidebar.agent.new"), "\uE710", contentWidth);
         create.setOnAction(e -> AgentDialog.edit(currentWindow(), agentAdminService, null)
                 .ifPresent(saved -> adoptAgent(saved.getAgentCode())));
         menu.getItems().add(create);
@@ -594,17 +614,14 @@ public class MainController {
      * 菜单条目：小头像 + 名称/描述两行。
      * <p>当前项靠主色加粗区分，不打勾：MenuItem 只有一个 graphic 槽位，勾选图标会顶掉头像。</p>
      */
-    private MenuItem agentMenuItem(AgentDefinition a, boolean current) {
+    private MenuItem agentMenuItem(AgentDefinition a, boolean current, double contentWidth) {
         Label avatar = new Label(avatarText(agentLabel(a)));
         avatar.getStyleClass().add("agent-item-avatar");
-        Label name = new Label(agentLabel(a));
-        name.getStyleClass().add("agent-item-name");
-        Label desc = new Label(agentDesc(a));
-        desc.getStyleClass().add("agent-item-desc");
-        desc.setMaxWidth(200);
-        desc.setEllipsisString("\u2026");
-        HBox graphic = new HBox(8, avatar, new VBox(1, name, desc));
-        graphic.setAlignment(Pos.CENTER_LEFT);
+        double textWidth = contentWidth - AGENT_ITEM_AVATAR_WIDTH;
+        HBox graphic = itemContent(contentWidth, avatar, new VBox(1,
+                cappedLabel(agentLabel(a), textWidth, "agent-item-name"),
+                cappedLabel(agentDesc(a), textWidth, "agent-item-desc")));
+        graphic.setAccessibleText(agentLabel(a));
         if (current) {
             graphic.getStyleClass().add("agent-item-current");
         }
@@ -612,6 +629,39 @@ public class MainController {
         item.setGraphic(graphic);
         item.setOnAction(e -> selectAgent(a.getAgentCode()));
         return item;
+    }
+
+    /** 菜单底部的命令条目：图标 + 文案，与智能体条目共用同一套列宽 */
+    private MenuItem commandMenuItem(String text, String glyph, double contentWidth) {
+        HBox graphic = itemContent(contentWidth, UiTheme.icon(glyph),
+                cappedLabel(text, contentWidth - AGENT_ITEM_ICON_WIDTH, "agent-item-name"));
+        graphic.setAccessibleText(text);
+        MenuItem item = new MenuItem();
+        item.setGraphic(graphic);
+        return item;
+    }
+
+    /**
+     * 条目内容容器，宽度钉死。
+     * <p>JavaFX 按列算条目宽度：图形列与文字列是相加关系，各自取全菜单最大值。
+     * 所以文字一律画进图形里、条目自身不留文本，否则两列叠加会把弹框撑宽。</p>
+     */
+    private static HBox itemContent(double width, Node... children) {
+        HBox box = new HBox(8, children);
+        box.setAlignment(Pos.CENTER_LEFT);
+        box.setMinWidth(width);
+        box.setPrefWidth(width);
+        box.setMaxWidth(width);
+        return box;
+    }
+
+    /** 限宽 + 省略号：超长的名称/描述就地截断，不把弹框顶开 */
+    private static Label cappedLabel(String text, double maxWidth, String styleClass) {
+        Label label = new Label(text);
+        label.getStyleClass().add(styleClass);
+        label.setMaxWidth(maxWidth);
+        label.setEllipsisString("\u2026");
+        return label;
     }
 
     /** 描述为空时给一句兜底文案，不让卡片出现空行 */
