@@ -15,6 +15,8 @@
     /* 深色：统一背景最暗，内容区略亮（浮起） */
     -gim-canvas: #1a1a19;
     -gim-content: #262625;
+    /* 深色下 veil 压暗而非提亮，否则磨玻璃会变成发白 */
+    -gim-frost-veil: rgba(18, 18, 17, 0.58);
     -gim-hover: #313130;
     -gim-press: #3a3a38;
 

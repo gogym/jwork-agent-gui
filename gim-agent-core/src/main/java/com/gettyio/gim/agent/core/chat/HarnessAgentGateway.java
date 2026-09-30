@@ -4,8 +4,12 @@ import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.ConfirmResult;
 import io.agentscope.core.event.RequireUserConfirmEvent;
+import io.agentscope.core.message.Base64Source;
+import io.agentscope.core.message.ContentBlock;
+import io.agentscope.core.message.ImageBlock;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.permission.PermissionContextState;
@@ -191,11 +195,39 @@ public class HarnessAgentGateway implements AutoCloseable {
         }).map(Msg::getTextContent).subscribeOn(Schedulers.boundedElastic());
     }
 
-    /** 流式对话，产出归一化事件流 */
-    public Flux<StreamEvent> stream(String sessionId, String userText) {
+    /** 流式对话：按 {@link ChatRequest} 组装多模态输入、设定权限模式后产出归一化事件流 */
+    public Flux<StreamEvent> stream(ChatRequest request) {
+        String sessionId = request.getSessionId();
         RuntimeContext ctx = RuntimeContext.builder().sessionId(sessionId).build();
-        Msg input = Msg.builder().role(MsgRole.USER).textContent(userText).build();
-        return runEvents(input, ctx, sessionId);
+        Msg input = buildUserMsg(request.getText(), request.getImages());
+        PermissionMode mode = request.getPermissionMode() == null
+                ? PermissionMode.DEFAULT : request.getPermissionMode();
+        return Flux.defer(() -> {
+            agent().setPermissionMode(ctx, mode);
+            return runEvents(input, ctx, sessionId);
+        });
+    }
+
+    /** 组装 USER 消息：文本块 + 若干图片块（Base64）；无文本时至少留一个空文本块以满足角色约束。 */
+    private static Msg buildUserMsg(String text, List<ImageAttachment> images) {
+        List<ContentBlock> blocks = new ArrayList<>();
+        if (text != null && !text.isEmpty()) {
+            blocks.add(TextBlock.builder().text(text).build());
+        }
+        if (images != null) {
+            for (ImageAttachment img : images) {
+                if (img == null || img.base64Data() == null || img.base64Data().isBlank()) {
+                    continue;
+                }
+                blocks.add(ImageBlock.builder()
+                        .source(new Base64Source(img.mediaType(), img.base64Data()))
+                        .build());
+            }
+        }
+        if (blocks.isEmpty()) {
+            blocks.add(TextBlock.builder().text("").build());
+        }
+        return Msg.builder().role(MsgRole.USER).content(blocks).build();
     }
 
     /** 消费一次 Agent 轮次的事件流；遇到确认事件则解析决策并续跑，形成连续流 */

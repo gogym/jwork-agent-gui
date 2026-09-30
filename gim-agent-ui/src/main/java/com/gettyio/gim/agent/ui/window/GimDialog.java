@@ -2,6 +2,7 @@ package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
+import javafx.beans.value.ChangeListener;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -31,7 +32,7 @@ import java.util.Optional;
  * 自绘标题栏（标题文本 + 关闭按钮，可拖动），替代系统装饰的 Alert / 裸 Stage。
  * <p>用法：{@link #message}/{@link #confirm}/{@link #choose} 覆盖消息与确认场景，
  * {@link #promptText} 覆盖单行改名场景；{@link #shell} 返回带空内容区的壳，调用方往 {@link Shell#body()} 塞任意表单内容。
- * 有 owner 时窗口模态并居中于 owner，无 owner 时应用级模态。</p>
+ * 有 owner 时窗口模态、居中于 owner 并把 owner 主窗口磨玻璃化，无 owner 时应用级模态。</p>
  */
 public final class GimDialog {
 
@@ -51,6 +52,7 @@ public final class GimDialog {
         ok.setOnAction(e -> f.stage.close());
         actions.getChildren().add(ok);
         f.body.getChildren().add(actions);
+        prepare(f.stage);
         f.stage.showAndWait();
     }
 
@@ -74,6 +76,7 @@ public final class GimDialog {
         });
         actions.getChildren().addAll(cancel, ok);
         f.body.getChildren().add(actions);
+        prepare(f.stage);
         f.stage.showAndWait();
         return result[0];
     }
@@ -94,6 +97,7 @@ public final class GimDialog {
             actions.getChildren().add(b);
         }
         f.body.getChildren().add(actions);
+        prepare(f.stage);
         f.stage.showAndWait();
         return result[0];
     }
@@ -117,12 +121,12 @@ public final class GimDialog {
         }
 
         public void show() {
-            frame.stage.sizeToScene();
+            prepare(frame.stage);
             frame.stage.show();
         }
 
         public void showAndWait() {
-            frame.stage.sizeToScene();
+            prepare(frame.stage);
             frame.stage.showAndWait();
         }
     }
@@ -200,8 +204,38 @@ public final class GimDialog {
         UiTheme.apply(scene);
         scene.getAccelerators().put(new KeyCodeCombination(KeyCode.ESCAPE), stage::close);
         stage.setScene(scene);
-        stage.setOnShown(e -> centerOnOwner(stage));
+        bindOwner(stage, owner);
         return new Frame(stage, body);
+    }
+
+    /** 弹出前置备：按内容算出窗口尺寸并预先居中到 owner，避免透明窗口先闪在系统默认位置。 */
+    private static void prepare(Stage stage) {
+        stage.sizeToScene();
+        centerOnOwner(stage);
+    }
+
+    /**
+     * 绑定 owner：显示时居中并给主窗口叠磨玻璃背景，关闭时撤除；
+     * 窗口尺寸变化（内容变高、校验提示出现）后继续跟随居中。owner 未注册遮罩时只影响居中。
+     */
+    private static void bindOwner(Stage stage, Window owner) {
+        Runnable[] frost = new Runnable[1];
+        ChangeListener<Number> recenter = (obs, old, now) -> centerOnOwner(stage);
+        stage.widthProperty().addListener(recenter);
+        stage.heightProperty().addListener(recenter);
+        stage.setOnShown(e -> {
+            centerOnOwner(stage);
+            runAndClear(frost);
+            frost[0] = FrostedBackdrop.enter(owner);
+        });
+        stage.setOnHidden(e -> runAndClear(frost));
+    }
+
+    private static void runAndClear(Runnable[] holder) {
+        if (holder[0] != null) {
+            holder[0].run();
+            holder[0] = null;
+        }
     }
 
     /**
@@ -245,6 +279,7 @@ public final class GimDialog {
         HBox actions = new HBox(8, cancel, ok);
         actions.getStyleClass().add("dialog-actions");
         f.body.getChildren().addAll(form, actions);
+        prepare(f.stage);
         f.stage.showAndWait();
         return Optional.ofNullable(saved[0]);
     }

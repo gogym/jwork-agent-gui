@@ -1,12 +1,15 @@
 package com.gettyio.gim.agent.ui.config;
 
 import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
+import com.gettyio.gim.agent.core.model.ModelProbe;
+import com.gettyio.gim.agent.core.model.ModelSpec;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -16,14 +19,25 @@ import java.util.Optional;
  */
 public class ProviderAdminService {
 
+    /** 模型可用性：与 models.status 的取值一致，由连接测试写回。 */
+    public static final String MODEL_STATUS_VALID = "VALID";
+    public static final String MODEL_STATUS_INVALID = "INVALID";
+    /** 未测过：新增模型时的初始态。 */
+    public static final String MODEL_STATUS_UNKNOWN = "UNKNOWN";
+
     private final GimDatabase db;
     private final SecretCipher cipher;
     private final AgentScopeModelFactory modelFactory;
+    private final DefaultModelResolver resolver;
+    private final ModelProbe modelProbe;
 
-    public ProviderAdminService(GimDatabase db, SecretCipher cipher, AgentScopeModelFactory modelFactory) {
+    public ProviderAdminService(GimDatabase db, SecretCipher cipher, AgentScopeModelFactory modelFactory,
+                                DefaultModelResolver resolver, ModelProbe modelProbe) {
         this.db = db;
         this.cipher = cipher;
         this.modelFactory = modelFactory;
+        this.resolver = resolver;
+        this.modelProbe = modelProbe;
     }
 
     // ---- 提供商 ----
@@ -91,6 +105,37 @@ public class ProviderAdminService {
     public void deleteModel(String modelCode) {
         db.modelConfigDao().deleteByCode(modelCode);
         modelFactory.invalidate();
+    }
+
+    /**
+     * 连接测试：用表单里正在编辑的模型名向所选提供商发一条最小对话。
+     * <p>提供商必须已入库（BaseUrl 与密钥从它身上取），模型则不必——新增时正是想在落库前先测一次。
+     * 模型已存在时顺手把状态与测试结果写回，让管理页看到的是真实探测结果而不是一律 UNKNOWN。
+     * 本方法不抛异常：探测失败本身就是要回显的结果。</p>
+     */
+    public ModelProbe.Result testModel(String providerCode, String modelCode, String modelName) {
+        ModelSpec spec;
+        try {
+            spec = resolver.specForModel(providerCode, modelCode, modelName);
+        } catch (RuntimeException e) {
+            // 提供商缺失、密钥解不开、协议字段脏数据等配置问题，归成一条失败结果而不是抛给 UI
+            return new ModelProbe.Result(false, e.getMessage());
+        }
+        ModelProbe.Result result = modelProbe.probe(spec);
+        if (modelCode != null && !modelCode.isBlank()) {
+            db.modelConfigDao().findByCode(modelCode).ifPresent(saved -> {
+                applyProbe(saved, result);
+                db.modelConfigDao().update(saved);
+            });
+        }
+        return result;
+    }
+
+    /** 把探测结果落到模型实体上：状态 + 最近一次测试时间与详情（供保存时一并入库）。 */
+    public static void applyProbe(ModelConfig form, ModelProbe.Result result) {
+        form.setStatus(result.ok() ? MODEL_STATUS_VALID : MODEL_STATUS_INVALID);
+        form.setLastTestAt(LocalDateTime.now());
+        form.setLastTestResult(result.detail());
     }
 
     // ---- 默认模型 ----

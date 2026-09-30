@@ -42,19 +42,25 @@ public class DefaultModelResolver {
                         .orElseThrow(() -> new IllegalStateException("尚未设置默认模型，请在设置界面配置"))
                 : modelCode;
 
-        ModelProviderConfig provider = db.modelProviderDao().findByCode(pCode)
-                .orElseThrow(() -> new IllegalStateException("模型提供商不存在: " + pCode));
         ModelConfig model = db.modelConfigDao().findByCode(mCode)
                 .orElseThrow(() -> new IllegalStateException("模型不存在: " + mCode));
+        return specForModel(pCode, mCode, model.getModelName());
+    }
 
-        String apiKey = decryptApiKey(provider);
+    /**
+     * 按提供商编码 + 指定模型名拼规格：提供商必须已入库（BaseUrl 与密钥从它身上取），
+     * 但模型名可以是表单里刚填还没保存的那个，以便新增时先测连通再落库。
+     */
+    public ModelSpec specForModel(String providerCode, String modelCode, String modelName) {
+        ModelProviderConfig provider = db.modelProviderDao().findByCode(providerCode)
+                .orElseThrow(() -> new IllegalStateException("模型提供商不存在: " + providerCode));
         return ModelSpec.builder()
                 .providerCode(provider.getProviderCode())
-                .modelCode(model.getModelCode())
+                .modelCode(modelCode)
                 .protocol(ApiProtocol.fromCode(provider.getApiProtocol()))
-                .modelName(model.getModelName())
+                .modelName(modelName)
                 .baseUrl(provider.getBaseUrl())
-                .apiKey(apiKey)
+                .apiKey(decryptApiKey(provider))
                 .stream(true)
                 .build();
     }
@@ -69,6 +75,25 @@ public class DefaultModelResolver {
                 && agent.getProviderCode() != null && !agent.getProviderCode().isBlank()
                 && agent.getModelCode() != null && !agent.getModelCode().isBlank();
         ModelSpec base = pinned ? resolve(agent.getProviderCode(), agent.getModelCode()) : resolve();
+        return withGenParams(base, agent);
+    }
+
+    /**
+     * 消息级模型覆盖：{@code providerCode} 与 {@code modelCode} 同时给出时，用它作为本条消息的
+     * 定向模型（盖过智能体自带）；任一为空则完全回退 {@link #resolveFor(AgentDefinition)}。
+     * <p>无论走哪条，生成参数（temperature/maxTokens）仍沿用智能体定义，为空则用模型默认。</p>
+     */
+    public ModelSpec resolveFor(AgentDefinition agent, String providerCode, String modelCode) {
+        boolean override = providerCode != null && !providerCode.isBlank()
+                && modelCode != null && !modelCode.isBlank();
+        if (!override) {
+            return resolveFor(agent);
+        }
+        return withGenParams(resolve(providerCode, modelCode), agent);
+    }
+
+    /** 用智能体定义的生成参数覆盖 base（仅当对应参数非空），否则原样返回。 */
+    private ModelSpec withGenParams(ModelSpec base, AgentDefinition agent) {
         if (agent == null || (agent.getTemperature() == null && agent.getMaxTokens() == null)) {
             return base;
         }

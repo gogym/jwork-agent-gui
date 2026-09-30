@@ -15,7 +15,19 @@ public interface AgentGateway {
     Mono<String> ask(String agentCode, String sessionId, String userText);
 
     /**
-     * 流式对话，产出归一化事件
+     * 流式对话，产出归一化事件。入参 {@link ChatRequest} 承载消息级模型覆盖、图片附件与权限模式。
      */
-    Flux<StreamEvent> stream(String agentCode, String sessionId, String userText);
+    Flux<StreamEvent> stream(ChatRequest request);
+
+    /**
+     * 纯文本流式对话的便捷入口：无附件、无模型覆盖、权限模式取默认。
+     * <p>委托到 {@link #stream(ChatRequest)}，使定时任务等既有调用零改动。</p>
+     */
+    default Flux<StreamEvent> stream(String agentCode, String sessionId, String userText) {
+        return stream(ChatRequest.builder()
+                .agentCode(agentCode)
+                .sessionId(sessionId)
+                .text(userText)
+                .build());
+    }
 }

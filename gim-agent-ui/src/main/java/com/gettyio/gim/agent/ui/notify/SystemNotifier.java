@@ -2,6 +2,7 @@ package com.gettyio.gim.agent.ui.notify;
 
 import com.gettyio.gim.agent.core.task.TaskCompletedEvent;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.application.Platform;
 import org.slf4j.Logger;
@@ -22,6 +23,9 @@ public class SystemNotifier {
     @Autowired
     private TrayNotifier trayNotifier;
 
+    @Autowired
+    private AppShell appShell;
+
     @EventListener
     public void onTaskCompleted(TaskCompletedEvent event) {
         log.info("收到任务完成事件: {}", event);
@@ -33,7 +37,7 @@ public class SystemNotifier {
             trayNotifier.notify(title, head + "\n" + event.getSummary());
             return;
         }
-        Platform.runLater(() -> GimDialog.message(null,
+        Platform.runLater(() -> GimDialog.message(appShell.getStage(),
                 I18n.t("notify.windowTitle"), head, event.getSummary()));
     }
 }

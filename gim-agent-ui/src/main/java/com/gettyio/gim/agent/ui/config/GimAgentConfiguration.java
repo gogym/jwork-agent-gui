@@ -8,6 +8,7 @@ import com.gettyio.gim.agent.core.chat.AgentGateway;
 import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
+import com.gettyio.gim.agent.core.model.ModelProbe;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.dao.AgentDefinitionDao;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
@@ -90,6 +91,12 @@ public class GimAgentConfiguration {
         return new DefaultModelResolver(db, cipher);
     }
 
+    /** 模型连通性探测：配置页保存前发一条最小对话验证 baseUrl / apiKey / 模型名。 */
+    @Bean
+    public ModelProbe modelProbe(AgentScopeModelFactory modelFactory) {
+        return new ModelProbe(modelFactory);
+    }
+
     @Bean
     public AgentCapabilityResolver agentCapabilityResolver(GimDatabase db) {
         return new AgentCapabilityResolver(db);
@@ -106,8 +113,9 @@ public class GimAgentConfiguration {
                                           ScheduleTools scheduleTools) {
         return new MultiAgentGateway(
                 db.agentDao(),
-                // 智能体定义 → 模型实例（未定向则用应用默认模型，按生成参数分桶复用）
-                def -> modelFactory.getOrCreate(resolver.resolveFor(def)),
+                // 智能体定义 + 消息级模型覆盖 → 模型实例（未定向则用应用默认模型，按生成参数分桶复用）
+                (def, providerCode, modelCode) ->
+                        modelFactory.getOrCreate(resolver.resolveFor(def, providerCode, modelCode)),
                 readAgentsMd(paths),
                 paths.workspaceDir(),
                 capabilities,
@@ -133,8 +141,9 @@ public class GimAgentConfiguration {
 
     @Bean
     public ProviderAdminService providerAdminService(GimDatabase db, SecretCipher cipher,
-                                                     AgentScopeModelFactory modelFactory) {
-        return new ProviderAdminService(db, cipher, modelFactory);
+                                                     AgentScopeModelFactory modelFactory,
+                                                     DefaultModelResolver resolver, ModelProbe modelProbe) {
+        return new ProviderAdminService(db, cipher, modelFactory, resolver, modelProbe);
     }
 
     @Bean
@@ -159,8 +168,8 @@ public class GimAgentConfiguration {
     }
 
     @Bean
-    public ChatService chatService(AgentGateway agentGateway, GimDatabase db) {
-        return new ChatService(agentGateway, db);
+    public ChatService chatService(AgentGateway agentGateway, GimDatabase db, GimPaths paths) {
+        return new ChatService(agentGateway, db, paths);
     }
 
     @Bean

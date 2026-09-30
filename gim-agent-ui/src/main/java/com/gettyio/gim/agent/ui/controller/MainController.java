@@ -1,24 +1,32 @@
 package com.gettyio.gim.agent.ui.controller;
 
+import com.gettyio.gim.agent.core.chat.AttachmentCodec;
+import com.gettyio.gim.agent.core.chat.ChatRequest;
 import com.gettyio.gim.agent.core.chat.ChatService;
+import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
+import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.core.chat.StreamEvent;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
+import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
+import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UserPrefs;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
+import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TasksView;
 import com.gettyio.gim.agent.ui.window.AgentDialog;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import com.gettyio.gim.agent.ui.window.SettingsWindow;
+import io.agentscope.core.permission.PermissionMode;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
@@ -26,6 +34,7 @@ import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
@@ -37,12 +46,15 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.Parent;
 import javafx.scene.Node;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
@@ -51,6 +63,7 @@ import javafx.scene.input.MouseEvent;
 import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
+import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -59,7 +72,14 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
+import java.io.ByteArrayInputStream;
+import java.io.File;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 
@@ -88,6 +108,8 @@ public class MainController {
     private static final double AGENT_ITEM_AVATAR_WIDTH = 34;
     /** 弹框条目里的图标列：Segoe 图标 15 + 图标与文字间距 8，向上取整留点余量 */
     private static final double AGENT_ITEM_ICON_WIDTH = 26;
+    /** 单张附件图片的软上限：超过则不加入待发列表（8MB） */
+    private static final long MAX_IMAGE_BYTES = 8L * 1024 * 1024;
 
     @FXML
     private ScrollPane scrollPane;
@@ -149,6 +171,18 @@ public class MainController {
     private Label welcomeSubtitle;
     @FXML
     private Label privacyHint;
+    @FXML
+    private HBox chatHeader;
+    @FXML
+    private Label sessionTitleLabel;
+    @FXML
+    private FlowPane attachChipsBox;
+    @FXML
+    private Button attachButton;
+    @FXML
+    private ComboBox<ModelOption> modelCombo;
+    @FXML
+    private Button approvalButton;
 
     @Autowired
     private ChatService chatService;
@@ -171,6 +205,9 @@ public class MainController {
     @Autowired
     private GimPaths gimPaths;
 
+    @Autowired
+    private ProviderAdminService providerAdminService;
+
     private final ObservableList<ChatSession> sessions = FXCollections.observableArrayList();
     private String currentSessionId;
     private boolean settingsOpen;
@@ -180,6 +217,10 @@ public class MainController {
     private boolean searchOpen;
     /** 顶部卡片选中的智能体：新建会话归属它，它的会话构成侧栏列表，选中即写回偏好 */
     private String selectedAgentCode = DEFAULT_AGENT;
+    /** 待发送的图片附件（与 attachChipsBox 芯片一一对应） */
+    private final List<ImageAttachment> pendingImages = new ArrayList<>();
+    /** 当前审批档位（工具调用权限模式）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
+    private PermissionMode approvalMode = PermissionMode.DEFAULT;
 
     @FXML
     private void initialize() {
@@ -229,12 +270,19 @@ public class MainController {
 
         applyI18n();
         buildThemeMenu();
+        // 输入框工具条：附件芯片行仅在有待发图时占位；模型与审批下拉填充可选项
+        attachChipsBox.visibleProperty().bind(Bindings.isNotEmpty(attachChipsBox.getChildren()));
+        attachChipsBox.managedProperty().bind(attachChipsBox.visibleProperty());
+        populateModelCombo();
+        renderApprovalButton();
         // 语言切换：静态文案、智能体卡片与列表都需重刷（展示名与占位文案都是本地化的）
         I18n.onChange(lang -> {
             applyI18n();
             buildThemeMenu();
             renderAgentSwitcher();
             renderSessions();
+            populateModelCombo();
+            renderApprovalButton();
         });
     }
 
@@ -422,7 +470,9 @@ public class MainController {
     @FXML
     public void handleSend() {
         String text = inputField.getText();
-        if (text == null || text.isBlank()) {
+        boolean hasText = text != null && !text.isBlank();
+        boolean hasImages = !pendingImages.isEmpty();
+        if (!hasText && !hasImages) {
             return;
         }
         if (currentSessionId == null) {
@@ -430,15 +480,31 @@ public class MainController {
             currentSessionId = chatService.createSession(currentAgentCode());
             refreshSessions();
         }
+        ModelOption model = modelCombo.getValue();
+        List<ImageAttachment> images = List.copyOf(pendingImages);
+        String body = hasText ? text : "";
+
         inputField.clear();
+        pendingImages.clear();
+        attachChipsBox.getChildren().clear();
         sendButton.setDisable(true);
-        appendBubble(text, true);
+        appendUserBubble(body, thumbsFromBase64(images));
         Label assistantLabel = appendBubble("", false);
         StringBuilder acc = new StringBuilder();
         String sessionId = currentSessionId;
         String agentCode = agentOfSession(sessionId);
 
-        chatService.chat(sessionId, agentCode, text)
+        ChatRequest req = ChatRequest.builder()
+                .agentCode(agentCode)
+                .sessionId(sessionId)
+                .text(body)
+                .providerCode(model == null ? null : model.providerCode())
+                .modelCode(model == null ? null : model.modelCode())
+                .images(images)
+                .permissionMode(approvalMode)
+                .build();
+
+        chatService.chat(req)
                 .bufferTimeout(256, FRAME_WINDOW)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
@@ -497,22 +563,49 @@ public class MainController {
         List<ChatConversation> history = chatService.history(sessionId);
         for (ChatConversation c : history) {
             boolean self = ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole());
-            appendBubble(c.getContent() == null ? "" : c.getContent(), self);
+            String content = c.getContent() == null ? "" : c.getContent();
+            if (self) {
+                appendUserBubble(content, thumbsFromStored(AttachmentCodec.read(c.getMetadata())));
+            } else {
+                appendBubble(content, false);
+            }
         }
         // 高亮当前会话行
         renderSessions();
+        updateHeaderTitle();
     }
 
     /** 回到新任务空态：不选中任何会话，主区只留居中欢迎页 */
     private void showBlankConversation() {
         currentSessionId = null;
         messagesContainer.getChildren().clear();
+        updateHeaderTitle();
     }
 
     /** 从库重载会话，再刷新侧栏渲染 */
     private void refreshSessions() {
         sessions.setAll(chatService.listSessions());
         renderSessions();
+        updateHeaderTitle();
+    }
+
+    /**
+     * 对话区顶部标题栏：显示当前会话名。
+     * <p>无会话（新任务空态）时整条隐藏且不占位，欢迎页仍居中；标题取自侧栏同一份
+     * {@code sessions}，首条消息后 {@code refreshSessions} 重载即把「新会话」换成内容摘要。</p>
+     */
+    private void updateHeaderTitle() {
+        if (chatHeader == null || sessionTitleLabel == null) {
+            return;
+        }
+        ChatSession current = currentSessionId == null ? null : sessions.stream()
+                .filter(s -> currentSessionId.equals(s.getSessionId()))
+                .findFirst().orElse(null);
+        String title = current == null || current.getTitle() == null ? "" : current.getTitle();
+        boolean show = current != null && !title.isBlank();
+        sessionTitleLabel.setText(title);
+        chatHeader.setVisible(show);
+        chatHeader.setManaged(show);
     }
 
     /**
@@ -866,5 +959,309 @@ public class MainController {
         scrollPane.layout();
         scrollPane.setVvalue(1.0);
         return label;
+    }
+
+    // ===================== 输入框工具条：附件 / 模型 / 审批 =====================
+
+    /** 回形针按钮：多选图片文件，读成 Base64 加入待发列表并渲染缩略图芯片。 */
+    @FXML
+    public void handleAttach() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("input.attach"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                I18n.t("attach.filter"), "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp"));
+        List<File> files = chooser.showOpenMultipleDialog(currentWindow());
+        if (files == null || files.isEmpty()) {
+            return;
+        }
+        for (File f : files) {
+            addPendingImage(f);
+        }
+        inputField.requestFocus();
+    }
+
+    private void addPendingImage(File file) {
+        if (file.length() > MAX_IMAGE_BYTES) {
+            GimDialog.message(currentWindow(), I18n.t("input.attach"), I18n.t("input.attach"),
+                    I18n.t("attach.tooLarge", file.getName()));
+            return;
+        }
+        try {
+            byte[] bytes = Files.readAllBytes(file.toPath());
+            ImageAttachment att = new ImageAttachment(file.getName(), mimeOf(file.getName()),
+                    Base64.getEncoder().encodeToString(bytes));
+            pendingImages.add(att);
+            attachChipsBox.getChildren().add(buildChip(att, bytes));
+        } catch (IOException e) {
+            log.warn("读取图片失败: {}", file, e);
+        }
+    }
+
+    /** 待发附件芯片：小缩略图 + 右上角移除标记；点标记即从待发列表与芯片行同时移除。 */
+    private HBox buildChip(ImageAttachment att, byte[] bytes) {
+        ImageView iv = thumbView(bytes);
+        iv.setFitWidth(48);
+        iv.setFitHeight(48);
+        Label remove = new Label("\u00D7");
+        remove.getStyleClass().add("attach-remove");
+        HBox chip = new HBox(2, iv, remove);
+        chip.getStyleClass().add("attach-chip");
+        chip.setAlignment(Pos.CENTER);
+        remove.setOnMouseClicked(e -> {
+            pendingImages.remove(att);
+            attachChipsBox.getChildren().remove(chip);
+        });
+        return chip;
+    }
+
+    private static String mimeOf(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        if (n.endsWith(".png")) {
+            return "image/png";
+        }
+        if (n.endsWith(".gif")) {
+            return "image/gif";
+        }
+        if (n.endsWith(".bmp")) {
+            return "image/bmp";
+        }
+        if (n.endsWith(".webp")) {
+            return "image/webp";
+        }
+        return "image/jpeg";
+    }
+
+    /** 填充模型下拉：首项「跟随默认」（不覆盖），其余为已启用的模型；切换语言后保持原选择。 */
+    private void populateModelCombo() {
+        if (modelCombo == null) {
+            return;
+        }
+        String keepCode = modelCombo.getValue() == null ? null : modelCombo.getValue().modelCode();
+        modelCombo.getItems().clear();
+        modelCombo.getItems().add(ModelOption.followDefault(I18n.t("model.followDefault")));
+        for (ModelConfig m : providerAdminService.listModels()) {
+            if (!EnabledStatus.isEnabled(m.getEnabled())) {
+                continue;
+            }
+            if (m.getProviderCode() == null || m.getProviderCode().isBlank()) {
+                continue;
+            }
+            String label = m.getModelName() == null || m.getModelName().isBlank()
+                    ? m.getModelCode() : m.getModelName();
+            modelCombo.getItems().add(new ModelOption(m.getProviderCode(), m.getModelCode(), label));
+        }
+        ModelOption keep = keepCode == null ? null : modelCombo.getItems().stream()
+                .filter(o -> keepCode.equals(o.modelCode())).findFirst().orElse(null);
+        modelCombo.setValue(keep != null ? keep : modelCombo.getItems().get(0));
+    }
+
+    /** 审批三档：询问(DEFAULT)/自动(BYPASS)/完全访问(DONT_ASK)；文案随语言解析。 */
+    private List<ApprovalOption> approvalOptions() {
+        return List.of(
+                new ApprovalOption(PermissionMode.DEFAULT, I18n.t("approval.ask"),
+                        "\uEA18", I18n.t("approval.ask.desc"), false),
+                new ApprovalOption(PermissionMode.BYPASS, I18n.t("approval.auto"),
+                        "\uE946", I18n.t("approval.auto.desc"), false),
+                new ApprovalOption(PermissionMode.DONT_ASK, I18n.t("approval.dontAsk"),
+                        "\uE7BA", I18n.t("approval.dontAsk.desc"), true));
+    }
+
+    /** 审批按钮闭合态：图标 + 标题 + 小箭头；危险档图标与标题标红。 */
+    private void renderApprovalButton() {
+        if (approvalButton == null) {
+            return;
+        }
+        ApprovalOption opt = approvalOptions().stream()
+                .filter(o -> o.mode() == approvalMode).findFirst()
+                .orElseGet(() -> approvalOptions().get(0));
+        Label icon = UiTheme.icon(opt.icon());
+        icon.getStyleClass().add("approval-icon");
+        Label title = new Label(opt.label());
+        title.getStyleClass().add("approval-title-compact");
+        if (opt.danger()) {
+            icon.getStyleClass().add("approval-icon-danger");
+            title.getStyleClass().add("approval-title-danger");
+        }
+        Label caret = UiTheme.icon("\uE70D");
+        caret.getStyleClass().add("approval-caret");
+        HBox box = new HBox(6, icon, title, caret);
+        box.setAlignment(Pos.CENTER_LEFT);
+        approvalButton.setGraphic(box);
+        approvalButton.setText("");
+    }
+
+    /** 点审批按钮：向上弹出右键菜单式的选择卡（图标 + 标题/说明，当前档右侧带勾）。 */
+    @FXML
+    public void showApprovalMenu() {
+        ContextMenu menu = new ContextMenu();
+        for (ApprovalOption opt : approvalOptions()) {
+            menu.getItems().add(approvalMenuItem(opt, opt.mode() == approvalMode));
+        }
+        showMenuAboveWithinWindow(menu, approvalButton);
+    }
+
+    /**
+     * 让菜单在锚点上方弹出，并夹取到主窗口可视范围内：先按 {@link Side#TOP} 弹出量取真实尺寸，
+     * 再重定位——水平不越右/左边界，上方空间不够则翻到下方。与 {@link #showThemeMenu} 同思路。
+     */
+    private void showMenuAboveWithinWindow(ContextMenu menu, Node anchor) {
+        menu.show(anchor, Side.TOP, 0, 0);
+        Bounds b = anchor.localToScreen(anchor.getBoundsInLocal());
+        if (b == null) {
+            return;
+        }
+        Parent skin = (Parent) menu.getSkin().getNode();
+        skin.applyCss();
+        skin.layout();
+        double w = skin.getBoundsInLocal().getWidth();
+        double h = skin.getBoundsInLocal().getHeight();
+        double margin = 8;
+        double x = b.getMinX();
+        double y = b.getMinY() - h + 4; // 贴合按钮顶边：基准 0 因 DPI 缩放逻辑/物理像素偏差仍偏上几 px，+4 轻微压住按钮顶边彻底盖掉缝
+        Window win = anchor.getScene() == null ? null : anchor.getScene().getWindow();
+        if (win != null) {
+            double winLeft = win.getX() + margin;
+            double winRight = win.getX() + win.getWidth() - margin;
+            double winTop = win.getY() + margin;
+            if (x + w > winRight) {
+                x = Math.max(winLeft, winRight - w);
+            }
+            if (x < winLeft) {
+                x = winLeft;
+            }
+            if (y < winTop) {
+                y = b.getMaxY() + 4;
+            }
+        }
+        menu.setX(x);
+        menu.setY(y);
+    }
+
+    /** 审批菜单项：图标 + 标题/说明两行，固定宽度让右侧勾对齐；危险项标红。 */
+    private MenuItem approvalMenuItem(ApprovalOption opt, boolean checked) {
+        Label icon = UiTheme.icon(opt.icon());
+        icon.getStyleClass().add("approval-icon");
+        Label title = new Label(opt.label());
+        title.getStyleClass().add("approval-title");
+        Label desc = new Label(opt.desc());
+        desc.getStyleClass().add("approval-desc");
+        // 说明保持单行（不换行）；靠容器固定宽度把打勾顶到右侧对齐，文字过长时菜单自动变宽
+        if (opt.danger()) {
+            icon.getStyleClass().add("approval-icon-danger");
+            title.getStyleClass().add("approval-title-danger");
+        }
+        VBox col = new VBox(2, title, desc);
+        col.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(col, Priority.ALWAYS);
+        Label check = new Label("\u2713");
+        check.getStyleClass().add("approval-check");
+        check.setVisible(checked);
+        check.setManaged(checked);
+        HBox box = new HBox(10, icon, col, check);
+        box.setAlignment(Pos.CENTER_LEFT);
+        box.setPrefWidth(360);
+        box.getStyleClass().add("approval-menu");
+        MenuItem item = new MenuItem();
+        item.setGraphic(box);
+        item.setOnAction(e -> {
+            approvalMode = opt.mode();
+            renderApprovalButton();
+        });
+        return item;
+    }
+
+    /** 用户气泡：文本 + 图片缩略图（若有）；无文本时只渲染图。 */
+    private void appendUserBubble(String text, List<ImageView> thumbs) {
+        VBox col = new VBox(6);
+        if (text != null && !text.isBlank()) {
+            Label label = new Label(text);
+            label.setWrapText(true);
+            label.getStyleClass().add("bubble-user");
+            label.setMaxWidth(680);
+            col.getChildren().add(label);
+        }
+        if (thumbs != null && !thumbs.isEmpty()) {
+            HBox imageRow = new HBox(6);
+            imageRow.getStyleClass().add("bubble-images");
+            imageRow.getChildren().addAll(thumbs);
+            col.getChildren().add(imageRow);
+        }
+        HBox row = new HBox(col);
+        row.getStyleClass().add("bubble-row");
+        row.setAlignment(Pos.TOP_RIGHT);
+        messagesContainer.getChildren().add(row);
+        scrollPane.layout();
+        scrollPane.setVvalue(1.0);
+    }
+
+    private List<ImageView> thumbsFromBase64(List<ImageAttachment> images) {
+        List<ImageView> out = new ArrayList<>();
+        for (ImageAttachment img : images) {
+            if (img == null || img.base64Data() == null) {
+                continue;
+            }
+            try {
+                out.add(thumbView(Base64.getDecoder().decode(img.base64Data())));
+            } catch (IllegalArgumentException e) {
+                log.warn("附件 Base64 解码失败，跳过缩略图: {}", img.fileName());
+            }
+        }
+        return out;
+    }
+
+    private List<ImageView> thumbsFromStored(List<StoredAttachment> atts) {
+        List<ImageView> out = new ArrayList<>();
+        for (StoredAttachment a : atts) {
+            ImageView v = thumbFromPath(a.path());
+            if (v != null) {
+                out.add(v);
+            }
+        }
+        return out;
+    }
+
+    private static ImageView thumbView(byte[] bytes) {
+        ImageView iv = new ImageView(new Image(new ByteArrayInputStream(bytes)));
+        iv.setFitWidth(140);
+        iv.setFitHeight(140);
+        iv.setPreserveRatio(true);
+        iv.getStyleClass().add("attach-thumb");
+        return iv;
+    }
+
+    private ImageView thumbFromPath(String rel) {
+        if (rel == null || rel.isBlank()) {
+            return null;
+        }
+        try {
+            Path p = gimPaths.attachmentsDir().resolve(rel);
+            if (!Files.exists(p)) {
+                return null;
+            }
+            return thumbView(Files.readAllBytes(p));
+        } catch (IOException | RuntimeException e) {
+            log.warn("读取附件缩略图失败: {}", rel, e);
+            return null;
+        }
+    }
+
+    /** 模型下拉条目：providerCode/modelCode 同时为空表示「跟随默认」（不覆盖）；toString 供 ComboBox 显示。 */
+    private record ModelOption(String providerCode, String modelCode, String label) {
+        static ModelOption followDefault(String label) {
+            return new ModelOption(null, null, label);
+        }
+
+        @Override
+        public String toString() {
+            return label;
+        }
+    }
+
+    /** 审批下拉条目：映射到 {@link PermissionMode}，携带图标、说明与危险标记（供菜单项富渲染）。 */
+    private record ApprovalOption(PermissionMode mode, String label, String icon, String desc, boolean danger) {
+        @Override
+        public String toString() {
+            return label;
+        }
     }
 }

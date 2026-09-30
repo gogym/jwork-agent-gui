@@ -56,6 +56,11 @@ public class GimPaths {
         return workspaceDir().resolve("knowledge");
     }
 
+    /** 图片附件落盘根目录：按 {@code <sessionId>/<uuid>.<ext>} 归档，随会话删除而清理 */
+    public Path attachmentsDir() {
+        return workspaceDir().resolve("attachments");
+    }
+
     public Path agentsMd() {
         return workspaceDir().resolve("AGENTS.md");
     }

@@ -12,10 +12,10 @@ import reactor.core.publisher.Mono;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 /**
  * 多智能体网关：按 agentCode 解析 {@link AgentDefinition}，为每个智能体惰性装配并缓存一个独立的
@@ -36,9 +36,12 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
     /** 内置默认智能体编码：会话/定时任务未指定智能体时使用 */
     public static final String DEFAULT_AGENT_CODE = "gim-agent";
 
+    /** 运行体缓存键的分隔符：用不可见控制字符，避免与真实编码冲突 */
+    private static final char RUNTIME_KEY_SEP = '\u0000';
+
     private final AgentDefinitionDao agentDao;
-    /** 智能体定义 → 模型实例（由装配方提供，通常自带实例缓存） */
-    private final Function<AgentDefinition, Model> modelResolver;
+    /** 智能体定义 + 消息级模型覆盖 → 模型实例（由装配方提供，通常自带实例缓存） */
+    private final ModelResolver modelResolver;
     /** 定义未提供人格时的回退提示词 */
     private final String fallbackPrompt;
     /** 定义未提供工作区时的回退目录 */
@@ -51,7 +54,7 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
     private final Map<String, HarnessAgentGateway> runtimes = new ConcurrentHashMap<>();
 
     public MultiAgentGateway(AgentDefinitionDao agentDao,
-                             Function<AgentDefinition, Model> modelResolver,
+                             ModelResolver modelResolver,
                              String fallbackPrompt,
                              Path fallbackWorkspace,
                              AgentCapabilityResolver capabilities,
@@ -66,21 +69,30 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
 
     @Override
     public Mono<String> ask(String agentCode, String sessionId, String userText) {
-        return gatewayFor(agentCode).ask(sessionId, userText);
+        ChatRequest req = ChatRequest.builder()
+                .agentCode(agentCode)
+                .sessionId(sessionId)
+                .text(userText)
+                .build();
+        return gatewayFor(req).ask(sessionId, userText);
     }
 
     @Override
-    public Flux<StreamEvent> stream(String agentCode, String sessionId, String userText) {
-        return gatewayFor(agentCode).stream(sessionId, userText);
+    public Flux<StreamEvent> stream(ChatRequest request) {
+        return gatewayFor(request).stream(request);
     }
 
-    /** 智能体定义被编辑或删除后丢弃其运行时，下次调用按新定义重新装配 */
+    /** 智能体定义被编辑或删除后丢弃其全部模型变体运行时，下次调用按新定义重新装配 */
     public void invalidate(String agentCode) {
-        String code = normalize(agentCode);
-        HarnessAgentGateway gateway = runtimes.remove(code);
-        if (gateway != null) {
-            closeQuietly(gateway);
-            log.info("智能体运行时已失效，下次调用按新定义重装: {}", code);
+        String prefix = normalize(agentCode) + RUNTIME_KEY_SEP;
+        for (String key : List.copyOf(runtimes.keySet())) {
+            if (key.startsWith(prefix)) {
+                HarnessAgentGateway gateway = runtimes.remove(key);
+                if (gateway != null) {
+                    closeQuietly(gateway);
+                    log.info("智能体运行时已失效，下次调用按新定义重装: {}", key);
+                }
+            }
         }
     }
 
@@ -90,16 +102,28 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         log.info("全部智能体运行时已失效");
     }
 
-    private HarnessAgentGateway gatewayFor(String agentCode) {
-        return runtimes.computeIfAbsent(normalize(agentCode), this::build);
+    private HarnessAgentGateway gatewayFor(ChatRequest request) {
+        String key = runtimeKey(request.getAgentCode(), request.getProviderCode(), request.getModelCode());
+        return runtimes.computeIfAbsent(key, k -> build(request));
     }
 
     private static String normalize(String agentCode) {
         return agentCode == null || agentCode.isBlank() ? DEFAULT_AGENT_CODE : agentCode;
     }
 
+    /** 运行体缓存键：智能体 + 消息级模型覆盖；未覆盖的两位用哨兵占位，与真实编码不冲突。 */
+    private static String runtimeKey(String agentCode, String providerCode, String modelCode) {
+        return normalize(agentCode) + RUNTIME_KEY_SEP + nullSafe(providerCode)
+                + RUNTIME_KEY_SEP + nullSafe(modelCode);
+    }
+
+    private static String nullSafe(String s) {
+        return s == null || s.isBlank() ? "-" : s;
+    }
+
     /** 依定义装配运行体；定义缺失时以默认人格运行（不阻断对话，仅告警） */
-    private HarnessAgentGateway build(String agentCode) {
+    private HarnessAgentGateway build(ChatRequest request) {
+        String agentCode = normalize(request.getAgentCode());
         AgentDefinition def = agentDao.findByCode(agentCode).orElse(null);
         if (def == null) {
             log.warn("智能体定义不存在，按默认人格运行: agentCode={}", agentCode);
@@ -109,13 +133,16 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         String prompt = blank(def.getSystemPrompt()) ? fallbackPrompt : def.getSystemPrompt();
         String name = blank(def.getAgentName()) ? agentCode : def.getAgentName();
         Path workspace = workspaceFor(def);
-        log.info("装配智能体: code={}, name={}, provider={}, model={}, workspace={}",
-                agentCode, name, def.getProviderCode(), def.getModelCode(), workspace);
+        log.info("装配智能体: code={}, name={}, override={}/{}, defProvider={}, defModel={}, workspace={}",
+                agentCode, name, request.getProviderCode(), request.getModelCode(),
+                def.getProviderCode(), def.getModelCode(), workspace);
 
         final AgentDefinition effective = def;
+        final String providerCode = request.getProviderCode();
+        final String modelCode = request.getModelCode();
         // 第一个参数是上下文目录键（不可变编码），第二个才是可改的显示名
         HarnessAgentGateway gateway = new HarnessAgentGateway(agentCode, name, prompt,
-                () -> modelResolver.apply(effective), workspace);
+                () -> modelResolver.resolve(effective, providerCode, modelCode), workspace);
         assembler.accept(gateway);
         // 能力在通用挂载之后下发：白名单可以覆盖共享技能目录等全局默认
         capabilities.applyTo(gateway, effective);
@@ -157,5 +184,14 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
     @Override
     public void close() {
         invalidateAll();
+    }
+
+    /**
+     * 模型解析器：由装配方提供，把智能体定义与消息级模型覆盖（providerCode/modelCode，可空）
+     * 解析成具体的 {@link Model} 实例。覆盖为空时应回退到智能体自带模型或应用默认。
+     */
+    @FunctionalInterface
+    public interface ModelResolver {
+        Model resolve(AgentDefinition definition, String providerCode, String modelCode);
     }
 }

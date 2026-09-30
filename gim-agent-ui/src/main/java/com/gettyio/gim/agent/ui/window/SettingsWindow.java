@@ -1,6 +1,7 @@
 package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.core.model.ModelProbe;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
@@ -23,6 +24,7 @@ import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.geometry.VPos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -30,6 +32,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
@@ -37,7 +40,9 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.ToolBar;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -49,6 +54,8 @@ import javafx.stage.Window;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -89,9 +96,20 @@ public class SettingsWindow {
     private final ListView<ModelConfig> modelListView = new ListView<>();
     /** 信息卡片固定宽度：不铺满整行；有内容时左对齐，空状态居中。 */
     private static final double CARD_WIDTH = 400;
-    private final VBox providerCardsBox = new VBox(12);
-    private final VBox modelCardsBox = new VBox(12);
-    private final VBox agentCardsBox = new VBox(12);
+    private final FlowPane providerCardsBox = cardsBox();
+    private final FlowPane modelCardsBox = cardsBox();
+    private final FlowPane agentCardsBox = cardsBox();
+
+    /**
+     * 卡片流式容器：宽度够时横向并排，不够则换行；卡片按 {@link #CARD_WIDTH} 取自身尺寸，
+     * 不被拉伸，行内顶对齐以免高低不一的卡片彼此错位。
+     */
+    private static FlowPane cardsBox() {
+        FlowPane box = new FlowPane(12, 12);
+        box.setAlignment(Pos.TOP_LEFT);
+        box.setRowValignment(VPos.TOP);
+        return box;
+    }
 
     private final TextField providerCodeField = new TextField();
     private final TextField providerNameField = new TextField();
@@ -108,8 +126,7 @@ public class SettingsWindow {
     private final TextField priorityField = new TextField();
     private final ToggleSwitch modelEnabledCheck = new ToggleSwitch();
 
-    private final ComboBox<String> defaultProviderCombo = new ComboBox<>();
-    private final ComboBox<String> defaultModelCombo = new ComboBox<>();
+    private final Label defaultModelInfoLabel = new Label("-");
     private final Label statusLabel = new Label("");
 
     /** MCP 服务页复用组件（自包含）；与拓展页各自实例化，互不干扰场景图父子关系。 */
@@ -128,6 +145,10 @@ public class SettingsWindow {
     private boolean loading;
     private boolean langListenerRegistered;
     private boolean modelProviderListenerAdded;
+    /** 模型表单本次弹窗里的连接测试结果；为空表示没测过。 */
+    private ModelProbe.Result modelProbeResult;
+    /** 正在编辑的模型原记录：未重新测试时沿用它已有的可用状态，不被抹成 UNKNOWN。 */
+    private ModelConfig modelBaseline;
 
     /** 菜单项与搜索元数据。 */
     private static final class MenuEntry {
@@ -555,7 +576,6 @@ public class SettingsWindow {
         header.setAlignment(Pos.CENTER_LEFT);
 
         agentCardsBox.getStyleClass().add("provider-cards");
-        agentCardsBox.setFillWidth(false);
         VBox.setVgrow(agentCardsBox, Priority.ALWAYS);
         box.getChildren().addAll(header, agentCardsBox);
         return box;
@@ -603,23 +623,18 @@ public class SettingsWindow {
         name.getStyleClass().add("provider-card-title");
         Label badge = new Label(I18n.t(builtIn ? "settings.agent.builtIn" : "settings.agent.custom"));
         badge.getStyleClass().addAll("badge", builtIn ? "badge-green" : "badge-gray");
-        HBox titleRow = new HBox(10, name, badge);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
 
         Button edit = iconTextButton("\uE70F", I18n.t("common.edit"), () -> openAgentDialog(a));
         edit.getStyleClass().add("link-btn");
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
         HBox head;
         if (builtIn) {
             // 内置默认智能体不可删：它是所有未指定智能体的会话/任务的回退目标
-            head = new HBox(titleRow, sp, edit);
+            head = cardHeadRow(name, badge, edit);
         } else {
             Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteAgent(a));
             del.getStyleClass().addAll("link-btn", "link-btn-danger");
-            head = new HBox(titleRow, sp, edit, del);
+            head = cardHeadRow(name, badge, edit, del);
         }
-        head.setAlignment(Pos.CENTER_LEFT);
 
         String model = a.getProviderCode() == null || a.getProviderCode().isBlank()
                 ? I18n.t("settings.agent.followDefault")
@@ -728,7 +743,6 @@ public class SettingsWindow {
         header.setAlignment(Pos.CENTER_LEFT);
 
         providerCardsBox.getStyleClass().add("provider-cards");
-        providerCardsBox.setFillWidth(false);
         VBox.setVgrow(providerCardsBox, Priority.ALWAYS);
         box.getChildren().addAll(header, providerCardsBox);
         return box;
@@ -777,17 +791,12 @@ public class SettingsWindow {
         name.getStyleClass().add("provider-card-title");
         Label badge = new Label(I18n.t(enabled ? "settings.provider.enabled" : "settings.provider.disabled"));
         badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
-        HBox titleRow = new HBox(10, name, badge);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
 
         Button edit = iconTextButton("\uE70F", I18n.t("common.edit"), () -> openProviderDialog(p));
         edit.getStyleClass().add("link-btn");
         Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteProvider(p));
         del.getStyleClass().addAll("link-btn", "link-btn-danger");
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
-        HBox head = new HBox(titleRow, sp, edit, del);
-        head.setAlignment(Pos.CENTER_LEFT);
+        HBox head = cardHeadRow(name, badge, edit, del);
 
         VBox card = new VBox(8, head,
                 kvLine(I18n.t("settings.provider.code"), p.getProviderCode()),
@@ -820,6 +829,35 @@ public class SettingsWindow {
         b.setGraphic(ic);
         b.setOnAction(e -> action.run());
         return b;
+    }
+
+    /**
+     * 卡片首行：左侧名称 + 状态徽标，右侧编辑/删除按钮。
+     * <p>宽度不够时 HBox 会把所有可压缩的子节点一起往最小宽度压，所以默认情况下名称过长会
+     * 连带把徽标与按钮的文字挤成省略号。这里只让名称可压缩（过长则省略号截断，并挂 tooltip
+     * 便于看全名），其余节点的最小宽度钉在首选宽度上，保证操作入口始终完整可见。</p>
+     */
+    private static HBox cardHeadRow(Label name, Label badge, Button... actions) {
+        name.setMinWidth(0);
+        name.setTextOverrun(OverrunStyle.ELLIPSIS);
+        name.setTooltip(new Tooltip(name.getText()));
+        badge.setMinWidth(Region.USE_PREF_SIZE);
+
+        HBox titleRow = new HBox(10, name, badge);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+        titleRow.setMaxWidth(Double.MAX_VALUE);
+
+        Region sp = new Region();
+        HBox.setHgrow(sp, Priority.ALWAYS);
+
+        HBox head = new HBox();
+        head.setAlignment(Pos.CENTER_LEFT);
+        head.getChildren().addAll(titleRow, sp);
+        for (Button action : actions) {
+            action.setMinWidth(Region.USE_PREF_SIZE);
+            head.getChildren().add(action);
+        }
+        return head;
     }
 
     /** 宿主窗口：作为无边框对话框的 owner（窗口模态并居中）。 */
@@ -886,7 +924,6 @@ public class SettingsWindow {
         header.setAlignment(Pos.CENTER_LEFT);
 
         modelCardsBox.getStyleClass().add("provider-cards");
-        modelCardsBox.setFillWidth(false);
         VBox.setVgrow(modelCardsBox, Priority.ALWAYS);
         box.getChildren().addAll(header, modelCardsBox);
         return box;
@@ -933,23 +970,19 @@ public class SettingsWindow {
         name.getStyleClass().add("provider-card-title");
         Label badge = new Label(I18n.t(enabled ? "settings.model.enabled" : "settings.model.disabled"));
         badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
-        HBox titleRow = new HBox(10, name, badge);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
 
         Button edit = iconTextButton("\uE70F", I18n.t("common.edit"), () -> openModelDialog(m));
         edit.getStyleClass().add("link-btn");
         Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteModel(m));
         del.getStyleClass().addAll("link-btn", "link-btn-danger");
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
-        HBox head = new HBox(titleRow, sp, edit, del);
-        head.setAlignment(Pos.CENTER_LEFT);
+        HBox head = cardHeadRow(name, badge, edit, del);
 
         VBox card = new VBox(8, head,
                 kvLine(I18n.t("settings.model.code"), m.getModelCode()),
                 kvLine(I18n.t("settings.model.provider"), m.getProviderCode()),
                 kvLine(I18n.t("settings.model.priority"), String.valueOf(m.getPriority())),
-                kvLine(I18n.t("common.status"), m.getStatus()));
+                kvLine(I18n.t("common.status"), modelStatusText(m.getStatus())),
+                kvLine(I18n.t("settings.model.lastTest"), lastTestText(m)));
         card.getStyleClass().add("provider-card");
         card.setPrefWidth(CARD_WIDTH);
         card.setMaxWidth(CARD_WIDTH);
@@ -970,6 +1003,11 @@ public class SettingsWindow {
         GridPane form = buildModelForm();
         form.setPrefWidth(440);
 
+        Label probeHint = new Label("");
+        probeHint.getStyleClass().add("probe-hint");
+        probeHint.setWrapText(true);
+        probeHint.setMaxWidth(440);
+
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
@@ -979,11 +1017,79 @@ public class SettingsWindow {
                 shell.stage().close();
             }
         });
-        HBox btns = new HBox(8, cancel, save);
+        Button test = new Button(I18n.t("settings.model.test"));
+        test.setOnAction(e -> runModelTest(test, probeHint));
+        Region gap = new Region();
+        HBox.setHgrow(gap, Priority.ALWAYS);
+        HBox btns = new HBox(8, test, gap, cancel, save);
         btns.setAlignment(Pos.CENTER_RIGHT);
 
-        shell.body().getChildren().addAll(form, btns);
+        shell.body().getChildren().addAll(form, probeHint, btns);
         shell.showAndWait();
+    }
+
+    /** 发起连通性探测：后台线程跑，结果回主线程回显；弹窗若已关闭则丢弃。 */
+    private void runModelTest(Button test, Label hint) {
+        String provider = modelProviderCombo.getValue();
+        String modelName = modelNameField.getText().trim();
+        if (provider == null || provider.isBlank() || modelName.isEmpty()) {
+            hint.getStyleClass().removeAll("probe-ok", "probe-fail");
+            hint.getStyleClass().add("probe-fail");
+            hint.setText(I18n.t("settings.model.testNeedFields"));
+            return;
+        }
+        String modelCode = modelCodeField.getText().trim();
+        test.setDisable(true);
+        hint.getStyleClass().removeAll("probe-ok", "probe-fail");
+        hint.setText(I18n.t("settings.model.testing"));
+        Thread worker = new Thread(() -> {
+            ModelProbe.Result result = adminService.testModel(provider, modelCode, modelName);
+            Platform.runLater(() -> {
+                if (test.getScene() == null) {
+                    return;
+                }
+                test.setDisable(false);
+                modelProbeResult = result;
+                hint.getStyleClass().removeAll("probe-ok", "probe-fail");
+                hint.getStyleClass().add(result.ok() ? "probe-ok" : "probe-fail");
+                hint.setText(I18n.t(result.ok() ? "settings.model.testOk" : "settings.model.testFail",
+                        result.detail()));
+            });
+        }, "model-connection-test");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** 把本次探测结果落到待保存实体；没测过则沿用原记录，避免编辑把已验证状态抹成 UNKNOWN。 */
+    private void applyModelStatus(ModelConfig m) {
+        if (modelProbeResult != null) {
+            ProviderAdminService.applyProbe(m, modelProbeResult);
+        } else if (modelBaseline != null) {
+            m.setStatus(modelBaseline.getStatus());
+            m.setLastTestAt(modelBaseline.getLastTestAt());
+            m.setLastTestResult(modelBaseline.getLastTestResult());
+        } else {
+            m.setStatus(ProviderAdminService.MODEL_STATUS_UNKNOWN);
+        }
+    }
+
+    private String modelStatusText(String status) {
+        if (ProviderAdminService.MODEL_STATUS_VALID.equalsIgnoreCase(status)) {
+            return I18n.t("settings.model.status.valid");
+        }
+        if (ProviderAdminService.MODEL_STATUS_INVALID.equalsIgnoreCase(status)) {
+            return I18n.t("settings.model.status.invalid");
+        }
+        return I18n.t("settings.model.status.unknown");
+    }
+
+    private String lastTestText(ModelConfig m) {
+        if (m.getLastTestAt() == null) {
+            return "-";
+        }
+        String time = m.getLastTestAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+        String detail = m.getLastTestResult();
+        return detail == null || detail.isBlank() ? time : time + " · " + detail;
     }
 
     // ---- 默认模型页 ----
@@ -991,19 +1097,105 @@ public class SettingsWindow {
     private VBox buildDefaultPage() {
         VBox box = page(I18n.t("settings.menu.default"), I18n.t("settings.default.subtitle"));
 
-        Button setDefault = new Button(I18n.t("settings.default.set"));
-        setDefault.getStyleClass().add("btn-primary");
-        setDefault.setOnAction(e -> handleSetDefault());
+        Button changeBtn = new Button(I18n.t("settings.default.change"));
+        changeBtn.getStyleClass().add("btn-primary");
+        changeBtn.setOnAction(e -> openDefaultModelPicker());
+
+        defaultModelInfoLabel.getStyleClass().add("row-value");
 
         List<Node> rows = List.of(
-                settingRow(I18n.t("settings.default.provider"), null, defaultProviderCombo),
-                settingRow(I18n.t("settings.default.model"), null, defaultModelCombo));
-        HBox actions = new HBox(setDefault);
+                settingRow(I18n.t("settings.default.current"), null, defaultModelInfoLabel));
+        HBox actions = new HBox(changeBtn);
         actions.setAlignment(Pos.CENTER_LEFT);
         actions.setPadding(new Insets(6, 0, 0, 0));
 
         box.getChildren().addAll(groupCard(null, rows), actions);
         return box;
+    }
+
+    /** 弹窗选择默认模型：列出所有已启用模型，选中后确定即设为默认。 */
+    private void openDefaultModelPicker() {
+        GimDialog.Shell shell = GimDialog.shell(hostWindow(), I18n.t("settings.default.pickTitle"));
+
+        List<ModelConfig> models = adminService.listModels().stream()
+                .filter(m -> EnabledStatus.isEnabled(m.getEnabled()))
+                .toList();
+        if (models.isEmpty()) {
+            shell.stage().close();
+            statusLabel.setText(I18n.t("settings.status.noEnabledModel"));
+            return;
+        }
+
+        ListView<ModelConfig> listView = new ListView<>(FXCollections.observableArrayList(models));
+        listView.setPrefSize(420, 300);
+        listView.setCellFactory(lv -> new ListCell<>() {
+            @Override
+            protected void updateItem(ModelConfig item, boolean empty) {
+                super.updateItem(item, empty);
+                if (empty || item == null) {
+                    setText(null);
+                    return;
+                }
+                String name = item.getModelName() == null || item.getModelName().isBlank()
+                        ? item.getModelCode() : item.getModelName();
+                setText(name + "  (" + item.getProviderCode() + ")");
+            }
+        });
+
+        // 预选当前默认
+        String curModel = adminService.getDefaultModelCode().orElse(null);
+        if (curModel != null) {
+            for (int i = 0; i < models.size(); i++) {
+                if (models.get(i).getModelCode().equals(curModel)) {
+                    listView.getSelectionModel().select(i);
+                    break;
+                }
+            }
+        } else {
+            listView.getSelectionModel().selectFirst();
+        }
+
+        Button cancel = new Button(I18n.t("common.cancel"));
+        cancel.setOnAction(e -> shell.stage().close());
+        Button ok = new Button(I18n.t("common.ok"));
+        ok.getStyleClass().add("btn-primary");
+        ok.setOnAction(e -> {
+            ModelConfig picked = listView.getSelectionModel().getSelectedItem();
+            if (picked == null) {
+                return;
+            }
+            adminService.setDefault(picked.getProviderCode(), picked.getModelCode());
+            statusLabel.setText(I18n.t("settings.status.setDefault", picked.getProviderCode(), picked.getModelCode()));
+            refreshDefaultModelInfo();
+            shell.stage().close();
+        });
+        // 双击即选定，省去再摸一次按钮
+        listView.setOnMouseClicked(e -> {
+            if (e.getClickCount() == 2 && listView.getSelectionModel().getSelectedItem() != null) {
+                ok.fire();
+            }
+        });
+        HBox btns = new HBox(8, cancel, ok);
+        btns.setAlignment(Pos.CENTER_RIGHT);
+
+        shell.body().getChildren().addAll(listView, btns);
+        shell.showAndWait();
+    }
+
+    /** 刷新默认模型标签显示。 */
+    private void refreshDefaultModelInfo() {
+        String provider = adminService.getDefaultProviderCode().orElse(null);
+        String model = adminService.getDefaultModelCode().orElse(null);
+        if (provider == null || model == null) {
+            defaultModelInfoLabel.setText(I18n.t("settings.default.notSet"));
+        } else {
+            // 显示模型名而非编码
+            String displayName = adminService.listModels().stream()
+                    .filter(m -> m.getModelCode().equals(model))
+                    .map(m -> m.getModelName() == null || m.getModelName().isBlank() ? m.getModelCode() : m.getModelName())
+                    .findFirst().orElse(model);
+            defaultModelInfoLabel.setText(provider + " / " + displayName);
+        }
     }
 
     // ---- MCP 服务页 ----
@@ -1158,6 +1350,8 @@ public class SettingsWindow {
         modelNameField.clear();
         priorityField.setText("100");
         modelEnabledCheck.setSelected(true);
+        modelBaseline = null;
+        modelProbeResult = null;
         if (modelProviderCombo.getItems().isEmpty()) {
             refreshProviderCombos();
         }
@@ -1173,6 +1367,8 @@ public class SettingsWindow {
         modelNameField.setText(m.getModelName());
         priorityField.setText(String.valueOf(m.getPriority()));
         modelEnabledCheck.setSelected(EnabledStatus.isEnabled(m.getEnabled()));
+        modelBaseline = m;
+        modelProbeResult = null;
         loading = false;
     }
 
@@ -1187,7 +1383,7 @@ public class SettingsWindow {
         m.setModelName(modelNameField.getText().trim());
         m.setPriority(parseInt(priorityField.getText(), 100));
         m.setEnabled(modelEnabledCheck.isSelected() ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
-        m.setStatus("UNKNOWN");
+        applyModelStatus(m);
         adminService.saveModel(m);
         statusLabel.setText(I18n.t("settings.status.savedModel", m.getModelCode()));
         reloadAll();
@@ -1202,19 +1398,6 @@ public class SettingsWindow {
         adminService.deleteModel(sel.getModelCode());
         statusLabel.setText(I18n.t("settings.status.deletedModel", sel.getModelCode()));
         reloadAll();
-    }
-
-    // ---- 默认模型 ----
-
-    private void handleSetDefault() {
-        String provider = defaultProviderCombo.getValue();
-        String model = defaultModelCombo.getValue();
-        if (provider == null || model == null || model.isBlank()) {
-            statusLabel.setText(I18n.t("settings.status.pickDefault"));
-            return;
-        }
-        adminService.setDefault(provider, model);
-        statusLabel.setText(I18n.t("settings.status.setDefault", provider, model));
     }
 
     // ---- 工具权限操作 ----
@@ -1248,12 +1431,7 @@ public class SettingsWindow {
         renderAgentCards();
         providerCodeField.setDisable(false);
         modelCodeField.setDisable(false);
-        // 回填当前默认
-        adminService.getDefaultProviderCode().ifPresent(p -> {
-            defaultProviderCombo.setValue(p);
-            loadDefaultModels(p);
-        });
-        adminService.getDefaultModelCode().ifPresent(defaultModelCombo::setValue);
+        refreshDefaultModelInfo();
         // MCP 由复用组件自管理刷新；仅刷新权限列表
         if (mcpView != null) {
             mcpView.reload();
@@ -1266,29 +1444,11 @@ public class SettingsWindow {
         List<String> codes = adminService.listProviders().stream()
                 .map(ModelProviderConfig::getProviderCode).toList();
         String selModelProvider = modelProviderCombo.getValue();
-        String selDefaultProvider = defaultProviderCombo.getValue();
         modelProviderCombo.setItems(FXCollections.observableArrayList(codes));
-        defaultProviderCombo.setItems(FXCollections.observableArrayList(codes));
         if (selModelProvider == null && !codes.isEmpty()) {
             selModelProvider = codes.get(0);
         }
         modelProviderCombo.setValue(selModelProvider);
-        defaultProviderCombo.setValue(selDefaultProvider);
-        defaultProviderCombo.valueProperty().removeListener(defaultProviderListener);
-        defaultProviderCombo.valueProperty().addListener(defaultProviderListener);
-    }
-
-    private final javafx.beans.value.ChangeListener<String> defaultProviderListener =
-            (obs, o, n) -> {
-                if (n != null) {
-                    loadDefaultModels(n);
-                }
-            };
-
-    private void loadDefaultModels(String providerCode) {
-        List<String> codes = adminService.listModels(providerCode).stream()
-                .map(ModelConfig::getModelCode).toList();
-        defaultModelCombo.setItems(FXCollections.observableArrayList(codes));
     }
 
     private void reloadModelsForProvider(String providerCode) {

@@ -1,5 +1,6 @@
 package com.gettyio.gim.agent.core.chat;
 
+import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
@@ -10,7 +11,13 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
 
@@ -28,10 +35,12 @@ public class ChatService {
 
     private final AgentGateway gateway;
     private final GimDatabase db;
+    private final GimPaths gimPaths;
 
-    public ChatService(AgentGateway gateway, GimDatabase db) {
+    public ChatService(AgentGateway gateway, GimDatabase db, GimPaths gimPaths) {
         this.gateway = gateway;
         this.db = db;
+        this.gimPaths = gimPaths;
     }
 
     /**
@@ -49,21 +58,23 @@ public class ChatService {
     }
 
     /**
-     * 发起一轮流式对话：落盘用户消息 → 流式应答 → 落盘助手消息。
-     * <p>agentCode 决定由哪个智能体应答（人格/模型见 {@link MultiAgentGateway}）。</p>
+     * 发起一轮流式对话：落盘用户消息（含图片附件）→ 流式应答 → 落盘助手消息。
+     * <p>{@link ChatRequest} 携带消息级模型覆盖与图片附件；无附件时行为与纯文本对话一致。</p>
      */
-    public Flux<StreamEvent> chat(String sessionId, String agentCode, String userText) {
-        ensureSession(sessionId, agentCode, userText);
-        persistMessage(sessionId, agentCode, ConversationRole.USER, userText);
+    public Flux<StreamEvent> chat(ChatRequest req) {
+        String sessionId = req.getSessionId();
+        String agentCode = req.getAgentCode();
+        ensureSession(sessionId, agentCode, req.getText());
+        persistUser(req);
 
         StringBuilder assistantBuf = new StringBuilder();
-        return gateway.stream(agentCode, sessionId, userText)
+        return gateway.stream(req)
                 .doOnNext(event -> {
                     if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                         assistantBuf.append(event.getText());
                     }
                 })
-                .doOnComplete(() -> persistAssistant(sessionId, agentCode, assistantBuf.toString()));
+                .doOnComplete(() -> persistAssistant(sessionId, agentCode, req.getModelCode(), assistantBuf.toString()));
     }
 
     private void ensureSession(String sessionId, String agentCode, String firstUserText) {
@@ -94,11 +105,81 @@ public class ChatService {
         db.sessionDao().incrementMessageCount(sessionId, 1);
     }
 
+    /** 落盘用户消息：正文入 content，本轮模型入 model_code，图片附件落盘后清单入 metadata。 */
+    private void persistUser(ChatRequest req) {
+        List<StoredAttachment> stored = storeImages(req.getSessionId(), req.getImages());
+        ChatConversation c = new ChatConversation();
+        c.setSessionId(req.getSessionId());
+        c.setAgentCode(req.getAgentCode());
+        c.setRole(ConversationRole.USER.getCode());
+        c.setContent(req.getText() == null ? "" : req.getText());
+        c.setModelCode(req.getModelCode());
+        c.setMetadata(AttachmentCodec.write(stored));
+        c.setCreatedAt(LocalDateTime.now());
+        db.conversationDao().insert(c);
+        db.sessionDao().incrementMessageCount(req.getSessionId(), 1);
+    }
+
+    /** 把图片附件字节写入 {@code attachments/<sessionId>/<uuid>.<ext>}，返回可持久化的引用清单。 */
+    private List<StoredAttachment> storeImages(String sessionId, List<ImageAttachment> images) {
+        List<StoredAttachment> out = new ArrayList<>();
+        if (images == null || images.isEmpty()) {
+            return out;
+        }
+        for (ImageAttachment img : images) {
+            if (img == null || img.base64Data() == null || img.base64Data().isBlank()) {
+                continue;
+            }
+            try {
+                byte[] bytes = Base64.getDecoder().decode(img.base64Data());
+                String fileName = UUID.randomUUID() + extensionOf(img);
+                Path dir = gimPaths.attachmentsDir().resolve(sessionId);
+                Files.createDirectories(dir);
+                Files.write(dir.resolve(fileName), bytes);
+                out.add(new StoredAttachment(img.fileName(), img.mediaType(), sessionId + "/" + fileName));
+            } catch (IOException | RuntimeException e) {
+                log.warn("图片附件落盘失败，跳过该附件: {}", img.fileName(), e);
+            }
+        }
+        return out;
+    }
+
+    /** 优先用文件名后缀作扩展名，缺失时从 MIME 推导，兜底 .png。 */
+    private static String extensionOf(ImageAttachment img) {
+        String name = img.fileName();
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot >= 0 && dot < name.length() - 1) {
+                String ext = name.substring(dot);
+                if (ext.length() <= 6) {
+                    return ext;
+                }
+            }
+        }
+        String mime = img.mediaType();
+        if (mime != null && mime.contains("/")) {
+            return "." + mime.substring(mime.indexOf('/') + 1).split("[;+]")[0];
+        }
+        return ".png";
+    }
+
     private void persistAssistant(String sessionId, String agentCode, String assistantText) {
+        persistAssistant(sessionId, agentCode, null, assistantText);
+    }
+
+    private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText) {
         if (assistantText == null || assistantText.isEmpty()) {
             return;
         }
-        persistMessage(sessionId, agentCode, ConversationRole.ASSISTANT, assistantText);
+        ChatConversation c = new ChatConversation();
+        c.setSessionId(sessionId);
+        c.setAgentCode(agentCode);
+        c.setRole(ConversationRole.ASSISTANT.getCode());
+        c.setContent(assistantText);
+        c.setModelCode(modelCode);
+        c.setCreatedAt(LocalDateTime.now());
+        db.conversationDao().insert(c);
+        db.sessionDao().incrementMessageCount(sessionId, 1);
     }
 
     private static String deriveTitle(String text) {
@@ -119,11 +200,30 @@ public class ChatService {
         return db.sessionDao().findAll();
     }
 
-    /** 删除会话及其全部消息 */
+    /** 删除会话及其全部消息，并连带清理其图片附件目录（best-effort） */
     public void deleteSession(String sessionId) {
         db.conversationDao().deleteBySession(sessionId);
         db.sessionDao().deleteBySessionId(sessionId);
+        deleteAttachments(sessionId);
         log.info("删除会话: {}", sessionId);
+    }
+
+    private void deleteAttachments(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        Path dir = gimPaths.attachmentsDir().resolve(sessionId);
+        try (var walk = Files.walk(dir)) {
+            walk.sorted(Comparator.reverseOrder()).forEach(p -> {
+                try {
+                    Files.deleteIfExists(p);
+                } catch (IOException ignored) {
+                    // 单个文件删除失败不阻断整体清理
+                }
+            });
+        } catch (IOException ignored) {
+            // 目录不存在或不可访问：本就无附件可清理
+        }
     }
 
     /**

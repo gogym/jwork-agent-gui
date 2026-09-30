@@ -4,8 +4,10 @@ import com.gettyio.gim.agent.core.chat.ToolConfirmRequest;
 import com.gettyio.gim.agent.domain.enums.PermissionDecision;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.application.Platform;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.CompletableFuture;
@@ -13,16 +15,19 @@ import java.util.concurrent.CompletableFuture;
 /**
  * JavaFX 弹窗式人工确认处理器（@Primary 覆盖无 UI 的默认拒绝实现）。
  * <p>在 FX 线程弹出确认对话框，用户选择"允许/总是允许/拒绝"回填异步决策。
- * 按钮与文案按当前语言即时构建。</p>
+ * 按钮与文案按当前语言即时构建。对话框以主窗口为 owner，居中弹出并把背景磨玻璃化。</p>
  */
 @Component
 public class FxHitlConfirmHandler implements HitlConfirmHandler {
+
+    @Autowired
+    private AppShell appShell;
 
     @Override
     public CompletableFuture<PermissionDecision> requestConfirm(ToolConfirmRequest request) {
         CompletableFuture<PermissionDecision> future = new CompletableFuture<>();
         Platform.runLater(() -> {
-            int choice = GimDialog.choose(null,
+            int choice = GimDialog.choose(appShell.getStage(),
                     I18n.t("hitl.title"),
                     I18n.t("hitl.header", request.getToolName()),
                     buildContent(request),

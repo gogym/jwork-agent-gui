@@ -18,6 +18,8 @@
     /* 统一程序背景（侧栏/标题栏/主体同色）与内容区整块白 */
     -gim-canvas: #f2f2ef;
     -gim-content: #ffffff;
+    /* 弹窗磨玻璃背景上的那层薄 veil */
+    -gim-frost-veil: rgba(246, 246, 243, 0.55);
     -gim-hover: #ebebe7;
     -gim-press: #e0e0db;
 
@@ -346,6 +348,17 @@
     -fx-line-spacing: 2;
 }
 
+/* ---------- 对话区顶部：当前会话标题 ---------- */
+.chat-header {
+    -fx-padding: 14 24 4 24;
+    -fx-alignment: center-left;
+}
+.chat-header-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-text-3;
+}
+
 .input-wrap { -fx-padding: 10 24 20 24; }
 .input-card {
     -fx-background-color: -gim-bg;
@@ -380,6 +393,93 @@
     -fx-text-fill: -gim-bg;
 }
 
+/* ---------- 输入框工具条：附件 / 模型 / 审批 ---------- */
+.attach-chips { -fx-padding: 0 0 6 0; -fx-hgap: 8; -fx-vgap: 8; }
+.attach-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 5 8 5 8;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+}
+.attach-button:hover { -fx-background-color: -gim-hover; }
+.attach-chip {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 8;
+    -fx-border-color: -gim-border-4;
+    -fx-border-radius: 8;
+    -fx-padding: 3 4 3 3;
+    -fx-alignment: center;
+}
+.attach-thumb { -fx-background-radius: 6; }
+.attach-remove {
+    -fx-text-fill: -gim-text-4;
+    -fx-font-size: 14px;
+    -fx-padding: 0 2 0 0;
+    -fx-cursor: hand;
+}
+.attach-remove:hover { -fx-text-fill: -gim-badge-red-fg; }
+.model-combo, .approval-combo {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 8;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 8;
+    -fx-padding: 0 8 0 12;
+    -fx-min-height: 28;
+    -fx-pref-height: 28;
+    -fx-font-size: 12px;
+    -fx-cursor: hand;
+}
+.model-combo:hover, .approval-combo:hover {
+    -fx-background-color: -gim-btn-hover;
+    -fx-border-color: -gim-border-hover;
+}
+/* 键盘聚焦或正在展开下拉时描边转主色，明确「当前操作的是哪个选择器」 */
+.model-combo:focused, .approval-combo:focused,
+.model-combo:showing, .approval-combo:showing {
+    -fx-border-color: -gim-accent;
+}
+
+/* 选中值显示区：文字垂直居中，右侧与箭头留距 */
+.model-combo .list-cell, .approval-combo .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -gim-text-2;
+    -fx-font-size: 12px;
+    -fx-padding: 0;
+    -fx-alignment: center-left;
+    -fx-graphic-text-gap: 6;
+}
+
+/* 箭头按钮与箭头：小巧、与文字留出间距，跟随前景色 */
+.model-combo .arrow-button, .approval-combo .arrow-button {
+    -fx-background-color: transparent;
+    -fx-padding: 0 0 0 6;
+}
+.model-combo .arrow, .approval-combo .arrow {
+    -fx-background-color: -gim-arrow;
+    -fx-scale-x: 0.85;
+    -fx-scale-y: 0.85;
+}
+.model-combo:hover .arrow, .approval-combo:hover .arrow { -fx-background-color: -gim-text-3; }
+
+/* 审批下拉富单元格：图标 + 标题/说明两行，当前选中项右侧带勾、危险项标红 */
+.approval-icon { -fx-font-size: 15px; -fx-text-fill: -gim-icon; -fx-min-width: 18; }
+.approval-icon-danger { -fx-text-fill: -gim-badge-red-fg; }
+.approval-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.approval-title-compact { -fx-font-size: 12px; -fx-text-fill: -gim-text-2; }
+.approval-title-danger { -fx-text-fill: -gim-badge-red-fg; }
+.approval-desc { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; -fx-line-spacing: 1; }
+.approval-check { -fx-text-fill: -gim-accent; -fx-font-size: 12px; -fx-padding: 0 4 0 18; -fx-min-width: 20; }
+.approval-caret { -fx-font-size: 9px; -fx-text-fill: -gim-arrow; }
+/* 菜单项里的标签会被通用 .menu-item .label 的 text-fill 覆盖，用同级选择器按源序夺回颜色 */
+.approval-menu .approval-icon { -fx-text-fill: -gim-icon; }
+.approval-menu .approval-icon.approval-icon-danger { -fx-text-fill: -gim-badge-red-fg; }
+.approval-menu .approval-title { -fx-text-fill: -gim-text-title; }
+.approval-menu .approval-title.approval-title-danger { -fx-text-fill: -gim-badge-red-fg; }
+.approval-menu .approval-desc { -fx-text-fill: -gim-text-4; }
+.approval-menu .approval-check { -fx-text-fill: -gim-accent; }
+.bubble-images { -fx-alignment: center-right; -fx-spacing: 6; }
+
 /* ---------- 状态栏 ---------- */
 .status-label { -fx-text-fill: -gim-text-4; -fx-font-size: 12px; }
 
@@ -388,6 +488,11 @@
 .form-label { -fx-text-fill: -gim-icon; }
 /* 表单内联错误提示（主题红，深浅色均可读） */
 .form-error { -fx-font-size: 12px; -fx-text-fill: -gim-badge-red-fg; }
+
+/* 连接测试回显：默认中性，成功转绿、失败转红 */
+.probe-hint { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; -fx-line-spacing: 1; }
+.probe-hint.probe-ok { -fx-text-fill: -gim-tint-fg-3; }
+.probe-hint.probe-fail { -fx-text-fill: -gim-badge-red-fg; }
 
 /* 智能体能力多选区：一行一项，已停用项淡化；项多时内滚不撑高对话框 */
 .cap-check { -fx-font-size: 13px; -fx-text-fill: -gim-text; }
@@ -419,6 +524,12 @@
     -fx-border-radius: 0;
     -fx-border-width: 0;
 }
+
+/* 弹窗磨玻璃背景：veil 盖在被模糊的内容视图之上，标题栏不受影响（模糊半径见 AppShell 的 BoxBlur） */
+.frost-veil {
+    -fx-background-color: -gim-frost-veil;
+}
+
 .title-bar {
     -fx-background-color: -gim-canvas;
     -fx-border-color: transparent;
