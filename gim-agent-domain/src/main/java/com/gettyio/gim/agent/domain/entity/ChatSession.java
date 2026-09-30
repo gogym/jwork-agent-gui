@@ -15,12 +15,10 @@ public class ChatSession {
     /** 业务会话 ID（与 AgentScope sessionId 对齐） */
     private String sessionId;
 
+    /** 归属智能体：会话与智能体的唯一关联键 */
     private String agentCode;
 
     private String title;
-
-    /** 所属工作区分组 ID（可空，未分组为 null） */
-    private String workspaceId;
 
     private String modelCode;
 

@@ -2,11 +2,18 @@ package com.gettyio.gim.agent.ui.config;
 
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.WorkspaceProvisioner;
+import com.gettyio.gim.agent.core.capability.AgentCapabilityResolver;
+import com.gettyio.gim.agent.core.capability.CapabilityCodec;
 import com.gettyio.gim.agent.core.chat.AgentGateway;
 import com.gettyio.gim.agent.core.chat.ChatService;
-import com.gettyio.gim.agent.core.chat.HarnessAgentGateway;
+import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
 import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.dao.AgentDefinitionDao;
+import com.gettyio.gim.agent.domain.entity.AgentDefinition;
+import com.gettyio.gim.agent.domain.entity.SkillPackage;
+import com.gettyio.gim.agent.domain.enums.AgentType;
+import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.persist.ConnectionProvider;
 import com.gettyio.gim.agent.domain.persist.SqliteConnectionProvider;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
@@ -20,17 +27,20 @@ import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
 import com.gettyio.gim.agent.tools.skill.SkillService;
-import io.agentscope.core.model.Model;
 import org.quartz.Scheduler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
@@ -38,6 +48,8 @@ import java.util.List;
  */
 @Configuration
 public class GimAgentConfiguration {
+
+    private static final Logger log = LoggerFactory.getLogger(GimAgentConfiguration.class);
 
     @Bean
     public GimPaths gimPaths() {
@@ -79,23 +91,34 @@ public class GimAgentConfiguration {
     }
 
     @Bean
-    public AgentGateway agentGateway(GimPaths paths,
-                                     DefaultModelResolver resolver,
-                                     AgentScopeModelFactory modelFactory,
-                                     ToolSecurityFacade toolSecurityFacade,
-                                     SkillService skillService,
-                                     ScheduleTools scheduleTools) {
-        java.util.function.Supplier<Model> modelSupplier =
-                () -> modelFactory.getOrCreate(resolver.resolve());
-        HarnessAgentGateway gateway =
-                new HarnessAgentGateway("gim-agent", readAgentsMd(paths), modelSupplier, paths.workspaceDir());
-        // HITL：把工具安全门面的 precheck 作为网关的确认回调
-        gateway.setConfirmCallback(toolSecurityFacade::precheck);
-        // Skills：挂载 workspace/skills 作为 Harness 技能仓库
-        gateway.setSkillsDir(skillService.skillsRoot());
-        // 自定义工具：自然语言设定定时任务
-        gateway.registerToolTarget(scheduleTools);
-        return gateway;
+    public AgentCapabilityResolver agentCapabilityResolver(GimDatabase db) {
+        return new AgentCapabilityResolver(db);
+    }
+
+    @Bean
+    public MultiAgentGateway agentGateway(GimPaths paths,
+                                          GimDatabase db,
+                                          DefaultModelResolver resolver,
+                                          AgentScopeModelFactory modelFactory,
+                                          ToolSecurityFacade toolSecurityFacade,
+                                          SkillService skillService,
+                                          AgentCapabilityResolver capabilities,
+                                          ScheduleTools scheduleTools) {
+        return new MultiAgentGateway(
+                db.agentDao(),
+                // 智能体定义 → 模型实例（未定向则用应用默认模型，按生成参数分桶复用）
+                def -> modelFactory.getOrCreate(resolver.resolveFor(def)),
+                readAgentsMd(paths),
+                paths.workspaceDir(),
+                capabilities,
+                gw -> {
+                    // HITL：把工具安全门面的 precheck 作为网关的确认回调
+                    gw.setConfirmCallback(toolSecurityFacade::precheck);
+                    // Skills：挂载 workspace/skills 作为 Harness 技能仓库（可见范围仍由智能体白名单决定）
+                    gw.setSkillsDir(skillService.skillsRoot());
+                    // 自定义工具：自然语言设定定时任务
+                    gw.registerToolTarget(scheduleTools);
+                });
     }
 
     @Bean
@@ -121,13 +144,13 @@ public class GimAgentConfiguration {
     }
 
     @Bean
-    public McpAdminService mcpAdminService(GimDatabase db) {
-        return new McpAdminService(db);
+    public McpAdminService mcpAdminService(GimDatabase db, AgentAdminService agentAdminService) {
+        return new McpAdminService(db, agentAdminService);
     }
 
     @Bean
-    public WorkspaceAdminService workspaceAdminService(GimDatabase db) {
-        return new WorkspaceAdminService(db);
+    public AgentAdminService agentAdminService(GimDatabase db, MultiAgentGateway agentGateway) {
+        return new AgentAdminService(db, agentGateway);
     }
 
     @Bean
@@ -178,8 +201,42 @@ public class GimAgentConfiguration {
         return args -> schedulerService.resumeReadyTasks();
     }
 
+    /**
+     * 启动时播种内置默认智能体（幂等）。人格/模型/工作区字段留空，即沿用 AGENTS.md 人格与应用默认模型。
+     * <p>技能在出生时就<b>显式声明</b>为当时已启用的技能（{@code seedSkills} 排在前面），
+     * 所以后续装配不必隐式继承任何东西；用户可在智能体表单里自由增减。</p>
+     */
+    @Bean
+    @Order(200)
+    public CommandLineRunner seedDefaultAgent(GimDatabase db) {
+        return args -> {
+            AgentDefinitionDao dao = db.agentDao();
+            if (dao.findByCode(MultiAgentGateway.DEFAULT_AGENT_CODE).isPresent()) {
+                return;
+            }
+            AgentDefinition agent = new AgentDefinition();
+            agent.setAgentCode(MultiAgentGateway.DEFAULT_AGENT_CODE);
+            agent.setAgentName("Gim Agent");
+            agent.setAgentType(AgentType.SIMPLE.name());
+            agent.setDescription("本地优先的个人 AI 助理（默认智能体）");
+            // 生成参数留空：交由模型/提供商默认决定，不在此固定 temperature/maxTokens
+            agent.setTemperature(null);
+            agent.setMaxTokens(null);
+            List<String> enabledSkills = new ArrayList<>();
+            for (SkillPackage s : db.skillDao().findAll()) {
+                if (EnabledStatus.isEnabled(s.getEnabled())) {
+                    enabledSkills.add(s.getSkillCode());
+                }
+            }
+            agent.setSkillsJson(CapabilityCodec.writeCodes(enabledSkills));
+            dao.insert(agent);
+            log.info("播种默认智能体: {}（已启用技能：{}）", agent.getAgentCode(), enabledSkills);
+        };
+    }
+
     /** 启动时播种内置示例技能（幂等） */
     @Bean
+    @Order(100)
     public CommandLineRunner seedSkills(SkillService skillService) {
         return args -> skillService.seedBuiltinSkills();
     }

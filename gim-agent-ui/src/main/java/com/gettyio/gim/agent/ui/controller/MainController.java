@@ -1,18 +1,21 @@
 package com.gettyio.gim.agent.ui.controller;
 
 import com.gettyio.gim.agent.core.chat.ChatService;
+import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.chat.StreamEvent;
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
-import com.gettyio.gim.agent.domain.entity.WorkspaceGroup;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.config.WorkspaceAdminService;
+import com.gettyio.gim.agent.ui.UserPrefs;
+import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TasksView;
+import com.gettyio.gim.agent.ui.window.AgentDialog;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import com.gettyio.gim.agent.ui.window.SettingsWindow;
@@ -33,13 +36,10 @@ import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
-import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
-import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
-import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.shape.Rectangle;
@@ -49,7 +49,6 @@ import javafx.scene.input.KeyCombination;
 import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
-import javafx.stage.DirectoryChooser;
 import javafx.stage.Window;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -58,28 +57,27 @@ import org.springframework.stereotype.Component;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
-import java.awt.Desktop;
-import java.io.File;
-import java.io.IOException;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 
 /**
- * 主窗口控制器：侧栏导航驱动页面切换（对话/定时任务/技能），
+ * 主窗口控制器：侧边栏导航驱动页面切换（对话/定时任务/技能），
  * 对话页为会话列表切换 + 流式渲染（帧合并 ≥33ms）。
+ * <p>侧栏顶部是智能体切换卡：选中的智能体既决定新建会话的归属，也决定
+ * 下方会话列表展示哪一份数据（列表只列它的会话，行内不再重复标注）。</p>
  */
 @Component
 public class MainController {
 
     private static final Logger log = LoggerFactory.getLogger(MainController.class);
 
-    private static final String DEFAULT_AGENT = "gim-agent";
+    /** 未选择智能体时使用的内置默认智能体编码 */
+    private static final String DEFAULT_AGENT = MultiAgentGateway.DEFAULT_AGENT_CODE;
     /** 帧合并窗口：至少每 33ms 刷新一次 */
     private static final Duration FRAME_WINDOW = Duration.ofMillis(33);
-    /** 虚拟默认分组「未分组会话」的固定 ID（真实分组为 UUID，不会冲突） */
-    private static final String UNGROUPED_ID = "__ungrouped__";
-    /** 「最近任务」最多展示的会话条数 */
-    private static final int RECENT_LIMIT = 10;
+    /** 侧栏偏好键：记住上次选择的智能体，新建会话默认归它 */
+    private static final String PREF_SIDEBAR_AGENT = "sidebar.agent";
 
     @FXML
     private ScrollPane scrollPane;
@@ -106,19 +104,23 @@ public class MainController {
     @FXML
     private Button themeMenuButton;
     @FXML
-    private VBox recentBox;
+    private VBox sessionsBox;
     @FXML
-    private Button addWorkspaceButton;
+    private HBox sessionsHeader;
     @FXML
-    private VBox workspaceBox;
+    private Label sessionsSectionCaret;
     @FXML
-    private HBox workspaceHeader;
+    private Label sessionsCount;
     @FXML
-    private Label workspaceSectionCaret;
+    private HBox agentSwitcher;
     @FXML
-    private HBox recentHeader;
+    private Label agentAvatar;
     @FXML
-    private Label sectionRecentCaret;
+    private Label agentNameLabel;
+    @FXML
+    private Label agentDescLabel;
+    @FXML
+    private TextField sessionSearchField;
     @FXML
     private Label navChatLabel;
     @FXML
@@ -126,9 +128,7 @@ public class MainController {
     @FXML
     private Label navSkillsLabel;
     @FXML
-    private Label sectionWorkspace;
-    @FXML
-    private Label sectionRecent;
+    private Label sectionSessions;
     @FXML
     private Label userNameLabel;
     @FXML
@@ -154,20 +154,18 @@ public class MainController {
     private ExtensionsView extensionsView;
 
     @Autowired
-    private WorkspaceAdminService workspaceAdminService;
+    private AgentAdminService agentAdminService;
 
     @Autowired
     private GimPaths gimPaths;
 
     private final ObservableList<ChatSession> sessions = FXCollections.observableArrayList();
-    /** 手风琴：当前展开的工作区分组（同一时刻至多一个） */
-    private String expandedWorkspaceId;
     private String currentSessionId;
     private boolean settingsOpen;
-    /** 「工作区」整块区域是否收起 */
-    private boolean workspacesCollapsed;
-    /** 「最近任务」区域是否收起 */
-    private boolean recentCollapsed;
+    /** 「会话」区域是否收起 */
+    private boolean sessionsCollapsed;
+    /** 顶部卡片选中的智能体：新建会话归属它，它的会话构成侧栏列表，选中即写回偏好 */
+    private String selectedAgentCode = DEFAULT_AGENT;
 
     @FXML
     private void initialize() {
@@ -191,25 +189,30 @@ public class MainController {
             }
         });
 
-        // 会话列表由 refreshRecentSessions() 手动渲染（VBox），点击行即切换会话
+        // 侧栏会话列表手动渲染（VBox），点击行即切换会话
+        selectedAgentCode = restoreSelectedAgent();
+        renderAgentSwitcher();
+        agentSwitcher.setOnMouseClicked(e -> showAgentMenu());
+        sessionSearchField.textProperty().addListener((obs, old, now) -> renderSessions());
         refreshSessions();
-        if (sessions.isEmpty()) {
-            handleNewSession();
+        List<ChatSession> scoped = sessionsOfAgent();
+        if (scoped.isEmpty()) {
+            // 该智能体还没有会话：留在欢迎页空态，发送首条消息时才建会话（不在库里堆空行）
+            showBlankConversation();
         } else {
-            switchToSession(sessions.get(0).getSessionId());
+            switchToSession(scoped.get(0).getSessionId());
         }
-        refreshWorkspaces();
-        // 「工作区」标题行点击：整块区域展开/收起（「+」按钮会自消费点击，不受影响）
-        workspaceHeader.setOnMouseClicked(e -> toggleWorkspaceSection());
-        recentHeader.setOnMouseClicked(e -> toggleRecentSection());
+        // 「会话」标题行点击：整块区域展开/收起
+        sessionsHeader.setOnMouseClicked(e -> toggleSessionsSection());
 
         applyI18n();
         buildThemeMenu();
-        // 语言切换：即时刷新静态文案并重建齿轮菜单
+        // 语言切换：静态文案、智能体卡片与列表都需重刷（展示名与占位文案都是本地化的）
         I18n.onChange(lang -> {
             applyI18n();
             buildThemeMenu();
-            refreshWorkspaces();
+            renderAgentSwitcher();
+            renderSessions();
         });
     }
 
@@ -228,8 +231,8 @@ public class MainController {
         navChatLabel.setText(I18n.t("nav.newTask"));
         navTasksLabel.setText(I18n.t("nav.tasks"));
         navSkillsLabel.setText(I18n.t("nav.skills"));
-        sectionWorkspace.setText(I18n.t("section.workspace"));
-        sectionRecent.setText(I18n.t("section.recent"));
+        sectionSessions.setText(I18n.t("section.sessions"));
+        sessionSearchField.setPromptText(I18n.t("sidebar.search.prompt"));
         userNameLabel.setText(I18n.t("user.local"));
         welcomeTitle.setText(I18n.t("welcome.title"));
         welcomeSubtitle.setText(I18n.t("welcome.subtitle"));
@@ -358,17 +361,19 @@ public class MainController {
                 I18n.t("about.body", gimPaths.root()));
     }
 
+    /**
+     * 新任务：回到空态并把光标交给输入框。
+     * <p>不落库建会话——首条消息发出时才创建（见 {@link #handleSend()}），
+     * 否则点几下按钮就会在列表里留下几行没有内容的「新会话」。</p>
+     */
     @FXML
     public void handleNewSession() {
-        // 新会话未指定分组：展开「未分组会话」，让新行立即可见
-        expandedWorkspaceId = UNGROUPED_ID;
         if (navChat != null) {
             navChat.setSelected(true);
         }
-        String id = chatService.createSession(DEFAULT_AGENT);
-        refreshSessions();
-        switchToSession(id);
-        Platform.runLater(() -> messagesContainer.getChildren().clear());
+        showBlankConversation();
+        renderSessions();
+        Platform.runLater(inputField::requestFocus);
     }
 
     @FXML
@@ -385,6 +390,10 @@ public class MainController {
             appShell.showApp();
             UiTheme.apply(scene);
             settingsOpen = false;
+            // 设置页可能改过名称/描述或删掉了当前智能体，回到应用时同步一次卡片与会话列表
+            renderAgentSwitcher();
+            refreshSessions();
+            dropForeignSession();
         });
     }
 
@@ -395,7 +404,9 @@ public class MainController {
             return;
         }
         if (currentSessionId == null) {
-            currentSessionId = chatService.createSession(DEFAULT_AGENT);
+            // 首条消息才建会话，归属当前选中的智能体；先让侧栏看到这一行，不等回复跑完
+            currentSessionId = chatService.createSession(currentAgentCode());
+            refreshSessions();
         }
         inputField.clear();
         sendButton.setDisable(true);
@@ -403,8 +414,9 @@ public class MainController {
         Label assistantLabel = appendBubble("", false);
         StringBuilder acc = new StringBuilder();
         String sessionId = currentSessionId;
+        String agentCode = agentOfSession(sessionId);
 
-        chatService.chat(sessionId, DEFAULT_AGENT, text)
+        chatService.chat(sessionId, agentCode, text)
                 .bufferTimeout(256, FRAME_WINDOW)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
@@ -444,6 +456,19 @@ public class MainController {
         }
     }
 
+    /** 会话绑定的智能体编码（列表内找不到或未记录时回退默认智能体） */
+    private String agentOfSession(String sessionId) {
+        if (sessionId == null) {
+            return DEFAULT_AGENT;
+        }
+        return sessions.stream()
+                .filter(s -> sessionId.equals(s.getSessionId()))
+                .map(ChatSession::getAgentCode)
+                .filter(code -> code != null && !code.isBlank())
+                .findFirst()
+                .orElse(DEFAULT_AGENT);
+    }
+
     private void switchToSession(String sessionId) {
         currentSessionId = sessionId;
         messagesContainer.getChildren().clear();
@@ -452,248 +477,217 @@ public class MainController {
             boolean self = ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole());
             appendBubble(c.getContent() == null ? "" : c.getContent(), self);
         }
-        // 高亮当前会话行（最近任务 + 展开的分组内）
-        refreshRecentSessions();
-        refreshWorkspaces();
+        // 高亮当前会话行
+        renderSessions();
     }
 
-    /** 重建「最近任务」列表：全部会话按最近更新排序取前 10 条（不区分是否已分组）。 */
-    private void refreshRecentSessions() {
-        if (recentBox == null) {
-            return;
-        }
-        recentBox.getChildren().clear();
-        for (ChatSession s : sessions) {
-            if (recentBox.getChildren().size() >= RECENT_LIMIT) {
-                break;
-            }
-            recentBox.getChildren().add(buildSessionRow(s, false));
-        }
+    /** 回到新任务空态：不选中任何会话，主区只留居中欢迎页 */
+    private void showBlankConversation() {
+        currentSessionId = null;
+        messagesContainer.getChildren().clear();
     }
 
+    /** 从库重载会话，再刷新侧栏渲染 */
     private void refreshSessions() {
-        List<ChatSession> list = chatService.listSessions();
-        sessions.setAll(list);
-        refreshRecentSessions();
-        refreshWorkspaces();
+        sessions.setAll(chatService.listSessions());
+        renderSessions();
     }
 
-    // ===================== 工作区分组 =====================
-
-    /** 工作区头部「+」：新建分组 */
-    @FXML
-    public void handleAddWorkspace() {
-        openWorkspaceDialog(null);
-    }
-
-    /** 打开新建/编辑分组对话框（existing 为 null 表示新建） */
-    private void openWorkspaceDialog(WorkspaceGroup existing) {
-        GimDialog.Shell shell = GimDialog.shell(currentWindow(),
-                I18n.t(existing == null ? "workspace.new.title" : "workspace.edit.title"));
-
-        TextField nameField = new TextField(existing == null ? "" : existing.getName());
-        nameField.setPromptText(I18n.t("workspace.name.prompt"));
-
-        TextField folderField = new TextField(
-                existing == null || existing.getFolderPath() == null ? "" : existing.getFolderPath());
-        folderField.setEditable(false);
-        folderField.setPromptText(I18n.t("workspace.folder.prompt"));
-        folderField.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(folderField, Priority.ALWAYS);
-        Button browse = new Button(I18n.t("workspace.folder.browse"));
-        browse.setOnAction(e -> {
-            DirectoryChooser chooser = new DirectoryChooser();
-            if (!folderField.getText().isEmpty()) {
-                File dir = new File(folderField.getText());
-                if (dir.isDirectory()) {
-                    chooser.setInitialDirectory(dir);
-                }
-            }
-            File sel = chooser.showDialog(shell.stage());
-            if (sel != null) {
-                folderField.setText(sel.getAbsolutePath());
-            }
-        });
-        HBox folderBox = new HBox(8, folderField, browse);
-
-        final String[] glyphs = {"\uE8B7", "\uE943", "\uE8A5", "\uEB9F", "\uE7C1", "\uE8D6"};
-        final String[] icon = {existing != null && existing.getIcon() != null ? existing.getIcon() : glyphs[0]};
-        ToggleGroup iconGroup = new ToggleGroup();
-        HBox iconBox = new HBox(4);
-        for (String g : glyphs) {
-            ToggleButton tb = new ToggleButton();
-            tb.setGraphic(UiTheme.icon(g));
-            tb.setToggleGroup(iconGroup);
-            tb.setUserData(g);
-            tb.getStyleClass().add("ws-icon-opt");
-            if (g.equals(icon[0])) {
-                tb.setSelected(true);
-            }
-            iconBox.getChildren().add(tb);
-        }
-        iconGroup.selectedToggleProperty().addListener((o, a, n) -> {
-            if (n != null) {
-                icon[0] = (String) n.getUserData();
-            }
-        });
-
-        final String[] palette = {"#2f9e5f", "#3b82f6", "#f59e0b", "#ef4444", "#8b5cf6", "#14b8a6", "#64748b"};
-        final String[] color = {existing != null && existing.getColor() != null ? existing.getColor() : palette[0]};
-        HBox colorBox = new HBox(6);
-        for (String c : palette) {
-            Button sw = new Button();
-            sw.getStyleClass().add("ws-swatch");
-            sw.setStyle("-fx-background-color: " + c + ";");
-            sw.setOnAction(e -> color[0] = c);
-            colorBox.getChildren().add(sw);
-        }
-
-        VBox form = new VBox(12);
-        form.setMinWidth(360);
-        form.getChildren().addAll(
-                fieldRow(I18n.t("workspace.name"), nameField),
-                fieldRow(I18n.t("workspace.folder"), folderBox),
-                fieldRow(I18n.t("workspace.icon"), iconBox),
-                fieldRow(I18n.t("workspace.color"), colorBox));
-
-        Button cancel = new Button(I18n.t("common.cancel"));
-        cancel.setOnAction(e -> shell.stage().close());
-        Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
-        save.setOnAction(e -> {
-            String name = nameField.getText() == null ? "" : nameField.getText().trim();
-            if (name.isEmpty()) {
-                return;
-            }
-            String folder = folderField.getText().trim();
-            if (existing == null) {
-                WorkspaceGroup w = workspaceAdminService.create(
-                        name, folder.isEmpty() ? null : folder, icon[0], color[0]);
-                expandedWorkspaceId = w.getWorkspaceId();
-            } else {
-                workspaceAdminService.update(
-                        existing.getWorkspaceId(), name, folder.isEmpty() ? null : folder, icon[0], color[0]);
-            }
-            refreshWorkspaces();
-            shell.stage().close();
-        });
-        HBox btns = new HBox(8, cancel, save);
-        btns.setAlignment(Pos.CENTER_RIGHT);
-
-        shell.body().getChildren().addAll(form, btns);
-        shell.showAndWait();
-    }
-
-    /** 对话框字段行：小标题 + 控件 */
-    private static VBox fieldRow(String caption, Node control) {
-        Label cap = new Label(caption);
-        cap.getStyleClass().add("form-label");
-        return new VBox(4, cap, control);
-    }
-
-    /** 重建侧栏工作区分组列表：置顶虚拟默认分组「未分组会话」，其后为用户分组（含展开的会话）。 */
-    private void refreshWorkspaces() {
-        if (workspaceBox == null) {
+    /**
+     * 渲染侧栏会话列表：只显示当前选中智能体的会话（顶部卡片决定这一份数据），命中搜索词的才显示。
+     * <p>手动重建 VBox 子节点（会话数量级为几十，无需虚拟化）。</p>
+     */
+    private void renderSessions() {
+        if (sessionsBox == null) {
             return;
         }
-        workspaceBox.getChildren().clear();
-        workspaceBox.getChildren().add(buildUngroupedRow());
-        if (UNGROUPED_ID.equals(expandedWorkspaceId)) {
-            for (ChatSession s : chatService.listSessions()) {
-                if (s.getWorkspaceId() == null || s.getWorkspaceId().isEmpty()) {
-                    workspaceBox.getChildren().add(buildSessionRow(s, true));
-                }
+        sessionsBox.getChildren().clear();
+        String needle = sessionSearchField.getText() == null
+                ? "" : sessionSearchField.getText().trim().toLowerCase();
+        List<ChatSession> scoped = sessionsOfAgent();
+        int shown = 0;
+        for (ChatSession s : scoped) {
+            if (needle.isEmpty() || (s.getTitle() != null
+                    && s.getTitle().toLowerCase().contains(needle))) {
+                sessionsBox.getChildren().add(buildSessionRow(s));
+                shown++;
             }
         }
-        List<WorkspaceGroup> groups = workspaceAdminService.list();
-        for (WorkspaceGroup g : groups) {
-            workspaceBox.getChildren().add(buildGroupRow(g));
-            if (g.getWorkspaceId().equals(expandedWorkspaceId)) {
-                for (ChatSession s : chatService.listSessions(g.getWorkspaceId())) {
-                    workspaceBox.getChildren().add(buildSessionRow(s, true));
-                }
-            }
+        sessionsCount.setText(String.valueOf(scoped.size()));
+        if (shown == 0) {
+            Label empty = new Label(I18n.t(needle.isEmpty() ? "sessions.empty.none" : "sessions.empty.search"));
+            empty.getStyleClass().add("sessions-empty");
+            sessionsBox.getChildren().add(empty);
         }
     }
 
-    /** 虚拟默认分组行「未分组会话」：收纳所有未指定分组的会话，无重命名/删除菜单。 */
-    private HBox buildUngroupedRow() {
-        boolean expanded = UNGROUPED_ID.equals(expandedWorkspaceId);
-        Label caret = new Label("\u25BC");
-        caret.getStyleClass().add("ws-caret");
-        caret.setRotate(expanded ? 0 : -90);
-        Label icon = UiTheme.icon("\uE8B7");
-        icon.setStyle("-fx-text-fill: #64748b;");
-        Label name = new Label(I18n.t("workspace.ungrouped"));
-        name.getStyleClass().add("ws-name");
-        name.setMaxWidth(110);
-        name.setEllipsisString("\u2026");
-
-        Button addBtn = new Button();
-        addBtn.setGraphic(UiTheme.icon("\uE710"));
-        addBtn.getStyleClass().add("ws-mini-btn");
-        addBtn.setOnAction(e -> handleNewSession());
-
-        HBox row = new HBox(6, caret, icon, name, growSpacer(), addBtn);
-        row.getStyleClass().add("ws-row");
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setOnMouseClicked(e -> toggleWorkspace(UNGROUPED_ID));
-        return row;
+    /**
+     * 当前选中智能体的会话（{@code sessions} 已由 DAO 按最近更新排序）。
+     * <p>agent_code 为空的脏数据按默认智能体处理，与 AgentAdminService.effectiveCode 一致，
+     * 不至于在哪个智能体下都看不到它。</p>
+     */
+    private List<ChatSession> sessionsOfAgent() {
+        String code = currentAgentCode();
+        return sessions.stream()
+                .filter(s -> code.equals(agentAdminService.effectiveCode(s.getAgentCode())))
+                .toList();
     }
 
-    private HBox buildGroupRow(WorkspaceGroup g) {
-        boolean expanded = g.getWorkspaceId().equals(expandedWorkspaceId);
-        // 小实心三角（QQ 好友列表风格）：同一▼字形，收起时逆时针旋转 90° 成 ▶，保证两种状态大小一致
-        Label caret = new Label("\u25BC");
-        caret.getStyleClass().add("ws-caret");
-        caret.setRotate(expanded ? 0 : -90);
-        Label icon = UiTheme.icon(g.getIcon() == null ? "\uE8B7" : g.getIcon());
-        if (g.getColor() != null) {
-            icon.setStyle("-fx-text-fill: " + g.getColor() + ";");
+    // ===================== 侧栏顶部：智能体切换卡 =====================
+
+    /** 读取偏好里的侧栏智能体；定义已被删除时回落默认智能体，避免新建会话指向空定义 */
+    private String restoreSelectedAgent() {
+        String saved = UserPrefs.get(PREF_SIDEBAR_AGENT, DEFAULT_AGENT);
+        return agentAdminService.find(saved).isPresent() ? saved : DEFAULT_AGENT;
+    }
+
+    /**
+     * 新建会话的归属智能体：偏好里的定义已被删除时回退默认智能体。
+     * <p>设置页只拦住「有会话引用」的智能体，零会话的新建智能体可以随时被删掉；
+     * 不兜住这个回退，新建会话就可能指向一个没有定义的编码。</p>
+     * <p>这里只做解析、不重画卡片：卡片渲染本身要读这个编码，互相调用会递归。</p>
+     */
+    private String currentAgentCode() {
+        if (selectedAgentCode == null || agentAdminService.find(selectedAgentCode).isEmpty()) {
+            selectedAgentCode = DEFAULT_AGENT;
         }
-        Label name = new Label(g.getName());
-        name.getStyleClass().add("ws-name");
-        name.setMaxWidth(110);
-        name.setEllipsisString("\u2026");
+        return selectedAgentCode;
+    }
 
-        Button addBtn = new Button();
-        addBtn.setGraphic(UiTheme.icon("\uE710"));
-        addBtn.getStyleClass().add("ws-mini-btn");
-        addBtn.setOnAction(e -> handleNewSessionIn(g));
+    /** 顶部卡片：选中智能体的头像/名称/描述；定义已被删除时 currentAgentCode 已回退到默认智能体 */
+    private void renderAgentSwitcher() {
+        if (agentSwitcher == null) {
+            return;
+        }
+        AgentDefinition def = agentAdminService.find(currentAgentCode()).orElse(null);
+        String name = def == null ? DEFAULT_AGENT : agentLabel(def);
+        agentAvatar.setText(avatarText(name));
+        agentNameLabel.setText(name);
+        agentDescLabel.setText(agentDesc(def));
+    }
 
-        Button menuBtn = new Button();
-        menuBtn.setGraphic(UiTheme.icon("\uE712"));
-        menuBtn.getStyleClass().add("ws-mini-btn");
+    /**
+     * 卡片点击：弹出智能体菜单（切换到某个智能体 / 配置当前 / 新建）。
+     * <p>菜单只负责选人与进出表单，真正的会话过滤发生在 renderSessions。</p>
+     */
+    private void showAgentMenu() {
         ContextMenu menu = new ContextMenu();
-        MenuItem rename = new MenuItem(I18n.t("workspace.menu.edit"));
-        rename.setOnAction(e -> openWorkspaceDialog(g));
-        MenuItem open = new MenuItem(I18n.t("workspace.menu.openFolder"));
-        open.setDisable(g.getFolderPath() == null || g.getFolderPath().isEmpty());
-        open.setOnAction(e -> openFolder(g.getFolderPath()));
-        MenuItem remove = new MenuItem(I18n.t("workspace.menu.delete"));
-        remove.setOnAction(e -> confirmDeleteWorkspace(g));
-        menu.getItems().addAll(rename, open, new SeparatorMenuItem(), remove);
-        menuBtn.setOnAction(e -> menu.show(menuBtn, Side.RIGHT, 0, 0));
-
-        HBox row = new HBox(6, caret, icon, name, growSpacer(), addBtn, menuBtn);
-        row.getStyleClass().add("ws-row");
-        row.setAlignment(Pos.CENTER_LEFT);
-        if (g.getFolderPath() != null) {
-            Tooltip.install(row, new Tooltip(g.getFolderPath()));
+        String current = currentAgentCode();
+        for (AgentDefinition a : agentAdminService.list()) {
+            menu.getItems().add(agentMenuItem(a, a.getAgentCode().equals(current)));
         }
-        // 整行点击展开/收起（按钮会自行消费点击事件，不触发折叠）
-        row.setOnMouseClicked(e -> toggleWorkspace(g.getWorkspaceId()));
-        return row;
+        menu.getItems().add(new SeparatorMenuItem());
+        agentAdminService.find(current).ifPresent(def -> {
+            MenuItem configure = new MenuItem(I18n.t("sidebar.agent.configure"), UiTheme.icon("\uE70F"));
+            configure.setOnAction(e -> AgentDialog.edit(currentWindow(), agentAdminService, def)
+                    .ifPresent(saved -> adoptAgent(saved.getAgentCode())));
+            menu.getItems().add(configure);
+        });
+        MenuItem create = new MenuItem(I18n.t("sidebar.agent.new"), UiTheme.icon("\uE710"));
+        create.setOnAction(e -> AgentDialog.edit(currentWindow(), agentAdminService, null)
+                .ifPresent(saved -> adoptAgent(saved.getAgentCode())));
+        menu.getItems().add(create);
+        menu.show(agentSwitcher, Side.BOTTOM, 0, 0);
     }
 
-    /** 会话行（最近任务与分组内共用）：标题 + 「⋯」更多按钮（悬停显示）。 */
-    private HBox buildSessionRow(ChatSession s, boolean indent) {
+    /**
+     * 菜单条目：小头像 + 名称/描述两行。
+     * <p>当前项靠主色加粗区分，不打勾：MenuItem 只有一个 graphic 槽位，勾选图标会顶掉头像。</p>
+     */
+    private MenuItem agentMenuItem(AgentDefinition a, boolean current) {
+        Label avatar = new Label(avatarText(agentLabel(a)));
+        avatar.getStyleClass().add("agent-item-avatar");
+        Label name = new Label(agentLabel(a));
+        name.getStyleClass().add("agent-item-name");
+        Label desc = new Label(agentDesc(a));
+        desc.getStyleClass().add("agent-item-desc");
+        desc.setMaxWidth(200);
+        desc.setEllipsisString("\u2026");
+        HBox graphic = new HBox(8, avatar, new VBox(1, name, desc));
+        graphic.setAlignment(Pos.CENTER_LEFT);
+        if (current) {
+            graphic.getStyleClass().add("agent-item-current");
+        }
+        MenuItem item = new MenuItem();
+        item.setGraphic(graphic);
+        item.setOnAction(e -> selectAgent(a.getAgentCode()));
+        return item;
+    }
+
+    /** 描述为空时给一句兜底文案，不让卡片出现空行 */
+    private String agentDesc(AgentDefinition def) {
+        if (def == null || def.getDescription() == null || def.getDescription().isBlank()) {
+            return I18n.t("sidebar.agent.noDesc");
+        }
+        return def.getDescription();
+    }
+
+    /** 头像字：取名称首字符（中文即首字），空名称回退默认智能体编码的首字符 */
+    private static String avatarText(String name) {
+        if (name == null || name.isBlank()) {
+            return DEFAULT_AGENT.substring(0, 1).toUpperCase(Locale.ROOT);
+        }
+        return name.trim().substring(0, 1).toUpperCase(Locale.ROOT);
+    }
+
+    /**
+     * 切换智能体：写回偏好，重画卡片，会话列表换成它的会话。
+     * <p>不趁手去换页面：在拓展/定时任务页改选智能体不应该把用户拉回对话页。</p>
+     */
+    private void selectAgent(String agentCode) {
+        if (agentCode == null || agentCode.equals(selectedAgentCode)) {
+            return;
+        }
+        selectedAgentCode = agentCode;
+        UserPrefs.put(PREF_SIDEBAR_AGENT, agentCode);
+        renderAgentSwitcher();
+        refreshSessions();
+        dropForeignSession();
+    }
+
+    /** 当前打开的会话若已不属于选中的智能体，就回到新任务空态（否则列表与主区不一致） */
+    private void dropForeignSession() {
+        if (currentSessionId == null) {
+            return;
+        }
+        boolean belongs = sessionsOfAgent().stream()
+                .anyMatch(s -> currentSessionId.equals(s.getSessionId()));
+        if (!belongs) {
+            showBlankConversation();
+        }
+    }
+
+    /** 新建/编辑后就接管该智能体：重画卡片与会话列表，不弄丢还开着的会话 */
+    private void adoptAgent(String agentCode) {
+        selectedAgentCode = agentCode;
+        UserPrefs.put(PREF_SIDEBAR_AGENT, agentCode);
+        renderAgentSwitcher();
+        refreshSessions();
+        dropForeignSession();
+    }
+
+    /** 「会话」整块区域收起/展开（搜索框与列表联动，收起时不留空白） */
+    private void toggleSessionsSection() {
+        sessionsCollapsed = !sessionsCollapsed;
+        sessionSearchField.setVisible(!sessionsCollapsed);
+        sessionSearchField.setManaged(!sessionsCollapsed);
+        sessionsBox.setVisible(!sessionsCollapsed);
+        sessionsBox.setManaged(!sessionsCollapsed);
+        sessionsSectionCaret.setRotate(sessionsCollapsed ? -90 : 0);
+    }
+
+    /**
+     * 会话行：标题 + 「⋯」更多按钮（悬停显示）。
+     * <p>列表已按顶部选中的智能体过滤，行内不再重复标一个智能体标签。</p>
+     */
+    private HBox buildSessionRow(ChatSession s) {
         Label dot = new Label("\u2022");
         dot.getStyleClass().add("ws-session-dot");
         Label title = new Label(s.getTitle());
         title.getStyleClass().add("ws-session-name");
-        title.setMaxWidth(indent ? 120 : 140);
+        title.setMaxWidth(Double.MAX_VALUE);
         title.setEllipsisString("\u2026");
+        HBox.setHgrow(title, Priority.ALWAYS);
 
         Button menuBtn = new Button();
         menuBtn.setGraphic(UiTheme.icon("\uE712"));
@@ -701,11 +695,8 @@ public class MainController {
         ContextMenu menu = sessionContextMenu(s);
         menuBtn.setOnAction(e -> menu.show(menuBtn, Side.RIGHT, 0, 0));
 
-        HBox row = new HBox(6, dot, title, growSpacer(), menuBtn);
+        HBox row = new HBox(6, dot, title, menuBtn);
         row.getStyleClass().add("ws-session-row");
-        if (indent) {
-            row.getStyleClass().add("ws-session-indent");
-        }
         if (s.getSessionId().equals(currentSessionId)) {
             row.getStyleClass().add("ws-session-row-selected");
         }
@@ -714,43 +705,9 @@ public class MainController {
         return row;
     }
 
-    private static Region growSpacer() {
-        Region r = new Region();
-        HBox.setHgrow(r, Priority.ALWAYS);
-        return r;
-    }
-
-    private void toggleWorkspace(String workspaceId) {
-        // 手风琴：再次点击当前展开项则收起，否则切换到该分组（自动收起其他）
-        expandedWorkspaceId = workspaceId.equals(expandedWorkspaceId) ? null : workspaceId;
-        refreshWorkspaces();
-    }
-
-    /** 「工作区」整块区域收起/展开（标题与三角箭头联动；收起时不留空白，展开时自然下推） */
-    private void toggleWorkspaceSection() {
-        workspacesCollapsed = !workspacesCollapsed;
-        workspaceBox.setVisible(!workspacesCollapsed);
-        workspaceBox.setManaged(!workspacesCollapsed);
-        workspaceSectionCaret.setRotate(workspacesCollapsed ? -90 : 0);
-    }
-
-    /** 「最近任务」区域收起/展开 */
-    private void toggleRecentSection() {
-        recentCollapsed = !recentCollapsed;
-        recentBox.setVisible(!recentCollapsed);
-        recentBox.setManaged(!recentCollapsed);
-        sectionRecentCaret.setRotate(recentCollapsed ? -90 : 0);
-    }
-
-    private void handleNewSessionIn(WorkspaceGroup g) {
-        expandedWorkspaceId = g.getWorkspaceId();
-        if (navChat != null) {
-            navChat.setSelected(true);
-        }
-        String id = chatService.createSession(DEFAULT_AGENT, g.getWorkspaceId());
-        refreshSessions();
-        switchToSession(id);
-        Platform.runLater(() -> messagesContainer.getChildren().clear());
+    /** 智能体卡片/菜单显示名：无名时回退编码 */
+    private static String agentLabel(AgentDefinition a) {
+        return a.getAgentName() == null || a.getAgentName().isBlank() ? a.getAgentCode() : a.getAgentName();
     }
 
     private void openSession(ChatSession s) {
@@ -760,55 +717,13 @@ public class MainController {
         switchToSession(s.getSessionId());
     }
 
-    private void confirmDeleteWorkspace(WorkspaceGroup g) {
-        if (GimDialog.confirm(currentWindow(), I18n.t("workspace.menu.delete"),
-                I18n.t("workspace.deleteConfirm", g.getName()))) {
-            workspaceAdminService.delete(g.getWorkspaceId());
-            // 其下会话已在库中解绑为未分组：展开「未分组会话」，让去向立即可见
-            expandedWorkspaceId = UNGROUPED_ID;
-            refreshSessions();
-        }
-    }
-
-    /** 会话行「⋯」菜单：移动到分组 / 删除 */
+    /** 会话行「⋯」菜单：只有删除（换智能体在顶部卡片上做，会话不再跟着智能体转移） */
     private ContextMenu sessionContextMenu(ChatSession s) {
         ContextMenu menu = new ContextMenu();
-
-        Menu moveTo = new Menu(I18n.t("session.moveTo"), UiTheme.icon("\uE8B7"));
-        boolean grouped = s.getWorkspaceId() != null && !s.getWorkspaceId().isEmpty();
-
-        // 虚拟默认分组「未分组会话」：已未分组时置灰
-        MenuItem ungrouped = new MenuItem(I18n.t("workspace.ungrouped"));
-        ungrouped.setDisable(!grouped);
-        ungrouped.setOnAction(e -> moveSessionTo(s, null));
-        moveTo.getItems().add(ungrouped);
-
-        List<WorkspaceGroup> groups = workspaceAdminService.list();
-        if (!groups.isEmpty()) {
-            moveTo.getItems().add(new SeparatorMenuItem());
-        }
-        for (WorkspaceGroup g : groups) {
-            MenuItem item = new MenuItem(g.getName());
-            // 已在当前分组内的项置灰
-            item.setDisable(g.getWorkspaceId().equals(s.getWorkspaceId()));
-            item.setOnAction(e -> moveSessionTo(s, g.getWorkspaceId()));
-            moveTo.getItems().add(item);
-        }
-        // 已未分组且无其他分组可移时，子菜单整体禁用
-        moveTo.setDisable(!grouped && groups.isEmpty());
-
         MenuItem del = new MenuItem(I18n.t("common.delete"), UiTheme.icon("\uE74D"));
         del.setOnAction(e -> confirmDeleteSession(s));
-        menu.getItems().addAll(moveTo, new SeparatorMenuItem(), del);
+        menu.getItems().add(del);
         return menu;
-    }
-
-    /** 将会话移动到指定分组（workspaceId 为 null 表示移入「未分组会话」） */
-    private void moveSessionTo(ChatSession s, String workspaceId) {
-        chatService.moveSession(s.getSessionId(), workspaceId);
-        // 展开目标容器，让移动结果立即可见
-        expandedWorkspaceId = workspaceId == null ? UNGROUPED_ID : workspaceId;
-        refreshSessions();
     }
 
     private void confirmDeleteSession(ChatSession s) {
@@ -816,30 +731,15 @@ public class MainController {
                 I18n.t("session.deleteConfirm", s.getTitle()))) {
             chatService.deleteSession(s.getSessionId());
             if (s.getSessionId().equals(currentSessionId)) {
-                currentSessionId = null;
-                messagesContainer.getChildren().clear();
+                showBlankConversation();
             }
             refreshSessions();
-            if (currentSessionId == null && !sessions.isEmpty()) {
-                switchToSession(sessions.get(0).getSessionId());
+            if (currentSessionId == null) {
+                List<ChatSession> scoped = sessionsOfAgent();
+                if (!scoped.isEmpty()) {
+                    switchToSession(scoped.get(0).getSessionId());
+                }
             }
-        }
-    }
-
-    /** 用系统文件管理器打开分组绑定的文件夹 */
-    private void openFolder(String path) {
-        if (path == null || path.isEmpty()) {
-            return;
-        }
-        try {
-            File dir = new File(path);
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
-                Desktop.getDesktop().open(dir);
-            } else {
-                new ProcessBuilder("explorer.exe", path).start();
-            }
-        } catch (IOException | RuntimeException e) {
-            log.warn("打开文件夹失败: {}", path, e);
         }
     }
 

@@ -19,3 +19,7 @@
 .card-desc, .card-meta, .page-desc, .page-subtitle,
 .model-hint, .status-label, .info-key, .info-val,
 .section-title, .sub-title, .user-bar .user-name { -fx-font-size: 11px; }
+/* 侧栏智能体切换卡与弹框条目 */
+.agent-switch-name { -fx-font-size: 13px; }
+.agent-switch-desc, .agent-item-desc { -fx-font-size: 10px; }
+.agent-item-name   { -fx-font-size: 12px; }

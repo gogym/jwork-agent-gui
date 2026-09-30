@@ -36,9 +36,19 @@ public class ModelSpec {
         this.stream = b.stream;
     }
 
-    /** 缓存键 */
+    /**
+     * 缓存键：同一 provider:model 下的不同生成参数视为不同实例，
+     * 避免智能体各自的 temperature/maxTokens 相互覆盖。生成参数为空时与旧键保持一致。
+     */
     public String cacheKey() {
-        return providerCode + ":" + modelCode;
+        StringBuilder key = new StringBuilder(providerCode).append(':').append(modelCode);
+        if (temperature != null) {
+            key.append(":t=").append(temperature);
+        }
+        if (maxTokens != null) {
+            key.append(":n=").append(maxTokens);
+        }
+        return key.toString();
     }
 
     public static Builder builder() {

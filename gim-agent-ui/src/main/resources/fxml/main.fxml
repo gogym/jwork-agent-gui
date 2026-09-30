@@ -2,7 +2,6 @@
 
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.Label?>
-<?import javafx.scene.control.ListView?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.Separator?>
 <?import javafx.scene.control.TextField?>
@@ -22,6 +21,18 @@
     </fx:define>
     <left>
         <VBox prefWidth="250.0" minWidth="250.0" maxWidth="250.0" styleClass="sidebar">
+            <VBox styleClass="agent-switch-wrap">
+                <HBox fx:id="agentSwitcher" styleClass="agent-switch" alignment="CENTER_LEFT" spacing="10.0">
+                    <Label fx:id="agentAvatar" styleClass="agent-switch-avatar" text="G"/>
+                    <VBox spacing="2" maxWidth="Infinity" HBox.hgrow="ALWAYS">
+                        <Label fx:id="agentNameLabel" styleClass="agent-switch-name" maxWidth="Infinity"
+                               ellipsisString="&#x2026;"/>
+                        <Label fx:id="agentDescLabel" styleClass="agent-switch-desc" maxWidth="Infinity"
+                               ellipsisString="&#x2026;"/>
+                    </VBox>
+                    <Label styleClass="agent-switch-caret" text="&#x25BC;"/>
+                </HBox>
+            </VBox>
             <ToggleButton fx:id="navChat" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup"
                           selected="true" onAction="#handleNewSession">
                 <graphic>
@@ -35,22 +46,13 @@
                         hbarPolicy="NEVER" VBox.vgrow="ALWAYS">
                 <content>
                     <VBox>
-                        <HBox fx:id="workspaceHeader" styleClass="section-header" alignment="CENTER_LEFT">
-                            <Label fx:id="workspaceSectionCaret" text="&#x25BC;" styleClass="ws-caret"/>
-                            <Label fx:id="sectionWorkspace" text="工作区" styleClass="section-title"/>
-                            <Region HBox.hgrow="ALWAYS"/>
-                            <Button fx:id="addWorkspaceButton" styleClass="ws-mini-btn" onAction="#handleAddWorkspace">
-                                <graphic>
-                                    <Label styleClass="icon" text="&#xE710;"/>
-                                </graphic>
-                            </Button>
+                        <HBox fx:id="sessionsHeader" styleClass="section-header" alignment="CENTER_LEFT">
+                            <Label fx:id="sessionsSectionCaret" text="&#x25BC;" styleClass="ws-caret"/>
+                            <Label fx:id="sectionSessions" text="会话" styleClass="section-title"/>
+                            <Label fx:id="sessionsCount" styleClass="section-count"/>
                         </HBox>
-                        <VBox fx:id="workspaceBox" spacing="2" styleClass="workspace-box"/>
-                        <HBox fx:id="recentHeader" styleClass="section-header" alignment="CENTER_LEFT">
-                            <Label fx:id="sectionRecentCaret" text="&#x25BC;" styleClass="ws-caret"/>
-                            <Label fx:id="sectionRecent" text="最近任务" styleClass="sub-title"/>
-                        </HBox>
-                        <VBox fx:id="recentBox" spacing="2" styleClass="session-box"/>
+                        <TextField fx:id="sessionSearchField" styleClass="session-search"/>
+                        <VBox fx:id="sessionsBox" spacing="2" styleClass="session-box"/>
                     </VBox>
                 </content>
             </ScrollPane>

@@ -81,4 +81,10 @@ public class ScheduledTaskDao {
     public int deleteByCode(String taskCode) {
         return runner.update("DELETE FROM tasks WHERE task_code=?", taskCode);
     }
+
+    /** 引用该智能体的定时任务数（智能体删除前的引用检查） */
+    public int countByAgent(String agentCode) {
+        return runner.queryOne("SELECT COUNT(*) AS n FROM tasks WHERE agent_code=?",
+                rs -> rs.getInt("n"), agentCode).orElse(0);
+    }
 }

@@ -386,6 +386,14 @@
 /* ---------- 弹窗根容器 ---------- */
 .window-root { -fx-background-color: -gim-bg; }
 .form-label { -fx-text-fill: -gim-icon; }
+/* 表单内联错误提示（主题红，深浅色均可读） */
+.form-error { -fx-font-size: 12px; -fx-text-fill: -gim-badge-red-fg; }
+
+/* 智能体能力多选区：一行一项，已停用项淡化；项多时内滚不撑高对话框 */
+.cap-check { -fx-font-size: 13px; -fx-text-fill: -gim-text; }
+.cap-check-disabled { -fx-text-fill: -gim-text-5; }
+.cap-scroll { -fx-background-color: transparent; -fx-border-color: -gim-border; -fx-border-radius: 6px; -fx-padding: 4 6 4 6; }
+.cap-scroll > .viewport { -fx-background-color: transparent; }
 
 /* ============================================================
  * 自定义标题栏（无边框窗口，替代系统顶部程序 bar）
@@ -787,7 +795,7 @@
 }
 
 /* ============================================================
- * 侧栏：工作区分组（可新建/展开/右键）
+ * 侧栏：顶部智能体切换卡 + 当前智能体的会话列表
  * ============================================================ */
 .section-header {
     -fx-padding: 12 8 4 12;
@@ -795,19 +803,68 @@
     -fx-alignment: center-left;
     -fx-cursor: hand;
 }
-/* 标题自身不再带不对称内边距，避免与右侧「+」/箭头错位 */
+/* 标题自身不再带不对称内边距，避免与右侧箭头错位 */
 .section-header .section-title { -fx-padding: 0; }
 .section-header .sub-title { -fx-padding: 0; }
-
-.workspace-box { -fx-padding: 0 8 0 6; }
-
-.ws-row {
-    -fx-background-color: transparent;
-    -fx-background-radius: 8;
-    -fx-padding: 6 6 6 6;
-    -fx-cursor: hand;
+/* 会话数：跟在「会话」标题后，弱色小字，随选中的智能体变化 */
+.section-header .section-count {
+    -fx-font-size: 11px;
+    -fx-text-fill: -gim-subtitle;
+    -fx-padding: 0 0 0 2;
 }
-.ws-row:hover { -fx-background-color: -gim-hover; }
+
+/* 智能体切换卡：整宽卡片（头像 + 名称/描述 + ⌄），点开是智能体菜单。
+   选中的智能体既决定新建会话的归属，也决定会话列表显示哪一份数据。 */
+.agent-switch-wrap { -fx-padding: 0 0 8 0; }
+.agent-switch {
+    -fx-background-color: -gim-content;
+    -fx-background-radius: 14;
+    -fx-border-color: -gim-border-4;
+    -fx-border-radius: 14;
+    -fx-padding: 10 12 10 12;
+    -fx-alignment: center-left;
+    -fx-spacing: 10;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.06), 10, 0.05, 0, 2);
+}
+.agent-switch:hover   { -fx-border-color: -gim-border-hover; }
+.agent-switch:pressed { -fx-background-color: -gim-panel-2; }
+.agent-switch-avatar {
+    -fx-background-color: -gim-accent;
+    -fx-background-radius: 999;
+    -fx-min-width: 34px; -fx-min-height: 34px;
+    -fx-pref-width: 34px; -fx-pref-height: 34px;
+    -fx-alignment: center;
+    -fx-text-fill: -gim-bg;
+    -fx-font-weight: bold;
+    -fx-font-size: 15px;
+}
+.agent-switch-name { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.agent-switch-desc { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; }
+/* 卡片右侧的下拉箭头：用普通界面字体就有的 ▼（U+25BC），不走 Segoe 图标字体的私有区码点，
+   那个字体一缺失或被回退，E70D 就会落成别的字形；固定格子不让箭头影响卡片布局 */
+.agent-switch-caret {
+    -fx-font-size: 9px;
+    -fx-text-fill: -gim-text-4;
+    -fx-min-width: 10px;
+    -fx-alignment: center;
+}
+
+/* 弹出菜单里的智能体条目：小头像 + 名称/描述两行；当前项名称用主色加粗 */
+.agent-item-avatar {
+    -fx-background-color: -gim-tint-4;
+    -fx-background-radius: 999;
+    -fx-min-width: 26px; -fx-min-height: 26px;
+    -fx-pref-width: 26px; -fx-pref-height: 26px;
+    -fx-alignment: center;
+    -fx-text-fill: -gim-icon;
+    -fx-font-size: 12px;
+}
+.agent-item-current .agent-item-avatar { -fx-background-color: -gim-tint; -fx-text-fill: -gim-tint-fg-3; }
+.agent-item-name { -fx-font-size: 13px; -fx-text-fill: -gim-text; }
+.agent-item-current .agent-item-name { -fx-font-weight: bold; -fx-text-fill: -gim-tint-fg-3; }
+.agent-item-desc { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; }
+
 /* 小实心三角：统一 ▼ 字形（收起时旋转 -90° 成 ▶），固定格子保证两种状态大小一致 */
 .ws-caret {
     -fx-text-fill: -gim-text-4;
@@ -815,7 +872,21 @@
     -fx-min-width: 10px;
     -fx-alignment: center;
 }
-.ws-name { -fx-font-size: 13px; -fx-text-fill: -gim-text-nav; }
+/* 标题搜索框：圆角与会话行宽度对齐 */
+.session-search {
+    -fx-padding: 4 10 4 10;
+    -fx-background-radius: 999;
+    -fx-border-radius: 999;
+    -fx-font-size: 12px;
+}
+.session-box { -fx-padding: 0 8 0 6; }
+/* 当前智能体还没有会话时的提示行 */
+.sessions-empty {
+    -fx-padding: 6 8 6 12;
+    -fx-font-size: 12px;
+    -fx-text-fill: -gim-text-5;
+    -fx-wrap-text: true;
+}
 
 .ws-mini-btn {
     -fx-background-color: transparent;
@@ -835,31 +906,9 @@
 .ws-session-row:hover { -fx-background-color: -gim-cell-hover; }
 .ws-session-row-selected { -fx-background-color: -gim-tint-5; }
 .ws-session-row-selected .ws-session-name { -fx-text-fill: -gim-text-title; }
-/* 分组内会话行左缩进 */
-.ws-session-indent { -fx-padding: 5 6 5 22; }
 .ws-session-dot { -fx-text-fill: -gim-text-5; -fx-font-size: 12px; }
 .ws-session-name { -fx-font-size: 12px; -fx-text-fill: -gim-text-3; }
 /* 会话行「⋯」按钮：默认隐藏，悬停行或选中时显示（保留占位不引起布局跳动） */
 .ws-session-menu { -fx-opacity: 0; }
 .ws-session-row:hover .ws-session-menu,
 .ws-session-row-selected .ws-session-menu { -fx-opacity: 1; }
-
-/* 新建/编辑分组对话框 */
-.workspace-dialog { -fx-background-color: -gim-bg; }
-.workspace-form { -fx-padding: 16 18 8 18; }
-.ws-icon-opt {
-    -fx-background-color: -gim-btn;
-    -fx-background-radius: 8;
-    -fx-padding: 4 8 4 8;
-    -fx-cursor: hand;
-}
-.ws-icon-opt:hover { -fx-background-color: -gim-btn-hover; }
-.ws-icon-opt:selected { -fx-background-color: -gim-tint-2; }
-.ws-icon-opt .icon { -fx-text-fill: -gim-icon; }
-.ws-swatch {
-    -fx-background-radius: 999;
-    -fx-min-width: 22px; -fx-min-height: 22px;
-    -fx-pref-width: 22px; -fx-pref-height: 22px;
-    -fx-padding: 0;
-    -fx-cursor: hand;
-}

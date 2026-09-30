@@ -15,7 +15,7 @@ import java.util.Optional;
 public class ChatSessionDao {
 
     private static final String COLUMNS =
-            "id, session_id, agent_code, title, workspace_id, model_code, message_count, status, created_at, updated_at";
+            "id, session_id, agent_code, title, model_code, message_count, status, created_at, updated_at";
 
     private final SqlRunner runner;
 
@@ -29,7 +29,6 @@ public class ChatSessionDao {
         s.setSessionId(rs.getString("session_id"));
         s.setAgentCode(rs.getString("agent_code"));
         s.setTitle(rs.getString("title"));
-        s.setWorkspaceId(rs.getString("workspace_id"));
         s.setModelCode(rs.getString("model_code"));
         s.setMessageCount(SqlRunner.getInt(rs, "message_count"));
         s.setStatus(rs.getString("status"));
@@ -43,9 +42,9 @@ public class ChatSessionDao {
         s.setCreatedAt(now);
         s.setUpdatedAt(now);
         long id = runner.insert(
-                "INSERT INTO sessions (session_id, agent_code, title, workspace_id, model_code, message_count, status, created_at, updated_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?,?)",
-                s.getSessionId(), s.getAgentCode(), s.getTitle(), s.getWorkspaceId(), s.getModelCode(),
+                "INSERT INTO sessions (session_id, agent_code, title, model_code, message_count, status, created_at, updated_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?)",
+                s.getSessionId(), s.getAgentCode(), s.getTitle(), s.getModelCode(),
                 s.getMessageCount(), s.getStatus(), now, now);
         s.setId(id);
         return id;
@@ -65,12 +64,6 @@ public class ChatSessionDao {
         return runner.query("SELECT " + COLUMNS + " FROM sessions ORDER BY updated_at DESC", ChatSessionDao::map);
     }
 
-    /** 指定工作区分组下的会话（按最近更新排序） */
-    public List<ChatSession> findByWorkspace(String workspaceId) {
-        return runner.query("SELECT " + COLUMNS + " FROM sessions WHERE workspace_id=? ORDER BY updated_at DESC",
-                ChatSessionDao::map, workspaceId);
-    }
-
     public int updateTitle(String sessionId, String title) {
         return runner.update("UPDATE sessions SET title=?, updated_at=? WHERE session_id=?",
                 title, LocalDateTime.now(), sessionId);
@@ -85,13 +78,9 @@ public class ChatSessionDao {
         return runner.update("DELETE FROM sessions WHERE session_id=?", sessionId);
     }
 
-    /** 将会话归入/移出工作区分组（workspaceId 传 null 表示移出） */
-    public int updateWorkspace(String sessionId, String workspaceId) {
-        return runner.update("UPDATE sessions SET workspace_id=? WHERE session_id=?", workspaceId, sessionId);
-    }
-
-    /** 删除分组时将其下全部会话解绑（置为未分组） */
-    public int unassignWorkspace(String workspaceId) {
-        return runner.update("UPDATE sessions SET workspace_id=NULL WHERE workspace_id=?", workspaceId);
+    /** 引用该智能体的会话数（智能体删除前的引用检查） */
+    public int countByAgent(String agentCode) {
+        return runner.queryOne("SELECT COUNT(*) AS n FROM sessions WHERE agent_code=?",
+                rs -> rs.getInt("n"), agentCode).orElse(0);
     }
 }

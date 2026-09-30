@@ -4,6 +4,7 @@ import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -38,6 +39,10 @@ public class SkillsView {
 
     @Autowired
     private SkillService skillService;
+
+    /** 技能目录变化后失效引用该技能的智能体运行时（技能仓库在装配时扫描目录） */
+    @Autowired
+    private AgentAdminService agentAdminService;
 
     private final VBox root = new VBox();
     private final TilePane grid = new TilePane();
@@ -227,6 +232,7 @@ public class SkillsView {
         }
         try {
             SkillPackage s = skillService.install(dir.toPath());
+            agentAdminService.onSkillCatalogChanged(s.getSkillCode());
             reload();
             info(I18n.t("skills.install.okTitle"), I18n.t("skills.install.okMsg", s.getSkillName(), s.getSkillCode()));
         } catch (Exception e) {
@@ -237,6 +243,7 @@ public class SkillsView {
     private void handleSetEnabled(SkillPackage s, boolean enable) {
         try {
             skillService.setEnabled(s.getSkillCode(), enable);
+            agentAdminService.onSkillCatalogChanged(s.getSkillCode());
             reload();
         } catch (Exception e) {
             error(I18n.t("skills.op.failTitle"), e.getMessage());
@@ -251,6 +258,7 @@ public class SkillsView {
         }
         try {
             skillService.delete(s.getSkillCode());
+            agentAdminService.onSkillCatalogChanged(s.getSkillCode());
             reload();
         } catch (Exception e) {
             error(I18n.t("skills.delete.failTitle"), e.getMessage());

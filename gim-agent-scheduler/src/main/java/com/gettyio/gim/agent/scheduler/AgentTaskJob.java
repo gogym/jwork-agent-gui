@@ -1,6 +1,7 @@
 package com.gettyio.gim.agent.scheduler;
 
 import com.gettyio.gim.agent.core.chat.ChatService;
+import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.task.TaskCompletedEvent;
 import com.gettyio.gim.agent.domain.dao.ScheduledTaskDao;
 import com.gettyio.gim.agent.domain.entity.ScheduledTask;
@@ -46,7 +47,7 @@ public class AgentTaskJob extends QuartzJobBean {
 
         String taskName = resolveTaskName(taskCode);
         try {
-            String reply = chatService.proactiveRun(sessionId, "gim-agent", prompt);
+            String reply = chatService.proactiveRun(sessionId, resolveAgentCode(taskCode), prompt);
             LocalDateTime runAt = LocalDateTime.now();
             taskDao.markRun(taskCode, runAt, toLocalDateTime(context.getNextFireTime()));
             publish(new TaskCompletedEvent(taskCode, taskName, sessionId, summarize(reply), true));
@@ -61,6 +62,14 @@ public class AgentTaskJob extends QuartzJobBean {
 
     private String resolveTaskName(String taskCode) {
         return taskDao.findByCode(taskCode).map(ScheduledTask::getTaskName).orElse(taskCode);
+    }
+
+    /** 任务指定的智能体；未配置时回退内置默认智能体 */
+    private String resolveAgentCode(String taskCode) {
+        return taskDao.findByCode(taskCode)
+                .map(ScheduledTask::getAgentCode)
+                .filter(code -> !code.isBlank())
+                .orElse(MultiAgentGateway.DEFAULT_AGENT_CODE);
     }
 
     /** 一次性任务执行后置为 FINISHED */

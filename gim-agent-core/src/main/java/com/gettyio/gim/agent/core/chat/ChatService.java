@@ -17,6 +17,7 @@ import java.util.UUID;
 /**
  * 对话服务：在流式网关两侧补齐 SQLite 落盘（会话 + 消息），实现重启不丢历史。
  * <p>chat-history.jsonl 由 Harness 工作区自行维护，这里负责应用级会话记录。</p>
+ * <p>会话只与智能体关联（{@code sessions.agent_code}）。</p>
  */
 public class ChatService {
 
@@ -41,20 +42,21 @@ public class ChatService {
     public String proactiveRun(String sessionId, String agentCode, String prompt) {
         ensureSession(sessionId, agentCode, prompt);
         persistMessage(sessionId, agentCode, ConversationRole.SYSTEM, prompt);
-        String reply = gateway.ask(sessionId, prompt).block();
+        String reply = gateway.ask(agentCode, sessionId, prompt).block();
         persistAssistant(sessionId, agentCode, reply);
         return reply;
     }
 
     /**
      * 发起一轮流式对话：落盘用户消息 → 流式应答 → 落盘助手消息。
+     * <p>agentCode 决定由哪个智能体应答（人格/模型见 {@link MultiAgentGateway}）。</p>
      */
     public Flux<StreamEvent> chat(String sessionId, String agentCode, String userText) {
         ensureSession(sessionId, agentCode, userText);
         persistMessage(sessionId, agentCode, ConversationRole.USER, userText);
 
         StringBuilder assistantBuf = new StringBuilder();
-        return gateway.stream(sessionId, userText)
+        return gateway.stream(agentCode, sessionId, userText)
                 .doOnNext(event -> {
                     if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                         assistantBuf.append(event.getText());
@@ -116,11 +118,6 @@ public class ChatService {
         return db.sessionDao().findAll();
     }
 
-    /** 指定工作区分组下的会话列表 */
-    public List<ChatSession> listSessions(String workspaceId) {
-        return db.sessionDao().findByWorkspace(workspaceId);
-    }
-
     /** 删除会话及其全部消息 */
     public void deleteSession(String sessionId) {
         db.conversationDao().deleteBySession(sessionId);
@@ -128,25 +125,13 @@ public class ChatService {
         log.info("删除会话: {}", sessionId);
     }
 
-    /** 将会话移动至指定工作区分组（workspaceId 为 null 表示移出分组） */
-    public void moveSession(String sessionId, String workspaceId) {
-        db.sessionDao().updateWorkspace(sessionId, workspaceId);
-        log.info("移动会话 {} 至分组 {}", sessionId, workspaceId);
-    }
-
     /** 新建空会话，立即落盘并返回 sessionId */
     public String createSession(String agentCode) {
-        return createSession(agentCode, null);
-    }
-
-    /** 新建空会话并归入指定工作区分组（workspaceId 为 null 则不分组） */
-    public String createSession(String agentCode, String workspaceId) {
         String sessionId = UUID.randomUUID().toString();
         ChatSession session = new ChatSession();
         session.setSessionId(sessionId);
         session.setAgentCode(agentCode);
         session.setTitle("新会话");
-        session.setWorkspaceId(workspaceId);
         session.setStatus(SessionStatus.ACTIVE.name());
         session.setMessageCount(0);
         session.setCreatedAt(LocalDateTime.now());

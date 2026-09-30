@@ -1,6 +1,7 @@
 package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
@@ -13,6 +14,7 @@ import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.view.McpView;
+import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
@@ -61,8 +63,8 @@ import java.nio.file.Path;
 /**
  * 设置窗口：左侧分类菜单（含搜索）+ 右侧内容页（对标 Qoder 设置风格）。
  * <p>分页：个人资料 / 外观（主题·字体·语言，接入 {@link UiTheme}/{@link I18n}）/
- * 记忆（只读查看 workspace/MEMORY.md）/ 通用（数据与路径）/ 模型提供商 / 模型 /
- * 默认模型 / MCP 服务 / 工具权限。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
+ * 记忆（只读查看 workspace/MEMORY.md）/ 通用（数据与路径）/ 智能体 /
+ * 模型提供商 / 模型 / 默认模型 / MCP 服务 / 工具权限。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
  * 外观页改动即时生效；语言切换时整窗重建以刷新全部文案。</p>
  */
 @Component
@@ -80,12 +82,16 @@ public class SettingsWindow {
     @Autowired
     private SecurityAdminService securityAdminService;
 
+    @Autowired
+    private AgentAdminService agentAdminService;
+
     private final ListView<ModelProviderConfig> providerListView = new ListView<>();
     private final ListView<ModelConfig> modelListView = new ListView<>();
     /** 信息卡片固定宽度：不铺满整行；有内容时左对齐，空状态居中。 */
     private static final double CARD_WIDTH = 400;
     private final VBox providerCardsBox = new VBox(12);
     private final VBox modelCardsBox = new VBox(12);
+    private final VBox agentCardsBox = new VBox(12);
 
     private final TextField providerCodeField = new TextField();
     private final TextField providerNameField = new TextField();
@@ -238,6 +244,7 @@ public class SettingsWindow {
         addMenu(personal, "\uE713", I18n.t("settings.menu.general"), buildGeneralPage());
 
         Label model = addSection(I18n.t("settings.section.model"));
+        addMenu(model, "\uE99A", I18n.t("settings.menu.agents"), buildAgentPage());
         addMenu(model, "\uE753", I18n.t("settings.menu.providers"), buildProviderPage());
         addMenu(model, "\uE7B8", I18n.t("settings.menu.models"), buildModelPage());
         addMenu(model, "\uE8CC", I18n.t("settings.menu.default"), buildDefaultPage());
@@ -517,6 +524,179 @@ public class SettingsWindow {
         } catch (Exception e) {
             statusLabel.setText(I18n.t("settings.memory.revealFail", e.getMessage()));
         }
+    }
+
+    // ---- 智能体页 ----
+
+    private VBox buildAgentPage() {
+        VBox box = new VBox();
+        box.getStyleClass().add("settings-page");
+        box.setMaxWidth(Double.MAX_VALUE);
+        box.setMaxHeight(Double.MAX_VALUE);
+
+        VBox headText = new VBox(4);
+        Label title = new Label(I18n.t("settings.menu.agents"));
+        title.getStyleClass().add("page-title");
+        Label subtitle = new Label(I18n.t("settings.agents.subtitle"));
+        subtitle.getStyleClass().add("page-subtitle");
+        subtitle.setWrapText(true);
+        headText.getChildren().addAll(title, subtitle);
+
+        Button addBtn = new Button(I18n.t("settings.agent.add"));
+        addBtn.getStyleClass().add("btn-primary");
+        Label addIcon = new Label("\uE710");
+        addIcon.getStyleClass().add("icon");
+        addBtn.setGraphic(addIcon);
+        addBtn.setOnAction(e -> openAgentDialog(null));
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox header = new HBox(headText, spacer, addBtn);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        agentCardsBox.getStyleClass().add("provider-cards");
+        agentCardsBox.setFillWidth(false);
+        VBox.setVgrow(agentCardsBox, Priority.ALWAYS);
+        box.getChildren().addAll(header, agentCardsBox);
+        return box;
+    }
+
+    /** 依据库中数据重绘智能体信息卡片。 */
+    private void renderAgentCards() {
+        agentCardsBox.getChildren().clear();
+        List<AgentDefinition> agents = agentAdminService.list();
+        if (agents.isEmpty()) {
+            agentCardsBox.setAlignment(Pos.CENTER);
+            agentCardsBox.getChildren().add(agentEmptyState());
+            return;
+        }
+        agentCardsBox.setAlignment(Pos.TOP_LEFT);
+        for (AgentDefinition a : agents) {
+            agentCardsBox.getChildren().add(agentCard(a));
+        }
+    }
+
+    private VBox agentEmptyState() {
+        VBox box = new VBox();
+        box.getStyleClass().add("empty-state");
+        box.setMaxWidth(Double.MAX_VALUE);
+        box.setFillWidth(false);
+        Label icon = new Label("\uE99A");
+        icon.getStyleClass().add("empty-icon");
+        Label t = new Label(I18n.t("settings.agent.empty"));
+        t.getStyleClass().add("empty-title");
+        t.setTextAlignment(TextAlignment.CENTER);
+        Label d = new Label(I18n.t("settings.agent.emptyDesc"));
+        d.getStyleClass().add("empty-desc");
+        d.setWrapText(true);
+        d.setTextAlignment(TextAlignment.CENTER);
+        d.setMaxWidth(460);
+        box.getChildren().addAll(icon, t, d);
+        return box;
+    }
+
+    private VBox agentCard(AgentDefinition a) {
+        boolean builtIn = agentAdminService.isDefault(a.getAgentCode());
+
+        Label name = new Label(a.getAgentName() == null || a.getAgentName().isBlank()
+                ? a.getAgentCode() : a.getAgentName());
+        name.getStyleClass().add("provider-card-title");
+        Label badge = new Label(I18n.t(builtIn ? "settings.agent.builtIn" : "settings.agent.custom"));
+        badge.getStyleClass().addAll("badge", builtIn ? "badge-green" : "badge-gray");
+        HBox titleRow = new HBox(10, name, badge);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+
+        Button edit = iconTextButton("\uE70F", I18n.t("common.edit"), () -> openAgentDialog(a));
+        edit.getStyleClass().add("link-btn");
+        Region sp = new Region();
+        HBox.setHgrow(sp, Priority.ALWAYS);
+        HBox head;
+        if (builtIn) {
+            // 内置默认智能体不可删：它是所有未指定智能体的会话/任务的回退目标
+            head = new HBox(titleRow, sp, edit);
+        } else {
+            Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteAgent(a));
+            del.getStyleClass().addAll("link-btn", "link-btn-danger");
+            head = new HBox(titleRow, sp, edit, del);
+        }
+        head.setAlignment(Pos.CENTER_LEFT);
+
+        String model = a.getProviderCode() == null || a.getProviderCode().isBlank()
+                ? I18n.t("settings.agent.followDefault")
+                : a.getProviderCode() + " / " + a.getModelCode();
+        String params = a.getTemperature() == null && a.getMaxTokens() == null
+                ? I18n.t("settings.agent.followDefault")
+                : I18n.t("settings.agent.paramsValue", str(a.getTemperature()), str(a.getMaxTokens()));
+        VBox card = new VBox(8, head,
+                kvLine(I18n.t("settings.agent.desc"), a.getDescription()),
+                kvLine(I18n.t("settings.agent.prompt"), preview(a.getSystemPrompt())),
+                kvLine(I18n.t("settings.agent.model"), model),
+                kvLine(I18n.t("settings.agent.params"), params),
+                kvLine(I18n.t("settings.agent.workspace"), a.getWorkspaceDir()),
+                kvLine(I18n.t("settings.agent.skills"), capability(agentAdminService.declaredSkillNames(a.getSkillsJson()))),
+                kvLine(I18n.t("settings.agent.mcp"), capability(agentAdminService.declaredMcpNames(a.getMcpServersJson()))),
+                kvLine(I18n.t("settings.agent.usage"), I18n.t("settings.agent.usageValue",
+                        str(agentAdminService.sessionUsage(a.getAgentCode())),
+                        str(agentAdminService.taskUsage(a.getAgentCode())))));
+        card.getStyleClass().add("provider-card");
+        card.setPrefWidth(CARD_WIDTH);
+        card.setMaxWidth(CARD_WIDTH);
+        return card;
+    }
+
+    /** 人格可能很长，卡片内只预览折叠后的一小段。 */
+    private static String preview(String text) {
+        if (text == null || text.isBlank()) {
+            return null;
+        }
+        String flat = text.strip().replaceAll("\\s+", " ");
+        return flat.length() <= 72 ? flat : flat.substring(0, 72) + "\u2026";
+    }
+
+    /** MessageFormat 会给数字加上分组分隔符（2,000），计数与参数统一以文本传入。 */
+    private static String str(Object value) {
+        return value == null ? "-" : String.valueOf(value);
+    }
+
+    /**
+     * 能力行文本：白名单语义下「没有」必须写明，留白会被误读成「默认全部可用」。
+     */
+    private String capability(List<String> names) {
+        if (names.isEmpty()) {
+            return I18n.t("settings.agent.none");
+        }
+        I18n.Language lang = I18n.current();
+        boolean cjk = lang == I18n.Language.ZH_CN || lang == I18n.Language.ZH_TW;
+        return String.join(cjk ? "、" : ", ", names);
+    }
+
+    /** 弹智能体表单（与侧栏共用 {@link AgentDialog}），保存后刷列表。 */
+    private void openAgentDialog(AgentDefinition editing) {
+        AgentDialog.edit(hostWindow(), agentAdminService, editing).ifPresent(saved -> {
+            statusLabel.setText(I18n.t("settings.status.savedAgent", saved.getAgentName()));
+            reloadAll();
+        });
+    }
+
+    private void handleDeleteAgent(AgentDefinition sel) {
+        String code = sel.getAgentCode();
+        if (agentAdminService.isDefault(code)) {
+            statusLabel.setText(I18n.t("settings.status.defaultAgentUndeletable"));
+            return;
+        }
+        int sessions = agentAdminService.sessionUsage(code);
+        int tasks = agentAdminService.taskUsage(code);
+        if (sessions > 0 || tasks > 0) {
+            statusLabel.setText(I18n.t("settings.status.agentInUse", code, str(sessions), str(tasks)));
+            return;
+        }
+        if (!GimDialog.confirm(hostWindow(), I18n.t("settings.menu.agents"),
+                I18n.t("settings.agent.deleteConfirm", sel.getAgentName()))) {
+            return;
+        }
+        agentAdminService.delete(code);
+        statusLabel.setText(I18n.t("settings.status.deletedAgent", code));
+        reloadAll();
     }
 
     // ---- 提供商页 ----
@@ -1065,6 +1245,7 @@ public class SettingsWindow {
         refreshProviderCombos();
         renderProviderCards();
         renderModelCards();
+        renderAgentCards();
         providerCodeField.setDisable(false);
         modelCodeField.setDisable(false);
         // 回填当前默认
