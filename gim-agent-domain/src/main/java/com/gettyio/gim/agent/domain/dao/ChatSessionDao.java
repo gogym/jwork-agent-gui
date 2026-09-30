@@ -69,6 +69,11 @@ public class ChatSessionDao {
                 title, LocalDateTime.now(), sessionId);
     }
 
+    /** 手改标题：不碰 updated_at，重命名不该把一条老会话顶到列表最前 */
+    public int renameTitle(String sessionId, String title) {
+        return runner.update("UPDATE sessions SET title=? WHERE session_id=?", title, sessionId);
+    }
+
     public int incrementMessageCount(String sessionId, int delta) {
         return runner.update("UPDATE sessions SET message_count=message_count+?, updated_at=? WHERE session_id=?",
                 delta, LocalDateTime.now(), sessionId);

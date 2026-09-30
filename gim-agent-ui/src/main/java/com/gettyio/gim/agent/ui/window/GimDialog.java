@@ -6,6 +6,8 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
+import javafx.scene.control.TextFormatter;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.MouseButton;
@@ -22,11 +24,13 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
 
+import java.util.Optional;
+
 /**
  * 统一无边框对话框：与主窗口同款圆角壳（透明 Stage + 投影 + 圆角裁剪）+
  * 自绘标题栏（标题文本 + 关闭按钮，可拖动），替代系统装饰的 Alert / 裸 Stage。
- * <p>用法：{@link #message}/{@link #confirm}/{@link #choose} 覆盖消息与确认场景；
- * {@link #shell} 返回带空内容区的壳，调用方往 {@link Shell#body()} 塞任意表单内容。
+ * <p>用法：{@link #message}/{@link #confirm}/{@link #choose} 覆盖消息与确认场景，
+ * {@link #promptText} 覆盖单行改名场景；{@link #shell} 返回带空内容区的壳，调用方往 {@link Shell#body()} 塞任意表单内容。
  * 有 owner 时窗口模态并居中于 owner，无 owner 时应用级模态。</p>
  */
 public final class GimDialog {
@@ -92,11 +96,6 @@ public final class GimDialog {
         f.body.getChildren().add(actions);
         f.stage.showAndWait();
         return result[0];
-    }
-
-    /** 自定义内容对话框壳：无边框圆角窗口 + 标题栏，内容区由调用方填充。 */
-    public static Shell shell(Window owner, String title) {
-        return new Shell(frame(owner, title));
     }
 
     /** 自定义内容对话框壳：提供 {@link #body()} 内容容器与显示方法。 */
@@ -203,6 +202,56 @@ public final class GimDialog {
         stage.setScene(scene);
         stage.setOnShown(e -> centerOnOwner(stage));
         return new Frame(stage, body);
+    }
+
+    /**
+     * 单行输入对话框：确定返回去掉首尾空白的文本，取消 / 关闭返回空。
+     * <p>内容为空白时「确定」不可点，比弹一条错误提示省一轮；Enter 等同确定，Esc 关闭。</p>
+     *
+     * @param initial   框内预填的原值，打开即全选，直接输入就是覆盖
+     * @param maxLength 字符上限，超出后输入框本身就接不了
+     */
+    public static Optional<String> promptText(Window owner, String title, String label, String initial, int maxLength) {
+        String[] saved = {null};
+        Frame f = frame(owner, title);
+
+        TextField field = new TextField(initial == null ? "" : initial);
+        // TextField 没有 setMaxLength，超限的改动直接交给过滤器丢掉
+        field.setTextFormatter(new TextFormatter<>(change ->
+                change.getControlNewText().length() <= maxLength ? change : null));
+        field.setMaxWidth(Double.MAX_VALUE);
+        field.selectAll();
+
+        Label cap = new Label(label);
+        cap.getStyleClass().add("form-label");
+        VBox form = new VBox(4, cap, field);
+        form.setMinWidth(360);
+
+        Button cancel = actionButton(I18n.t("common.cancel"), false);
+        cancel.setOnAction(e -> f.stage.close());
+        Button ok = actionButton(I18n.t("common.ok"), true);
+        ok.setDisable(field.getText().isBlank());
+        ok.setOnAction(e -> {
+            String text = field.getText() == null ? "" : field.getText().trim();
+            if (!text.isEmpty()) {
+                saved[0] = text;
+                f.stage.close();
+            }
+        });
+        field.textProperty().addListener((obs, old, now) -> ok.setDisable(now == null || now.isBlank()));
+        // TextField 的 onAction 由 Enter 触发，与主输入框发送的手感一致
+        field.setOnAction(e -> ok.fire());
+
+        HBox actions = new HBox(8, cancel, ok);
+        actions.getStyleClass().add("dialog-actions");
+        f.body.getChildren().addAll(form, actions);
+        f.stage.showAndWait();
+        return Optional.ofNullable(saved[0]);
+    }
+
+    /** 自定义内容对话框壳：无边框圆角窗口 + 标题栏，内容区由调用方填充。 */
+    public static Shell shell(Window owner, String title) {
+        return new Shell(frame(owner, title));
     }
 
     private static Button closeButton(Stage stage) {

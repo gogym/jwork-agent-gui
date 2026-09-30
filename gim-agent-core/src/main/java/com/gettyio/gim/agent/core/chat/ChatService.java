@@ -23,7 +23,8 @@ public class ChatService {
 
     private static final Logger log = LoggerFactory.getLogger(ChatService.class);
 
-    private static final int TITLE_MAX_LEN = 30;
+    /** 会话标题长度上限：自动取名与手动重命名共用一个口径（UI 也拿它限输入框） */
+    public static final int TITLE_MAX_LEN = 30;
 
     private final AgentGateway gateway;
     private final GimDatabase db;
@@ -123,6 +124,23 @@ public class ChatService {
         db.conversationDao().deleteBySession(sessionId);
         db.sessionDao().deleteBySessionId(sessionId);
         log.info("删除会话: {}", sessionId);
+    }
+
+    /**
+     * 重命名会话：去首尾空白，超长截断到 {@link #TITLE_MAX_LEN}。
+     * <p>空白标题直接忽略，免得会话在列表里变成一行看不见的空白；也不刷新 updated_at，
+     * 列表按最近更新排序，改个名字不该调整会话位置。</p>
+     */
+    public void renameSession(String sessionId, String title) {
+        if (title == null || title.isBlank()) {
+            return;
+        }
+        String t = title.trim();
+        if (t.length() > TITLE_MAX_LEN) {
+            t = t.substring(0, TITLE_MAX_LEN);
+        }
+        db.sessionDao().renameTitle(sessionId, t);
+        log.info("重命名会话: {} -> {}", sessionId, t);
     }
 
     /** 新建空会话，立即落盘并返回 sessionId */

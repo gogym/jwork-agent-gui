@@ -47,6 +47,7 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
+import javafx.scene.input.MouseEvent;
 import javafx.geometry.Bounds;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
@@ -117,6 +118,8 @@ public class MainController {
     @FXML
     private HBox sessionsHeader;
     @FXML
+    private Button sessionsMenuButton;
+    @FXML
     private Label sessionsSectionCaret;
     @FXML
     private Label sessionsCount;
@@ -173,6 +176,8 @@ public class MainController {
     private boolean settingsOpen;
     /** 「会话」区域是否收起 */
     private boolean sessionsCollapsed;
+    /** 会话搜索框是否展开：默认收起，从「⋯」菜单点「搜索」才显示 */
+    private boolean searchOpen;
     /** 顶部卡片选中的智能体：新建会话归属它，它的会话构成侧栏列表，选中即写回偏好 */
     private String selectedAgentCode = DEFAULT_AGENT;
 
@@ -203,6 +208,14 @@ public class MainController {
         renderAgentSwitcher();
         agentSwitcher.setOnMouseClicked(e -> showAgentMenu());
         sessionSearchField.textProperty().addListener((obs, old, now) -> renderSessions());
+        // 搜索框不常显：展开走会话组的「⋯」菜单，按 Esc 收起
+        applySearchVisibility();
+        sessionSearchField.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.ESCAPE) {
+                searchOpen = false;
+                applySearchVisibility();
+            }
+        });
         refreshSessions();
         List<ChatSession> scoped = sessionsOfAgent();
         if (scoped.isEmpty()) {
@@ -719,11 +732,43 @@ public class MainController {
     /** 「会话」整块区域收起/展开（搜索框与列表联动，收起时不留空白） */
     private void toggleSessionsSection() {
         sessionsCollapsed = !sessionsCollapsed;
-        sessionSearchField.setVisible(!sessionsCollapsed);
-        sessionSearchField.setManaged(!sessionsCollapsed);
+        applySearchVisibility();
         sessionsBox.setVisible(!sessionsCollapsed);
         sessionsBox.setManaged(!sessionsCollapsed);
         sessionsSectionCaret.setRotate(sessionsCollapsed ? -90 : 0);
+    }
+
+    /**
+     * 搜索框显隐：既看「⋯」菜单的开关，也受「会话」区收起状态约束。
+     * <p>收起时一并清掉关键词，否则列表被一个看不见的条件过滤着，没人知道为什么少了几行。</p>
+     */
+    private void applySearchVisibility() {
+        boolean shown = searchOpen && !sessionsCollapsed;
+        sessionSearchField.setVisible(shown);
+        sessionSearchField.setManaged(shown);
+        if (!shown) {
+            sessionSearchField.setText("");
+        }
+    }
+
+    /** 会话组右侧「⋯」：弹出菜单，目前只有「搜索」 */
+    @FXML
+    public void handleSessionsMenu() {
+        ContextMenu menu = new ContextMenu();
+        MenuItem search = new MenuItem(I18n.t("sidebar.search.menu"), UiTheme.icon("\uE721"));
+        search.setOnAction(e -> {
+            searchOpen = true;
+            applySearchVisibility();
+            Platform.runLater(sessionSearchField::requestFocus);
+        });
+        menu.getItems().add(search);
+        menu.show(sessionsMenuButton, Side.BOTTOM, 0, 0);
+    }
+
+    /** 吃掉冒泡的点击：按钮在「会话」标题行里，不拦住顺手会把整块区域收起 */
+    @FXML
+    private void consumeClick(MouseEvent e) {
+        e.consume();
     }
 
     /**
@@ -767,13 +812,26 @@ public class MainController {
         switchToSession(s.getSessionId());
     }
 
-    /** 会话行「⋯」菜单：只有删除（换智能体在顶部卡片上做，会话不再跟着智能体转移） */
+    /** 会话行「⋯」菜单：重命名 + 删除（换智能体在顶部卡片上做，会话不再跟着智能体转移） */
     private ContextMenu sessionContextMenu(ChatSession s) {
         ContextMenu menu = new ContextMenu();
+        MenuItem rename = new MenuItem(I18n.t("session.rename.menu"), UiTheme.icon("\uE70F"));
+        rename.setOnAction(e -> renameSession(s));
         MenuItem del = new MenuItem(I18n.t("common.delete"), UiTheme.icon("\uE74D"));
         del.setOnAction(e -> confirmDeleteSession(s));
-        menu.getItems().add(del);
+        menu.getItems().addAll(rename, del);
         return menu;
+    }
+
+    /** 重命名会话：弹框预填当前标题；名字没改就不写库，也不重画列表 */
+    private void renameSession(ChatSession s) {
+        GimDialog.promptText(currentWindow(), I18n.t("session.rename.title"),
+                        I18n.t("session.rename.label"), s.getTitle(), ChatService.TITLE_MAX_LEN)
+                .filter(t -> !t.equals(s.getTitle()))
+                .ifPresent(t -> {
+                    chatService.renameSession(s.getSessionId(), t);
+                    refreshSessions();
+                });
     }
 
     private void confirmDeleteSession(ChatSession s) {

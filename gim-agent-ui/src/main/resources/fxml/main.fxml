@@ -50,6 +50,13 @@
                             <Label fx:id="sessionsSectionCaret" text="&#x25BC;" styleClass="ws-caret"/>
                             <Label fx:id="sectionSessions" text="会话" styleClass="section-title"/>
                             <Label fx:id="sessionsCount" styleClass="section-count"/>
+                            <Region HBox.hgrow="ALWAYS"/>
+                            <Button fx:id="sessionsMenuButton" styleClass="ws-mini-btn"
+                                    onMouseClicked="#consumeClick" onAction="#handleSessionsMenu">
+                                <graphic>
+                                    <Label styleClass="icon" text="&#xE712;"/>
+                                </graphic>
+                            </Button>
                         </HBox>
                         <TextField fx:id="sessionSearchField" styleClass="session-search"/>
                         <VBox fx:id="sessionsBox" spacing="2" styleClass="session-box"/>
