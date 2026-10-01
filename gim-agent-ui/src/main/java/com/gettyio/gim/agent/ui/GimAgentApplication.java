@@ -49,7 +49,7 @@ public class GimAgentApplication extends Application {
         AppShell shell = springContext.getBean(AppShell.class);
         shell.configure(stage, appRoot);
 
-        Scene scene = new Scene(shell.getNode(), 1360, 860, Color.TRANSPARENT);
+        Scene scene = new Scene(shell.getNode(), 1080, 760, Color.TRANSPARENT);
         UiTheme.apply(scene);
         StageResizer.attach(scene, stage);
         stage.setMinWidth(980);

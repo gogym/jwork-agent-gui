@@ -9,6 +9,10 @@ import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
 import org.springframework.stereotype.Component;
 
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Consumer;
+
 /**
  * 主窗口外壳：常驻的 {@code TRANSPARENT} 窗口骨架，顶部为自定义 {@link TitleBar}，
  * 中部为可切换的内容区（主界面 / 设置视图）。
@@ -38,6 +42,10 @@ public class AppShell {
     /** 磨玻璃遮罩层：盖在视图之上、标题栏之下，平时 opacity 为 0。 */
     private Region frostVeil;
     private BoxBlur frostBlur;
+    /** 标题栏实例；configure 后不为空。 */
+    private TitleBar titleBar;
+    /** 早于 configure() 注册的标题栏回调，装配时一次性刷入。 */
+    private final List<Consumer<TitleBar>> pendingTitleBarHooks = new ArrayList<>();
 
     /** 装配外壳：顶置自定义标题栏，中部放入主界面内容。必须在场景创建前调用。 */
     public void configure(Stage stage, Parent appContent) {
@@ -46,7 +54,8 @@ public class AppShell {
 
         this.body = new BorderPane();
         this.body.getStyleClass().add("window-shell");
-        this.body.setTop(new TitleBar(stage, this::onMaximizeChanged).getNode());
+        this.titleBar = new TitleBar(stage, this::onMaximizeChanged);
+        this.body.setTop(titleBar.getNode());
 
         this.contentHolder = new StackPane(appContent);
         this.frostVeil = new Region();
@@ -69,6 +78,29 @@ public class AppShell {
         this.root.getChildren().add(body);
 
         FrostedBackdrop.register(stage, this::applyFrost, this::clearFrost);
+
+        // 刷入早于 configure() 注册的标题栏钩子
+        if (!pendingTitleBarHooks.isEmpty()) {
+            List<Consumer<TitleBar>> snapshot = new ArrayList<>(pendingTitleBarHooks);
+            pendingTitleBarHooks.clear();
+            snapshot.forEach(hook -> hook.accept(titleBar));
+        }
+    }
+
+    /**
+     * 标题栏就绪回调：{@code configure()} 之后立即执行；之前则入队等装配完成后一次性刷入。
+     * <p>MainController 的 {@code @FXML initialize()} 早于 {@code configure()} 执行，需要这个机制才能将
+     * 按钮插到标题栏上。</p>
+     */
+    public void onTitleBarReady(Consumer<TitleBar> hook) {
+        if (hook == null) {
+            return;
+        }
+        if (titleBar != null) {
+            hook.accept(titleBar);
+        } else {
+            pendingTitleBarHooks.add(hook);
+        }
     }
 
     public Parent getNode() {

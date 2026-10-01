@@ -34,6 +34,8 @@ public final class TitleBar {
     private final BorderPane node = new BorderPane();
     private final Label maxIcon;
     private final java.util.function.Consumer<Boolean> maximizeListener;
+    /** 品牌区 HBox：[logo, title, spacer]；外部可在 spacer 前插入与标题同行右侧的按钮 */
+    private HBox brand;
 
     private double dragX;
     private double dragY;
@@ -64,6 +66,19 @@ public final class TitleBar {
         return node;
     }
 
+    /**
+     * 在标题右侧插入一个动作节点（位于 logo + title 之后、spacer 之前），
+     * 用于挂接与侧栏/面板相关的开关按钮。
+     */
+    public void addAfterBrand(javafx.scene.Node action) {
+        if (brand == null || action == null) {
+            return;
+        }
+        // 末尾是 spacer，将新节点插到 spacer 之前，保证不占据弹性空间
+        int insertAt = Math.max(0, brand.getChildren().size() - 1);
+        brand.getChildren().add(insertAt, action);
+    }
+
     private HBox buildBrand() {
         HBox brand = new HBox(8);
         brand.getStyleClass().add("title-brand");
@@ -75,6 +90,7 @@ public final class TitleBar {
         spacer.getStyleClass().add("title-spacer");
         HBox.setHgrow(spacer, Priority.ALWAYS);
         brand.getChildren().addAll(logo, text, spacer);
+        this.brand = brand;
         return brand;
     }
 

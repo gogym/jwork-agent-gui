@@ -30,7 +30,13 @@ import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import com.gettyio.gim.agent.ui.window.SessionSearchDialog;
 import com.gettyio.gim.agent.ui.window.SettingsWindow;
+import com.gettyio.gim.agent.ui.window.TitleBar;
 import io.agentscope.core.permission.PermissionMode;
+import javafx.animation.Animation;
+import javafx.animation.Interpolator;
+import javafx.animation.KeyFrame;
+import javafx.animation.KeyValue;
+import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
@@ -46,7 +52,7 @@ import javafx.scene.control.RadioMenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.TextField;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
@@ -55,16 +61,19 @@ import javafx.scene.layout.FlowPane;
 import javafx.scene.Parent;
 import javafx.scene.Node;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
+import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
+import javafx.scene.input.KeyEvent;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -109,6 +118,12 @@ public class MainController {
     private static final Duration FRAME_WINDOW = Duration.ofMillis(33);
     /** 侧栏偏好键：记住上次选择的智能体，新建会话默认归它 */
     private static final String PREF_SIDEBAR_AGENT = "sidebar.agent";
+    /** 侧栏偏好键：记住侧栏是否收起 */
+    private static final String PREF_SIDEBAR_COLLAPSED = "sidebar.collapsed";
+    /** 侧栏展开时整体宽度：VBox 固定 250 + sidebar-margin 左边距 12（伸缩动画的满量程） */
+    private static final double SIDEBAR_FULL_WIDTH = 262;
+    /** 侧栏伸缩动画时长（毫秒） */
+    private static final double SIDEBAR_ANIM_MS = 220;
     /** 智能体弹框的横向固定开销：弹框内边距 6×2 + 条目内边距 12×2（见 .context-menu / .menu-item） */
     private static final double AGENT_MENU_CHROME = 36;
     /** 卡片还没参与布局时的兜底弹框宽度：侧栏固定 250 扣掉左右内边距各 10 */
@@ -153,7 +168,7 @@ public class MainController {
     @FXML
     private VBox welcomePane;
     @FXML
-    private TextField inputField;
+    private TextArea inputField;
     @FXML
     private Button sendButton;
     @FXML
@@ -210,6 +225,13 @@ public class MainController {
     private Button modelButton;
     @FXML
     private Button approvalButton;
+    @FXML
+    private VBox sidebarVBox;
+    /** 侧栏最外层容器（sidebar-margin，左/下留白）：伸缩动画通过它的 maxWidth 实现 */
+    @FXML
+    private StackPane sidebarMargin;
+    /** 标题栏上侧栏开关按钮：在 initialize() 中构造，通过 AppShell.onTitleBarReady 挂入标题栏 */
+    private Button sidebarToggle;
 
     @Autowired
     private ChatService chatService;
@@ -246,6 +268,10 @@ public class MainController {
     private boolean settingsOpen;
     /** 「会话」区域是否收起 */
     private boolean sessionsCollapsed;
+    /** 左侧菜单栏是否收起 */
+    private boolean sidebarCollapsed;
+    /** 侧栏伸缩动画（复用：切换时若上一次还在跑先停下，避免叠加） */
+    private Timeline sidebarAnim;
     /** 顶部卡片选中的智能体：新建会话归属它，它的会话构成侧栏列表，选中即写回偏好 */
     private String selectedAgentCode = DEFAULT_AGENT;
     /** 待发送的图片附件（与 attachChipsBox 中的图片芯片一一对应） */
@@ -268,14 +294,27 @@ public class MainController {
     private ContextMenu attachMenu;
     /** 附件菜单最近一次关闭的时间戳（毫秒）：把「再点按钮」识别为关闭手势，避免自动收起后又被立即重开 */
     private long attachMenuHiddenAt;
+    /** 齿轮设置菜单：复用单一实例（与附件/模型/审批菜单同策略），避免多次点击累积弹出 */
+    private ContextMenu themeMenu;
+    /** 齿轮菜单最近一次关闭的时间戳（毫秒）：开关切换防护 */
+    private long themeMenuHiddenAt;
 
     @FXML
     private void initialize() {
         scrollPane.setFitToWidth(true);
         applyRoundedClip();
+        applySidebarClip();
+        applySidebarMarginClip();
         // 无消息时展示居中欢迎页，有消息后自动隐藏
         welcomePane.visibleProperty().bind(Bindings.isEmpty(messagesContainer.getChildren()));
         welcomePane.managedProperty().bind(welcomePane.visibleProperty());
+        // 多行输入框：Enter 发送、Shift+Enter 换行（事件过滤器抢在 TextArea 默认插换行之前拦截）
+        inputField.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() == KeyCode.ENTER && !e.isShiftDown()) {
+                e.consume();
+                handleSend();
+            }
+        });
 
         // 侧栏导航切换主区页面（对话 / 定时任务 / 技能）
         mainPages.getChildren().setAll(chatPage);
@@ -309,6 +348,11 @@ public class MainController {
         // 「会话」标题行点击：整块区域展开/收起
         sessionsHeader.setOnMouseClicked(e -> toggleSessionsSection());
 
+        // 恢复侧栏收起/展开状态
+        sidebarCollapsed = "true".equals(UserPrefs.get(PREF_SIDEBAR_COLLAPSED, "false"));
+        applySidebarState();
+        installSidebarToggle();
+
         // 底部终端抽屉：shell 进程退出时由视图回调宿主收起（进程与历史保留）
         terminalView.setOnCloseRequest(this::hideTerminal);
 
@@ -340,6 +384,35 @@ public class MainController {
         mainPages.setClip(clip);
     }
 
+    /** 侧栏圆角裁剪：与 CSS .sidebar background-radius 14 匹配，避免子节点溢出圆角。 */
+    private void applySidebarClip() {
+        if (sidebarVBox == null) {
+            return;
+        }
+        Rectangle clip = new Rectangle();
+        clip.setArcWidth(28);
+        clip.setArcHeight(28);
+        clip.widthProperty().bind(sidebarVBox.widthProperty());
+        clip.heightProperty().bind(sidebarVBox.heightProperty());
+        sidebarVBox.setClip(clip);
+    }
+
+    /**
+     * 侧栏外层容器裁剪：为伸缩动画铺路。
+     * <p>把 minWidth 压到 0，使容器 maxWidth 能缩到 0（否则会被内部 VBox 的 minWidth 250 顶住）；
+     * 再绑一个矩形 clip 到容器尺寸，收缩时把溢出的侧栏内容从右侧裁掉，形成擦除式动画。</p>
+     */
+    private void applySidebarMarginClip() {
+        if (sidebarMargin == null) {
+            return;
+        }
+        sidebarMargin.setMinWidth(0);
+        Rectangle clip = new Rectangle();
+        clip.widthProperty().bind(sidebarMargin.widthProperty());
+        clip.heightProperty().bind(sidebarMargin.heightProperty());
+        sidebarMargin.setClip(clip);
+    }
+
     /** 依据当前语言刷新主窗口静态文案（FXML 中的文本节点）。 */
     private void applyI18n() {
         navChatLabel.setText(I18n.t("nav.newTask"));
@@ -359,11 +432,23 @@ public class MainController {
             }
             terminalButton.getTooltip().setText(I18n.t("chat.terminal.toggle"));
         }
+        if (sidebarToggle != null) {
+            if (sidebarToggle.getTooltip() == null) {
+                sidebarToggle.setTooltip(new Tooltip());
+            }
+            sidebarToggle.getTooltip().setText(I18n.t("chat.sidebar.toggle"));
+        }
     }
 
     /** 底部齿轮：弹出设置菜单（设置 / 外观▶ / 语言▶ / 关于），对标 Qoder 交互 */
     private void buildThemeMenu() {
-        ContextMenu menu = new ContextMenu();
+        if (themeMenu == null) {
+            themeMenu = new ContextMenu();
+            themeMenu.setOnHiding(e -> themeMenuHiddenAt = System.currentTimeMillis());
+        } else {
+            themeMenu.getItems().clear();
+        }
+        ContextMenu menu = themeMenu;
 
         MenuItem settings = new MenuItem(I18n.t("menu.settings"), UiTheme.icon("\uE713"));
         settings.setAccelerator(new KeyCodeCombination(KeyCode.COMMA, KeyCombination.CONTROL_DOWN));
@@ -420,10 +505,10 @@ public class MainController {
         menu.getItems().addAll(settings, new SeparatorMenuItem(),
                 appearance, langMenu, new SeparatorMenuItem(), about);
         // 左键/右键统一弹出菜单，固定锚定在按钮左上角；超出屏幕时 JavaFX 自动调整
-        themeMenuButton.setOnAction(e -> showThemeMenu(menu));
+        themeMenuButton.setOnAction(e -> showThemeMenu());
         themeMenuButton.setOnContextMenuRequested(e -> {
             e.consume();
-            showThemeMenu(menu);
+            showThemeMenu();
         });
 
         // 全局快捷键 Ctrl+,（菜单未展开时也生效）
@@ -437,9 +522,17 @@ public class MainController {
         });
     }
 
-    /** 弹出设置菜单：整体落在齿轮按钮左上角（菜单右上角对齐按钮右上角） */
-    private void showThemeMenu(ContextMenu menu) {
-        if (menu.isShowing()) {
+    /** 弹出齿轮设置菜单：开关切换 + 防重复点击（与附件/模型/审批菜单同策略） */
+    private void showThemeMenu() {
+        if (themeMenu == null) {
+            return;
+        }
+        if (themeMenu.isShowing()) {
+            themeMenu.hide();  // 已弹出再点按钮：收起，做成开关切换
+            return;
+        }
+        // 弹窗在本次按钮点击前已被系统自动收起：视为「关闭」手势，不要立刻重开
+        if (System.currentTimeMillis() - themeMenuHiddenAt < 250) {
             return;
         }
         Bounds b = themeMenuButton.localToScreen(themeMenuButton.getBoundsInLocal());
@@ -447,17 +540,17 @@ public class MainController {
             return;
         }
         // 先临时弹出以量取真实尺寸，再把菜单右上角精确对齐按钮右上角（左上角视图）
-        menu.show(themeMenuButton, b.getMaxX(), b.getMinY());
-        Parent skin = (Parent) menu.getSkin().getNode();
+        themeMenu.show(themeMenuButton, b.getMaxX(), b.getMinY());
+        Parent skin = (Parent) themeMenu.getSkin().getNode();
         skin.applyCss();
         skin.layout();
         double w = skin.getBoundsInLocal().getWidth();
         double h = skin.getBoundsInLocal().getHeight();
         if (w > 0) {
-            menu.setX(b.getMaxX() - w);
+            themeMenu.setX(b.getMaxX() - w);
         }
         if (h > 0) {
-            menu.setY(b.getMinY() - h);
+            themeMenu.setY(b.getMinY() - h);
         }
     }
 
@@ -919,6 +1012,81 @@ public class MainController {
         sessionsBox.setVisible(!sessionsCollapsed);
         sessionsBox.setManaged(!sessionsCollapsed);
         sessionsSectionCaret.setRotate(sessionsCollapsed ? -90 : 0);
+    }
+
+    /** 左侧菜单栏展开/收起：点击工具栏按钮切换，带宽度过渡动画，状态持久化到偏好 */
+    @FXML
+    private void handleToggleSidebar() {
+        sidebarCollapsed = !sidebarCollapsed;
+        UserPrefs.put(PREF_SIDEBAR_COLLAPSED, String.valueOf(sidebarCollapsed));
+        animateSidebar(!sidebarCollapsed);
+    }
+
+    /** 启动侧栏伸缩动画：maxWidth 在 0 ↔ 满量程间缓动；收起后把容器设为鼠标透明 */
+    private void animateSidebar(boolean expand) {
+        if (sidebarMargin == null) {
+            return;
+        }
+        if (sidebarAnim != null && sidebarAnim.getStatus() == Animation.Status.RUNNING) {
+            sidebarAnim.stop();
+        }
+        sidebarMargin.setMouseTransparent(false);
+        double to = expand ? SIDEBAR_FULL_WIDTH : 0;
+        sidebarAnim = new Timeline(new KeyFrame(
+                javafx.util.Duration.millis(SIDEBAR_ANIM_MS),
+                new KeyValue(sidebarMargin.maxWidthProperty(), to, Interpolator.EASE_BOTH)));
+        sidebarAnim.setOnFinished(e -> sidebarMargin.setMouseTransparent(!expand));
+        sidebarAnim.play();
+    }
+
+    /** 根据当前 sidebarCollapsed 标志瞬时应用侧栏宽度（启动恢复用，不走动画） */
+    private void applySidebarState() {
+        if (sidebarMargin == null) {
+            return;
+        }
+        sidebarMargin.setMaxWidth(sidebarCollapsed ? 0 : SIDEBAR_FULL_WIDTH);
+        sidebarMargin.setMouseTransparent(sidebarCollapsed);
+    }
+
+    /** 构造侧栏开关按钮，挂到标题栏右侧（标题文字后、弹性 spacer 前） */
+    private void installSidebarToggle() {
+        if (sidebarToggle != null) {
+            return;
+        }
+        Button btn = new Button();
+        btn.setGraphic(buildSidebarToggleIcon());
+        btn.getStyleClass().add("sidebar-toggle");
+        btn.setFocusTraversable(false);
+        btn.setOnAction(e -> handleToggleSidebar());
+        sidebarToggle = btn;
+        appShell.onTitleBarReady(bar -> bar.addAfterBrand(btn));
+    }
+
+    /** 绘制侧栏开关图标：圆角矩形外框 + 左侧竖线分隔（匹配 Fluent “PanelLeft” 风格）。
+     *  <p>容器高度与按钮内容区（标题栏 38px）一致，形状画在容器垂直正中，
+     *  规避 Button 对无基线 graphic 顶部对齐导致的图标偏上问题。</p> */
+    private static Node buildSidebarToggleIcon() {
+        double paneH = 38;
+        double iconW = 14;
+        double iconH = 12;
+        double top = (paneH - iconH) / 2;
+        double left = 1;
+
+        Rectangle frame = new Rectangle(left, top, iconW, iconH);
+        frame.setArcWidth(4);
+        frame.setArcHeight(4);
+        frame.setFill(null);
+        frame.setStrokeWidth(1.4);
+        frame.getStyleClass().add("sidebar-icon-stroke");
+
+        Line divider = new Line(left + 4.5, top, left + 4.5, top + iconH);
+        divider.setStrokeWidth(1.4);
+        divider.getStyleClass().add("sidebar-icon-stroke");
+
+        Pane icon = new Pane(frame, divider);
+        icon.setPrefSize(16, paneH);
+        icon.setMinSize(16, paneH);
+        return icon;
     }
 
     /** 搜索按钮：弹出命令面板，在当前智能体的会话里按标题 / 会话 ID 检索，选中即打开。 */

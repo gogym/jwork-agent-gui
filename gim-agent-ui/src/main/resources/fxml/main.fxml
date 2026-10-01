@@ -6,7 +6,7 @@
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.Separator?>
 <?import javafx.scene.control.SplitPane?>
-<?import javafx.scene.control.TextField?>
+<?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.ToggleButton?>
 <?import javafx.scene.control.ToggleGroup?>
 <?import javafx.scene.layout.BorderPane?>
@@ -18,13 +18,14 @@
 
 <BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
             fx:controller="com.gettyio.gim.agent.ui.controller.MainController"
-            prefWidth="1360.0" prefHeight="860.0" styleClass="content-area">
+            prefWidth="1060.0" prefHeight="702.0" styleClass="content-area">
     <fx:define>
         <ToggleGroup fx:id="pageGroup"/>
     </fx:define>
     <left>
-        <VBox prefWidth="250.0" minWidth="250.0" maxWidth="250.0" styleClass="sidebar">
-            <VBox styleClass="agent-switch-wrap">
+        <StackPane fx:id="sidebarMargin" alignment="CENTER_LEFT" styleClass="sidebar-margin">
+            <VBox fx:id="sidebarVBox" prefWidth="250.0" minWidth="250.0" maxWidth="250.0" styleClass="sidebar">
+                <VBox styleClass="agent-switch-wrap">
                 <HBox fx:id="agentSwitcher" styleClass="agent-switch" alignment="CENTER_LEFT" spacing="10.0">
                     <Label fx:id="agentAvatar" styleClass="agent-switch-avatar" text="G"/>
                     <VBox spacing="2" maxWidth="Infinity" HBox.hgrow="ALWAYS">
@@ -103,7 +104,8 @@
                     </graphic>
                 </Button>
             </HBox>
-        </VBox>
+            </VBox>
+        </StackPane>
     </left>
     <center>
         <StackPane styleClass="content-margin">
@@ -138,8 +140,9 @@
                                 <VBox styleClass="input-wrap">
                                     <VBox styleClass="input-card">
                                         <FlowPane fx:id="attachChipsBox" styleClass="attach-chips"/>
-                                        <TextField fx:id="inputField" styleClass="input-field"
-                                                   promptText="描述任务，Enter 发送" onAction="#handleSend"/>
+                                        <TextArea fx:id="inputField" styleClass="input-field"
+                                                  promptText="描述任务，Enter 发送 / Shift+Enter 换行"
+                                                  wrapText="true" prefRowCount="2" minHeight="52.0"/>
                                         <HBox styleClass="card-footer">
                                             <Button fx:id="attachButton" styleClass="attach-button" onAction="#handleAttach">
                                                 <graphic>

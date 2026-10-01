@@ -235,12 +235,18 @@
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 12, 0.06, 0, 2);
 }
 
+/* 侧栏外部空隙：左/下与右侧内容区镜像对称（上接标题栏、右接内容区无间隙） */
+.sidebar-margin { -fx-padding: 0 0 12 12; -fx-background-color: transparent; }
+
 .sidebar {
     -fx-background-color: -gim-canvas;
+    -fx-background-radius: 14;
     -fx-border-color: transparent;
     -fx-border-width: 0;
     -fx-padding: 14 10 10 10;
     -fx-spacing: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 12, 0.06, 0, 2);
+    -fx-alignment: top-center;
 }
 
 .brand { -fx-padding: 2 6 12 6; -fx-spacing: 8; -fx-alignment: center-left; }
@@ -370,6 +376,24 @@
 .terminal-button:hover { -fx-background-color: -gim-hover; }
 .terminal-button .icon { -fx-text-fill: -gim-text-3; }
 
+/* 标题栏右侧侧栏开关按钮：与终端按钮同族（透明底 + hover 淡色），适配 38px 标题栏高度 */
+.sidebar-toggle {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-min-width: 32;
+    -fx-min-height: 38;
+    -fx-pref-height: 38;
+    -fx-padding: 0 8 0 8;
+    -fx-graphic-text-gap: 0;
+    -fx-content-display: graphic-only;
+    -fx-cursor: hand;
+    -fx-alignment: center;
+}
+.sidebar-toggle:hover { -fx-background-color: -gim-hover; }
+.sidebar-toggle:pressed { -fx-background-color: -gim-press; }
+/* 图标由 Rectangle + Line 绘制（PanelLeft 风格），描边色跟随标题文字色阶 */
+.sidebar-icon-stroke { -fx-stroke: -gim-text-2; }
+
 /* ---------- 底部内嵌终端抽屉（参考 Qoder 底部终端样式） ---------- */
 .chat-split { -fx-padding: 0; -fx-background-color: transparent; -fx-box-border: transparent; }
 .chat-split > .split-pane-divider {
@@ -419,8 +443,10 @@
 .terminal-host { -fx-padding: 12 8 10 8; -fx-background-color: -gim-bg; }
 .terminal-error { -fx-text-fill: -gim-badge-red-fg; -fx-padding: 12; }
 
-.input-wrap { -fx-padding: 10 24 20 24; }
+/* 输入区：卡片钉住最大宽度并居中，侧栏收起使聊天区变宽时输入框不跟着拉长 */
+.input-wrap { -fx-padding: 10 24 20 24; -fx-alignment: top-center; }
 .input-card {
+    -fx-max-width: 820;
     -fx-background-color: -gim-bg;
     -fx-background-radius: 16;
     -fx-border-color: -gim-border-4;
@@ -434,8 +460,11 @@
     -fx-font-size: 14px;
     -fx-text-fill: -gim-text-title;
     -fx-prompt-text-fill: -gim-text-5;
+    -fx-padding: 2 4 2 4;
 }
 .input-field:focused { -fx-border-color: transparent; -fx-background-color: transparent; }
+/* 多行 TextArea：内部 content 兑底透明，避免全局 .text-area 的 -gim-input-bg 漏白，使输入区融入卡片 */
+.input-field > .content { -fx-background-color: transparent; }
 .card-footer { -fx-padding: 10 0 0 0; -fx-alignment: center-left; -fx-spacing: 8; }
 .model-hint { -fx-text-fill: -gim-text-4; -fx-font-size: 12px; }
 .send-button {
