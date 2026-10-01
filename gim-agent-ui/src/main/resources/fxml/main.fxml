@@ -44,6 +44,15 @@
                     </HBox>
                 </graphic>
             </ToggleButton>
+            <!-- 会话搜索：按钮触发命令面板（弹层内搜索当前智能体的会话） -->
+            <HBox styleClass="session-search-bar" alignment="CENTER_LEFT">
+                <Button fx:id="searchButton" styleClass="session-search-btn" maxWidth="Infinity"
+                        HBox.hgrow="ALWAYS" onAction="#handleOpenSearch">
+                    <graphic>
+                        <Label styleClass="icon" text="&#xE721;"/>
+                    </graphic>
+                </Button>
+            </HBox>
             <ScrollPane fx:id="sidebarScroll" styleClass="sidebar-scroll" fitToWidth="true"
                         hbarPolicy="NEVER" VBox.vgrow="ALWAYS">
                 <content>
@@ -53,14 +62,7 @@
                             <Label fx:id="sectionSessions" text="会话" styleClass="section-title"/>
                             <Label fx:id="sessionsCount" styleClass="section-count"/>
                             <Region HBox.hgrow="ALWAYS"/>
-                            <Button fx:id="sessionsMenuButton" styleClass="ws-mini-btn"
-                                    onMouseClicked="#consumeClick" onAction="#handleSessionsMenu">
-                                <graphic>
-                                    <Label styleClass="icon" text="&#xE712;"/>
-                                </graphic>
-                            </Button>
                         </HBox>
-                        <TextField fx:id="sessionSearchField" styleClass="session-search"/>
                         <VBox fx:id="sessionsBox" spacing="2" styleClass="session-box"/>
                     </VBox>
                 </content>

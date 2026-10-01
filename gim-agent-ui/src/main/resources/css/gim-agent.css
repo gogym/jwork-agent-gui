@@ -779,8 +779,8 @@
 .icon-btn:hover { -fx-background-color: -gim-cell-hover; }
 .search-field {
     -fx-pref-width: 220;
-    -fx-background-radius: 999;
-    -fx-border-radius: 999;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
     -fx-padding: 5 12 5 12;
 }
 
@@ -976,12 +976,88 @@
     -fx-min-width: 10px;
     -fx-alignment: center;
 }
-/* 标题搜索框：圆角与会话行宽度对齐 */
-.session-search {
-    -fx-padding: 4 10 4 10;
-    -fx-background-radius: 999;
-    -fx-border-radius: 999;
+/* 会话搜索栏：不加左右内边距（与「新任务」同宽对齐），顶部留白与上方拉开间距 */
+.session-search-bar {
+    -fx-padding: 6 0 0 0;
+}
+/* 搜索按钮：普通按钮样式（灰底、无描边），点击弹出命令面板 */
+.session-search-btn {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 8;
+    -fx-padding: 6 12 6 12;
+    -fx-graphic-text-gap: 8;
+    -fx-alignment: center-left;
+    -fx-font-size: 13px;
+    -fx-text-fill: -gim-text-2;
+    -fx-cursor: hand;
+}
+.session-search-btn:hover   { -fx-background-color: -gim-btn-hover; }
+.session-search-btn:pressed { -fx-background-color: -gim-btn-press; }
+.session-search-btn .icon { -fx-font-size: 14px; -fx-text-fill: -gim-icon; }
+
+/* ---------- 会话搜索命令面板（SessionSearchDialog） ---------- */
+/* 弹层根：铺满宿主窗口的遮罩。必须是有 alpha 的半透明填充（不能全透明），
+   否则卡片以外区域不绘制像素，Windows 上点击会穿透到被模态阻塞的宿主窗，点不到也关不掉；
+   这层浅遮罩既能接住「点外面关闭」的点击，又叠加在磨玻璃模糊之上增强模态层次 */
+.palette-root {
+    -fx-background-color: rgba(0, 0, 0, 0.12);
+}
+/* 命令面板卡片：圆角 + 黑色浓投影拉出层次 */
+.palette-card {
+    -fx-background-color: -gim-content;
+    -fx-background-radius: 16;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 16;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 26, 0.15, 0, 10);
+}
+.palette-top {
+    -fx-padding: 14 16 12 16;
+    -fx-border-color: transparent transparent -gim-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+/* 输入框下的提示行：左分组名，右键盘提示 + 计数 */
+.palette-hint-bar {
+    -fx-padding: 8 16 8 16;
+    -fx-alignment: center-left;
+}
+.palette-hint-group, .palette-hint-word, .palette-hint-count {
     -fx-font-size: 12px;
+    -fx-text-fill: -gim-text-4;
+}
+/* 键盘小方片：↑ / ↓ / Enter */
+.palette-key {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 4;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 4;
+    -fx-padding: 1 6 1 6;
+    -fx-font-size: 11px;
+    -fx-text-fill: -gim-text-3;
+    -fx-min-width: 18;
+    -fx-alignment: center;
+}
+.palette-search {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-font-size: 15px;
+    -fx-text-fill: -gim-text-title;
+    -fx-prompt-text-fill: -gim-text-5;
+}
+.palette-search:focused { -fx-background-color: transparent; -fx-border-color: transparent; }
+.palette-list {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 6;
+}
+.palette-list .list-cell { -fx-background-color: transparent; -fx-padding: 3 4 3 4; }
+.palette-row { -fx-padding: 7 10 7 10; -fx-background-radius: 8; }
+.palette-row-title { -fx-font-size: 13px; -fx-text-fill: -gim-text-2; }
+.palette-row-date { -fx-font-size: 12px; -fx-text-fill: -gim-text-5; }
+.palette-empty {
+    -fx-padding: 24 16 24 16;
+    -fx-text-fill: -gim-text-5;
+    -fx-font-size: 13px;
+    -fx-alignment: center;
 }
 .session-box { -fx-padding: 0 8 0 6; }
 /* 当前智能体还没有会话时的提示行 */

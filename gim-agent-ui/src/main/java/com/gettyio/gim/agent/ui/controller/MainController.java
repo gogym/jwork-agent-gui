@@ -26,6 +26,7 @@ import com.gettyio.gim.agent.ui.view.TasksView;
 import com.gettyio.gim.agent.ui.window.AgentDialog;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.SessionSearchDialog;
 import com.gettyio.gim.agent.ui.window.SettingsWindow;
 import io.agentscope.core.permission.PermissionMode;
 import javafx.application.Platform;
@@ -61,11 +62,11 @@ import javafx.scene.shape.Rectangle;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
-import javafx.scene.input.MouseEvent;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import org.slf4j.Logger;
@@ -115,6 +116,18 @@ public class MainController {
     private static final double AGENT_ITEM_ICON_WIDTH = 26;
     /** 单张附件图片的软上限：超过则不加入待发列表（8MB） */
     private static final long MAX_IMAGE_BYTES = 8L * 1024 * 1024;
+    /** 文件夹附件目录树的最大展开深度 */
+    private static final int MAX_TREE_DEPTH = 3;
+    /** 文件夹附件目录树最多列出的条目数：避免超大目录撑爆上下文 */
+    private static final int MAX_TREE_ENTRIES = 300;
+    /** 「文件」附件可选的文本/代码类扩展名（对齐 Qoder：喂给模型的是文本上下文，不含 PDF/Office 二进制） */
+    private static final String[] CODE_EXTENSIONS = {
+            "*.java", "*.kt", "*.groovy", "*.scala", "*.py", "*.js", "*.jsx", "*.ts", "*.tsx", "*.vue",
+            "*.html", "*.htm", "*.css", "*.scss", "*.less", "*.c", "*.h", "*.cpp", "*.hpp", "*.cc",
+            "*.cs", "*.go", "*.rs", "*.rb", "*.php", "*.swift", "*.m", "*.mm", "*.sql", "*.sh",
+            "*.bat", "*.ps1", "*.cmd", "*.json", "*.xml", "*.yml", "*.yaml", "*.toml", "*.ini",
+            "*.properties", "*.md", "*.markdown", "*.txt", "*.csv", "*.log", "*.rst"
+    };
 
     @FXML
     private ScrollPane scrollPane;
@@ -145,8 +158,6 @@ public class MainController {
     @FXML
     private HBox sessionsHeader;
     @FXML
-    private Button sessionsMenuButton;
-    @FXML
     private Label sessionsSectionCaret;
     @FXML
     private Label sessionsCount;
@@ -159,7 +170,7 @@ public class MainController {
     @FXML
     private Label agentDescLabel;
     @FXML
-    private TextField sessionSearchField;
+    private Button searchButton;
     @FXML
     private Label navChatLabel;
     @FXML
@@ -218,12 +229,12 @@ public class MainController {
     private boolean settingsOpen;
     /** 「会话」区域是否收起 */
     private boolean sessionsCollapsed;
-    /** 会话搜索框是否展开：默认收起，从「⋯」菜单点「搜索」才显示 */
-    private boolean searchOpen;
     /** 顶部卡片选中的智能体：新建会话归属它，它的会话构成侧栏列表，选中即写回偏好 */
     private String selectedAgentCode = DEFAULT_AGENT;
-    /** 待发送的图片附件（与 attachChipsBox 芯片一一对应） */
+    /** 待发送的图片附件（与 attachChipsBox 中的图片芯片一一对应） */
     private final List<ImageAttachment> pendingImages = new ArrayList<>();
+    /** 待发送的文件/文件夹引用（与 attachChipsBox 中的引用芯片一一对应）；发送时拼进正文，由 Agent 用文件工具按需读取 */
+    private final List<FileRef> pendingRefs = new ArrayList<>();
     /** 当前审批档位（工具调用权限模式）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
     private PermissionMode approvalMode = PermissionMode.DEFAULT;
     /** 审批选择菜单：复用单一实例（与齿轮菜单同策略），避免每次 new 导致旧弹出窗阴影/落点累积漂移 */
@@ -236,6 +247,10 @@ public class MainController {
     private ContextMenu modelMenu;
     /** 模型菜单最近一次关闭的时间戳（毫秒）：同审批菜单的开关切换 */
     private long modelMenuHiddenAt;
+    /** 附件选择菜单：复用单一实例（与审批/模型菜单同策略），避免每次 new 导致旧弹出窗阴影/落点累积漂移 */
+    private ContextMenu attachMenu;
+    /** 附件菜单最近一次关闭的时间戳（毫秒）：把「再点按钮」识别为关闭手势，避免自动收起后又被立即重开 */
+    private long attachMenuHiddenAt;
 
     @FXML
     private void initialize() {
@@ -263,15 +278,6 @@ public class MainController {
         selectedAgentCode = restoreSelectedAgent();
         renderAgentSwitcher();
         agentSwitcher.setOnMouseClicked(e -> showAgentMenu());
-        sessionSearchField.textProperty().addListener((obs, old, now) -> renderSessions());
-        // 搜索框不常显：展开走会话组的「⋯」菜单，按 Esc 收起
-        applySearchVisibility();
-        sessionSearchField.setOnKeyPressed(e -> {
-            if (e.getCode() == KeyCode.ESCAPE) {
-                searchOpen = false;
-                applySearchVisibility();
-            }
-        });
         refreshSessions();
         List<ChatSession> scoped = sessionsOfAgent();
         if (scoped.isEmpty()) {
@@ -317,7 +323,7 @@ public class MainController {
         navTasksLabel.setText(I18n.t("nav.tasks"));
         navSkillsLabel.setText(I18n.t("nav.skills"));
         sectionSessions.setText(I18n.t("section.sessions"));
-        sessionSearchField.setPromptText(I18n.t("sidebar.search.prompt"));
+        searchButton.setText(I18n.t("sidebar.search.prompt"));
         userNameLabel.setText(I18n.t("user.local"));
         welcomeTitle.setText(I18n.t("welcome.title"));
         welcomeSubtitle.setText(I18n.t("welcome.subtitle"));
@@ -494,7 +500,8 @@ public class MainController {
         String text = inputField.getText();
         boolean hasText = text != null && !text.isBlank();
         boolean hasImages = !pendingImages.isEmpty();
-        if (!hasText && !hasImages) {
+        boolean hasRefs = !pendingRefs.isEmpty();
+        if (!hasText && !hasImages && !hasRefs) {
             return;
         }
         if (currentSessionId == null) {
@@ -504,10 +511,15 @@ public class MainController {
         }
         ModelOption model = selectedModel;
         List<ImageAttachment> images = List.copyOf(pendingImages);
+        String refBlock = renderRefBlock(List.copyOf(pendingRefs));
         String body = hasText ? text : "";
+        if (!refBlock.isEmpty()) {
+            body = body.isEmpty() ? refBlock : body + "\n\n" + refBlock;
+        }
 
         inputField.clear();
         pendingImages.clear();
+        pendingRefs.clear();
         attachChipsBox.getChildren().clear();
         sendButton.setDisable(true);
         appendUserBubble(body, thumbsFromBase64(images));
@@ -631,7 +643,8 @@ public class MainController {
     }
 
     /**
-     * 渲染侧栏会话列表：只显示当前选中智能体的会话（顶部卡片决定这一份数据），命中搜索词的才显示。
+     * 渲染侧栏会话列表：只显示当前选中智能体的会话（顶部卡片决定这一份数据）。
+     * <p>关键词过滤已交给搜索命令面板（{@link SessionSearchDialog}），列表本身不再过滤。</p>
      * <p>手动重建 VBox 子节点（会话数量级为几十，无需虚拟化）。</p>
      */
     private void renderSessions() {
@@ -639,20 +652,13 @@ public class MainController {
             return;
         }
         sessionsBox.getChildren().clear();
-        String needle = sessionSearchField.getText() == null
-                ? "" : sessionSearchField.getText().trim().toLowerCase();
         List<ChatSession> scoped = sessionsOfAgent();
-        int shown = 0;
         for (ChatSession s : scoped) {
-            if (needle.isEmpty() || (s.getTitle() != null
-                    && s.getTitle().toLowerCase().contains(needle))) {
-                sessionsBox.getChildren().add(buildSessionRow(s));
-                shown++;
-            }
+            sessionsBox.getChildren().add(buildSessionRow(s));
         }
         sessionsCount.setText(String.valueOf(scoped.size()));
-        if (shown == 0) {
-            Label empty = new Label(I18n.t(needle.isEmpty() ? "sessions.empty.none" : "sessions.empty.search"));
+        if (scoped.isEmpty()) {
+            Label empty = new Label(I18n.t("sessions.empty.none"));
             empty.getStyleClass().add("sessions-empty");
             sessionsBox.getChildren().add(empty);
         }
@@ -844,46 +850,18 @@ public class MainController {
         dropForeignSession();
     }
 
-    /** 「会话」整块区域收起/展开（搜索框与列表联动，收起时不留空白） */
+    /** 「会话」整块区域收起/展开（仅控列表；搜索已改为命令面板，不受折叠影响） */
     private void toggleSessionsSection() {
         sessionsCollapsed = !sessionsCollapsed;
-        applySearchVisibility();
         sessionsBox.setVisible(!sessionsCollapsed);
         sessionsBox.setManaged(!sessionsCollapsed);
         sessionsSectionCaret.setRotate(sessionsCollapsed ? -90 : 0);
     }
 
-    /**
-     * 搜索框显隐：既看「⋯」菜单的开关，也受「会话」区收起状态约束。
-     * <p>收起时一并清掉关键词，否则列表被一个看不见的条件过滤着，没人知道为什么少了几行。</p>
-     */
-    private void applySearchVisibility() {
-        boolean shown = searchOpen && !sessionsCollapsed;
-        sessionSearchField.setVisible(shown);
-        sessionSearchField.setManaged(shown);
-        if (!shown) {
-            sessionSearchField.setText("");
-        }
-    }
-
-    /** 会话组右侧「⋯」：弹出菜单，目前只有「搜索」 */
+    /** 搜索按钮：弹出命令面板，在当前智能体的会话里按标题 / 会话 ID 检索，选中即打开。 */
     @FXML
-    public void handleSessionsMenu() {
-        ContextMenu menu = new ContextMenu();
-        MenuItem search = new MenuItem(I18n.t("sidebar.search.menu"), UiTheme.icon("\uE721"));
-        search.setOnAction(e -> {
-            searchOpen = true;
-            applySearchVisibility();
-            Platform.runLater(sessionSearchField::requestFocus);
-        });
-        menu.getItems().add(search);
-        menu.show(sessionsMenuButton, Side.BOTTOM, 0, 0);
-    }
-
-    /** 吃掉冒泡的点击：按钮在「会话」标题行里，不拦住顺手会把整块区域收起 */
-    @FXML
-    private void consumeClick(MouseEvent e) {
-        e.consume();
+    public void handleOpenSearch() {
+        SessionSearchDialog.show(currentWindow(), sessionsOfAgent(), this::openSession);
     }
 
     /**
@@ -985,21 +963,156 @@ public class MainController {
 
     // ===================== 输入框工具条：附件 / 模型 / 审批 =====================
 
-    /** 回形针按钮：多选图片文件，读成 Base64 加入待发列表并渲染缩略图芯片。 */
+    /**
+     * 回形针按钮：弹出「文件 / 文件夹」子菜单。
+     * <p>图片不单列——它本就是文件的一种：在「文件」选择器里选中图片仍走 Base64 多模态通道，
+     * 选中其它文件则只记路径引用，发送时拼进正文由 Agent 用文件工具按需读取。</p>
+     * <p>文件夹走 {@link DirectoryChooser}（{@code FileChooser} 本身不支持选目录）。</p>
+     */
     @FXML
     public void handleAttach() {
+        if (attachMenu == null) {
+            attachMenu = new ContextMenu();
+            attachMenu.setOnHiding(e -> attachMenuHiddenAt = System.currentTimeMillis());
+        }
+        if (attachMenu.isShowing()) {
+            attachMenu.hide();   // 已弹出再点按钮：收起，做成开关切换
+            return;
+        }
+        // 弹窗在本次按钮点击前已被系统自动收起（isShowing 已为 false）：视为「关闭」手势，不要立刻重开
+        if (System.currentTimeMillis() - attachMenuHiddenAt < 250) {
+            return;
+        }
+        // 每次重灌条目：保证文案随语言即时刷新
+        attachMenu.getItems().setAll(
+                attachMenuItem(I18n.t("attach.menu.file"), "\uE8A5", this::chooseFiles),
+                attachMenuItem(I18n.t("attach.menu.folder"), "\uE8B7", this::chooseFolder));
+        showMenuAboveWithinWindow(attachMenu, attachButton);
+    }
+
+    /** 附件菜单条目：图标 + 文案，点击执行对应选择动作。 */
+    private static MenuItem attachMenuItem(String text, String glyph, Runnable action) {
+        MenuItem item = new MenuItem(text, UiTheme.icon(glyph));
+        item.setOnAction(e -> action.run());
+        return item;
+    }
+
+    /**
+     * 多选文件：默认「所有文件」（图片与其它文件都能选），另附「图片」「代码/文本」过滤项。
+     * <p>按扩展名分流：图片走 {@link #addPendingImage}（Base64→多模态），其它文件走 {@link FileRef}
+     * 路径引用（发送时拼进正文，由 Agent 用文件工具读取）。</p>
+     */
+    private void chooseFiles() {
         FileChooser chooser = new FileChooser();
-        chooser.setTitle(I18n.t("input.attach"));
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
-                I18n.t("attach.filter"), "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp"));
+        chooser.setTitle(I18n.t("attach.menu.file"));
+        chooser.getExtensionFilters().addAll(
+                new FileChooser.ExtensionFilter(I18n.t("attach.filter.all"), "*.*", "*"),
+                new FileChooser.ExtensionFilter(I18n.t("attach.filter"), "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp"),
+                new FileChooser.ExtensionFilter(I18n.t("attach.filter.code"), CODE_EXTENSIONS));
         List<File> files = chooser.showOpenMultipleDialog(currentWindow());
         if (files == null || files.isEmpty()) {
             return;
         }
         for (File f : files) {
-            addPendingImage(f);
+            if (isImage(f.getName())) {
+                addPendingImage(f);
+            } else {
+                addPendingRef(new FileRef("file", f.getName(), f.getAbsolutePath(), null));
+            }
         }
         inputField.requestFocus();
+    }
+
+    /** 按扩展名判定是否为图片（与 {@link #mimeOf} 支持的格式一致）。 */
+    private static boolean isImage(String name) {
+        String n = name.toLowerCase(Locale.ROOT);
+        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
+                || n.endsWith(".gif") || n.endsWith(".bmp") || n.endsWith(".webp");
+    }
+
+    /** 选择单个文件夹：采集目录树文本 + 根路径引用加入待发。 */
+    private void chooseFolder() {
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle(I18n.t("attach.menu.folder"));
+        File dir = chooser.showDialog(currentWindow());
+        if (dir == null) {
+            return;
+        }
+        addPendingRef(new FileRef("folder", dir.getName(), dir.getAbsolutePath(), buildTree(dir.toPath())));
+        inputField.requestFocus();
+    }
+
+    /** 加入一个文件/文件夹引用并渲染对应芯片。 */
+    private void addPendingRef(FileRef ref) {
+        pendingRefs.add(ref);
+        attachChipsBox.getChildren().add(buildRefChip(ref));
+    }
+
+    /** 引用芯片：类型图标 + 名称（截断，悬停看全路径）+ 右上角移除标记。 */
+    private HBox buildRefChip(FileRef ref) {
+        Label icon = UiTheme.icon("folder".equals(ref.kind()) ? "\uE8B7" : "\uE8A5");
+        icon.getStyleClass().add("approval-icon");
+        Label name = new Label(ref.name());
+        name.getStyleClass().add("attach-ref-name");
+        name.setMaxWidth(160);
+        name.setEllipsisString("\u2026");
+        name.setTooltip(new Tooltip(ref.path()));
+        Label remove = new Label("\u00D7");
+        remove.getStyleClass().add("attach-remove");
+        HBox chip = new HBox(4, icon, name, remove);
+        chip.getStyleClass().add("attach-chip");
+        chip.setAlignment(Pos.CENTER);
+        remove.setOnMouseClicked(e -> {
+            pendingRefs.remove(ref);
+            attachChipsBox.getChildren().remove(chip);
+        });
+        return chip;
+    }
+
+    /**
+     * 生成发给模型的引用块文本：逐条列出文件绝对路径 / 文件夹根路径与目录树，并提示 Agent 用文件工具读取。
+     * <p>不内联文件内容，只给路径——对齐「路径引用 + 工具读取」设计，也能撑住大文件与整个目录。</p>
+     */
+    private String renderRefBlock(List<FileRef> refs) {
+        if (refs == null || refs.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append(I18n.t("attach.ref.header")).append('\n');
+        for (FileRef r : refs) {
+            if ("folder".equals(r.kind())) {
+                sb.append(I18n.t("attach.ref.folder")).append(": ").append(r.path()).append('\n');
+                if (r.tree() != null && !r.tree().isBlank()) {
+                    sb.append(I18n.t("attach.ref.tree")).append(":\n").append(r.tree()).append('\n');
+                }
+            } else {
+                sb.append(I18n.t("attach.ref.file")).append(": ").append(r.path()).append('\n');
+            }
+        }
+        sb.append(I18n.t("attach.ref.hint"));
+        return sb.toString();
+    }
+
+    /** 受限深度/条目数地枚举目录树，返回缩进文本（根目录自身不列出）。 */
+    private String buildTree(Path root) {
+        StringBuilder sb = new StringBuilder();
+        try (var stream = Files.walk(root, MAX_TREE_DEPTH)) {
+            stream.filter(p -> !p.equals(root))
+                    .sorted()
+                    .limit(MAX_TREE_ENTRIES)
+                    .forEach(p -> {
+                        int depth = root.relativize(p).getNameCount() - 1;
+                        if (depth < 0) {
+                            depth = 0;
+                        }
+                        String indent = "  ".repeat(depth);
+                        String name = p.getFileName().toString() + (Files.isDirectory(p) ? "/" : "");
+                        sb.append(indent).append(name).append('\n');
+                    });
+        } catch (IOException | RuntimeException e) {
+            log.warn("枚举目录树失败: {}", root, e);
+        }
+        return sb.toString().trim();
     }
 
     private void addPendingImage(File file) {
@@ -1408,6 +1521,10 @@ public class MainController {
             log.warn("读取附件缩略图失败: {}", rel, e);
             return null;
         }
+    }
+
+    /** 待发文件/文件夹引用：发送时拼成正文引用块由 Agent 用文件工具读取，UI 侧渲染为图标+名称芯片。 */
+    private record FileRef(String kind, String name, String path, String tree) {
     }
 
     /** 模型菜单条目：providerCode/modelCode 同时为空表示「跟随默认」（不覆盖）；携带图标、提供商说明与多模态标记供菜单富渲染。 */
