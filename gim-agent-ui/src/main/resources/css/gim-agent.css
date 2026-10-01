@@ -359,6 +359,66 @@
     -fx-text-fill: -gim-text-3;
 }
 
+/* 右上角终端开关按钮：与附件按钮同族（图标透明底、悬停转淡） */
+.terminal-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 4 8 4 8;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+}
+.terminal-button:hover { -fx-background-color: -gim-hover; }
+.terminal-button .icon { -fx-text-fill: -gim-text-3; }
+
+/* ---------- 底部内嵌终端抽屉（参考 Qoder 底部终端样式） ---------- */
+.chat-split { -fx-padding: 0; -fx-background-color: transparent; -fx-box-border: transparent; }
+.chat-split > .split-pane-divider {
+    -fx-background-color: -gim-border-4;
+    -fx-background-insets: 0;
+    -fx-padding: 0 1 0 1;
+}
+.chat-main { -fx-background-color: transparent; }
+.terminal-drawer { -fx-background-color: -gim-bg; }
+.terminal-drawer-bar {
+    -fx-padding: 6 10 4 10;
+    -fx-alignment: center-left;
+    -fx-background-color: transparent;
+}
+/* 页签胶囊：浅灰圆角底 + 小图标 + 文本 */
+.terminal-tab {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 6;
+    -fx-padding: 3 8 3 8;
+}
+.terminal-tab-icon { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+.terminal-tab-text { -fx-font-size: 12px; -fx-text-fill: -gim-text-3; }
+.terminal-drawer-close {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-min-width: 26;
+    -fx-min-height: 26;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+.terminal-drawer-close:hover { -fx-background-color: -gim-hover; }
+.terminal-drawer-close .icon { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+.terminal-drawer-theme {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-min-width: 26;
+    -fx-min-height: 26;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+.terminal-drawer-theme:hover { -fx-background-color: -gim-hover; }
+.terminal-drawer-theme .icon { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; }
+.terminal-host { -fx-padding: 6 8 10 8; -fx-background-color: -gim-bg; }
+.terminal-error { -fx-text-fill: -gim-badge-red-fg; -fx-padding: 12; }
+
 .input-wrap { -fx-padding: 10 24 20 24; }
 .input-card {
     -fx-background-color: -gim-bg;
@@ -851,6 +911,92 @@
     -fx-font-size: 16px;
     -fx-font-weight: bold;
     -fx-text-fill: -gim-tint-fg;
+}
+
+/* ============================================================
+ * 用量页：全局概览磁贴 + 维度分段切换 + 明细表
+ * ============================================================ */
+.usage-scroll { -fx-background-color: transparent; -fx-padding: 0; }
+.usage-scroll > .viewport { -fx-background-color: transparent; }
+.usage-summary { -fx-spacing: 10; }
+.usage-section { -fx-spacing: 10; }
+.usage-section-header { -fx-alignment: center-left; }
+.usage-tiles-box { -fx-spacing: 12; }
+.usage-section-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-text-title;
+}
+.usage-tiles { -fx-alignment: top-left; }
+.usage-tile {
+    -fx-background-color: -gim-bg;
+    -fx-background-radius: 14;
+    -fx-border-color: -gim-border-4;
+    -fx-border-radius: 14;
+    -fx-padding: 14 16 14 16;
+    -fx-spacing: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.05), 10, 0, 0, 2);
+}
+.usage-tile-value {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-text-strong;
+}
+.usage-tile-label { -fx-font-size: 12px; -fx-text-fill: -gim-section; }
+
+.usage-segmented {
+    -fx-background-color: -gim-content;
+    -fx-background-radius: 10;
+    -fx-padding: 3;
+    -fx-spacing: 2;
+}
+.usage-seg-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -gim-text-3;
+    -fx-font-size: 13px;
+    -fx-padding: 6 16 6 16;
+    -fx-cursor: hand;
+}
+.usage-seg-btn:hover { -fx-text-fill: -gim-text-title; }
+.usage-seg-btn:selected {
+    -fx-background-color: -gim-bg;
+    -fx-text-fill: -gim-tint-fg-3;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 8, 0, 0, 1);
+}
+
+.usage-table { -fx-spacing: 6; }
+.usage-row {
+    -fx-background-color: -gim-bg;
+    -fx-background-radius: 10;
+    -fx-padding: 10 16 10 16;
+}
+.usage-row-head {
+    -fx-background-color: transparent;
+    -fx-padding: 4 16 4 16;
+}
+.usage-row-head .usage-cell-name,
+.usage-row-head .usage-cell-num {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-section;
+}
+.usage-cell-name {
+    -fx-font-size: 13px;
+    -fx-text-fill: -gim-text-title;
+}
+.usage-cell-num {
+    -fx-font-size: 13px;
+    -fx-text-fill: -gim-text-3;
+    -fx-alignment: center-right;
+    -fx-min-width: 72;
+}
+.usage-empty {
+    -fx-font-size: 13px;
+    -fx-text-fill: -gim-text-5;
+    -fx-padding: 24;
+    -fx-alignment: center;
 }
 
 /* ============================================================

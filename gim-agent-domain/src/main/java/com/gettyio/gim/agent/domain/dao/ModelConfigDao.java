@@ -15,7 +15,7 @@ import java.util.Optional;
 public class ModelConfigDao {
 
     private static final String COLUMNS =
-            "id, provider_code, model_code, model_name, priority, cost_per_1k_tokens, rate_limit_rpm, rate_limit_tpm, "
+            "id, provider_code, model_code, model_name, priority, cost_per_1k_input, cost_per_1k_output, rate_limit_rpm, rate_limit_tpm, "
                     + "enabled, status, last_test_at, last_test_result, supports_vision, created_at, updated_at";
 
     private final SqlRunner runner;
@@ -31,7 +31,8 @@ public class ModelConfigDao {
         m.setModelCode(rs.getString("model_code"));
         m.setModelName(rs.getString("model_name"));
         m.setPriority(SqlRunner.getInt(rs, "priority"));
-        m.setCostPer1kTokens(SqlRunner.getDouble(rs, "cost_per_1k_tokens"));
+        m.setCostPer1kInput(SqlRunner.getDouble(rs, "cost_per_1k_input"));
+        m.setCostPer1kOutput(SqlRunner.getDouble(rs, "cost_per_1k_output"));
         m.setRateLimitRpm(SqlRunner.getInt(rs, "rate_limit_rpm"));
         m.setRateLimitTpm(SqlRunner.getInt(rs, "rate_limit_tpm"));
         m.setEnabled(SqlRunner.getInt(rs, "enabled"));
@@ -49,10 +50,11 @@ public class ModelConfigDao {
         m.setCreatedAt(now);
         m.setUpdatedAt(now);
         long id = runner.insert(
-                "INSERT INTO models (provider_code, model_code, model_name, priority, cost_per_1k_tokens, rate_limit_rpm, "
+                "INSERT INTO models (provider_code, model_code, model_name, priority, cost_per_1k_input, cost_per_1k_output, rate_limit_rpm, "
                         + "rate_limit_tpm, enabled, status, last_test_at, last_test_result, supports_vision, created_at, updated_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                m.getProviderCode(), m.getModelCode(), m.getModelName(), m.getPriority(), m.getCostPer1kTokens(),
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                m.getProviderCode(), m.getModelCode(), m.getModelName(), m.getPriority(),
+                m.getCostPer1kInput(), m.getCostPer1kOutput(),
                 m.getRateLimitRpm(), m.getRateLimitTpm(), m.getEnabled(), m.getStatus(), m.getLastTestAt(),
                 m.getLastTestResult(), m.getSupportsVision(), now, now);
         m.setId(id);
@@ -62,10 +64,11 @@ public class ModelConfigDao {
     public int update(ModelConfig m) {
         m.setUpdatedAt(LocalDateTime.now());
         return runner.update(
-                "UPDATE models SET provider_code=?, model_name=?, priority=?, cost_per_1k_tokens=?, rate_limit_rpm=?, "
+                "UPDATE models SET provider_code=?, model_name=?, priority=?, cost_per_1k_input=?, cost_per_1k_output=?, rate_limit_rpm=?, "
                         + "rate_limit_tpm=?, enabled=?, status=?, last_test_at=?, last_test_result=?, supports_vision=?, updated_at=? WHERE model_code=?",
-                m.getProviderCode(), m.getModelName(), m.getPriority(), m.getCostPer1kTokens(), m.getRateLimitRpm(),
-                m.getRateLimitTpm(), m.getEnabled(), m.getStatus(), m.getLastTestAt(), m.getLastTestResult(),
+                m.getProviderCode(), m.getModelName(), m.getPriority(),
+                m.getCostPer1kInput(), m.getCostPer1kOutput(),
+                m.getRateLimitRpm(), m.getRateLimitTpm(), m.getEnabled(), m.getStatus(), m.getLastTestAt(), m.getLastTestResult(),
                 m.getSupportsVision(), m.getUpdatedAt(), m.getModelCode());
     }
 

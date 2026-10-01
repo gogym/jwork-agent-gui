@@ -22,7 +22,9 @@ import com.gettyio.gim.agent.ui.UserPrefs;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
+import com.gettyio.gim.agent.ui.view.TerminalView;
 import com.gettyio.gim.agent.ui.view.TasksView;
+import com.gettyio.gim.agent.ui.view.UsageView;
 import com.gettyio.gim.agent.ui.window.AgentDialog;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
@@ -43,6 +45,7 @@ import javafx.scene.control.MenuItem;
 import javafx.scene.control.RadioMenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -144,6 +147,8 @@ public class MainController {
     @FXML
     private ToggleButton navSkills;
     @FXML
+    private ToggleButton navUsage;
+    @FXML
     private VBox messagesContainer;
     @FXML
     private VBox welcomePane;
@@ -178,6 +183,8 @@ public class MainController {
     @FXML
     private Label navSkillsLabel;
     @FXML
+    private Label navUsageLabel;
+    @FXML
     private Label sectionSessions;
     @FXML
     private Label userNameLabel;
@@ -191,6 +198,10 @@ public class MainController {
     private HBox chatHeader;
     @FXML
     private Label sessionTitleLabel;
+    @FXML
+    private SplitPane chatSplit;
+    @FXML
+    private Button terminalButton;
     @FXML
     private FlowPane attachChipsBox;
     @FXML
@@ -214,6 +225,12 @@ public class MainController {
 
     @Autowired
     private ExtensionsView extensionsView;
+
+    @Autowired
+    private UsageView usageView;
+
+    @Autowired
+    private TerminalView terminalView;
 
     @Autowired
     private AgentAdminService agentAdminService;
@@ -269,6 +286,9 @@ public class MainController {
             } else if (t == navSkills) {
                 mainPages.getChildren().setAll(extensionsView.getNode());
                 extensionsView.reload();
+            } else if (t == navUsage) {
+                mainPages.getChildren().setAll(usageView.getNode());
+                usageView.reload();
             } else {
                 mainPages.getChildren().setAll(chatPage);
             }
@@ -288,6 +308,9 @@ public class MainController {
         }
         // 「会话」标题行点击：整块区域展开/收起
         sessionsHeader.setOnMouseClicked(e -> toggleSessionsSection());
+
+        // 底部终端抽屉：shell 进程退出时由视图回调宿主收起（进程与历史保留）
+        terminalView.setOnCloseRequest(this::hideTerminal);
 
         applyI18n();
         buildThemeMenu();
@@ -322,6 +345,7 @@ public class MainController {
         navChatLabel.setText(I18n.t("nav.newTask"));
         navTasksLabel.setText(I18n.t("nav.tasks"));
         navSkillsLabel.setText(I18n.t("nav.skills"));
+        navUsageLabel.setText(I18n.t("nav.usage"));
         sectionSessions.setText(I18n.t("section.sessions"));
         searchButton.setText(I18n.t("sidebar.search.prompt"));
         userNameLabel.setText(I18n.t("user.local"));
@@ -329,6 +353,12 @@ public class MainController {
         welcomeSubtitle.setText(I18n.t("welcome.subtitle"));
         privacyHint.setText(I18n.t("input.privacy"));
         inputField.setPromptText(I18n.t("input.prompt"));
+        if (terminalButton != null) {
+            if (terminalButton.getTooltip() == null) {
+                terminalButton.setTooltip(new Tooltip());
+            }
+            terminalButton.getTooltip().setText(I18n.t("chat.terminal.toggle"));
+        }
     }
 
     /** 底部齿轮：弹出设置菜单（设置 / 外观▶ / 语言▶ / 关于），对标 Qoder 交互 */
@@ -636,10 +666,43 @@ public class MainController {
                 .filter(s -> currentSessionId.equals(s.getSessionId()))
                 .findFirst().orElse(null);
         String title = current == null || current.getTitle() == null ? "" : current.getTitle();
-        boolean show = current != null && !title.isBlank();
         sessionTitleLabel.setText(title);
-        chatHeader.setVisible(show);
-        chatHeader.setManaged(show);
+        // 标题栏常驻：新任务空态也要让右上角的终端按钮可达；无会话时标题留空，
+        // 标签仍占位（HBox.hgrow）把终端按钮顶到最右。
+        chatHeader.setVisible(true);
+        chatHeader.setManaged(true);
+    }
+
+    /** 右上角终端按钮：在底部展开/收起终端抽屉（收起只摘除节点、进程与历史保留）。 */
+    @FXML
+    private void handleToggleTerminal() {
+        if (terminalVisible()) {
+            hideTerminal();
+        } else {
+            showTerminal();
+        }
+    }
+
+    /** 终端抽屉是否已在 SplitPane 中展开（除消息区外还有第二个可拖拽项）。 */
+    private boolean terminalVisible() {
+        return chatSplit != null && chatSplit.getItems().size() > 1;
+    }
+
+    private void showTerminal() {
+        if (chatSplit == null) {
+            return;
+        }
+        if (!terminalVisible()) {
+            chatSplit.getItems().add(terminalView.getNode());
+        }
+        terminalView.ensureStarted();
+        chatSplit.setDividerPositions(0.68);
+    }
+
+    private void hideTerminal() {
+        if (chatSplit != null && terminalVisible()) {
+            chatSplit.getItems().remove(terminalView.getNode());
+        }
     }
 
     /**

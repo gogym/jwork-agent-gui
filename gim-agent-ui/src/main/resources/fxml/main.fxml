@@ -5,6 +5,7 @@
 <?import javafx.scene.control.Label?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.SplitPane?>
 <?import javafx.scene.control.TextField?>
 <?import javafx.scene.control.ToggleButton?>
 <?import javafx.scene.control.ToggleGroup?>
@@ -84,6 +85,14 @@
                     </HBox>
                 </graphic>
             </ToggleButton>
+            <ToggleButton fx:id="navUsage" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup">
+                <graphic>
+                    <HBox spacing="10.0" alignment="CENTER_LEFT">
+                        <Label styleClass="icon" text="&#xE9D9;"/>
+                        <Label fx:id="navUsageLabel" text="用量"/>
+                    </HBox>
+                </graphic>
+            </ToggleButton>
             <HBox styleClass="user-bar">
                 <Label text="G" styleClass="avatar"/>
                 <Label fx:id="userNameLabel" text="本地用户" styleClass="user-name"/>
@@ -101,50 +110,58 @@
             <StackPane fx:id="mainPages" styleClass="content-panel">
             <BorderPane fx:id="chatPage">
                 <top>
-                    <HBox fx:id="chatHeader" styleClass="chat-header" alignment="CENTER_LEFT"
-                          visible="false" managed="false">
+                    <HBox fx:id="chatHeader" styleClass="chat-header" alignment="CENTER_LEFT">
                         <Label fx:id="sessionTitleLabel" styleClass="chat-header-title"
                                maxWidth="Infinity" ellipsisString="&#x2026;" HBox.hgrow="ALWAYS"/>
+                        <Button fx:id="terminalButton" styleClass="terminal-button" onAction="#handleToggleTerminal">
+                            <graphic>
+                                <Label styleClass="icon" text="&#xE756;"/>
+                            </graphic>
+                        </Button>
                     </HBox>
                 </top>
                 <center>
-                    <StackPane>
-                        <ScrollPane fx:id="scrollPane" fitToWidth="true">
-                            <content>
-                                <VBox fx:id="messagesContainer" styleClass="messages"/>
-                            </content>
-                        </ScrollPane>
-                        <VBox fx:id="welcomePane" styleClass="welcome" maxWidth="640.0" mouseTransparent="true">
-                            <Label fx:id="welcomeTitle" text="不止于对话" styleClass="welcome-title"/>
-                            <Label fx:id="welcomeSubtitle" text="用 Gim Agent 把日常事务交给 AI" styleClass="welcome-subtitle"/>
-                        </VBox>
-                    </StackPane>
+                    <SplitPane fx:id="chatSplit" orientation="VERTICAL" styleClass="chat-split">
+                        <items>
+                            <VBox styleClass="chat-main">
+                                <StackPane VBox.vgrow="ALWAYS">
+                                    <ScrollPane fx:id="scrollPane" fitToWidth="true">
+                                        <content>
+                                            <VBox fx:id="messagesContainer" styleClass="messages"/>
+                                        </content>
+                                    </ScrollPane>
+                                    <VBox fx:id="welcomePane" styleClass="welcome" maxWidth="640.0" mouseTransparent="true">
+                                        <Label fx:id="welcomeTitle" text="不止于对话" styleClass="welcome-title"/>
+                                        <Label fx:id="welcomeSubtitle" text="用 Gim Agent 把日常事务交给 AI" styleClass="welcome-subtitle"/>
+                                    </VBox>
+                                </StackPane>
+                                <VBox styleClass="input-wrap">
+                                    <VBox styleClass="input-card">
+                                        <FlowPane fx:id="attachChipsBox" styleClass="attach-chips"/>
+                                        <TextField fx:id="inputField" styleClass="input-field"
+                                                   promptText="描述任务，Enter 发送" onAction="#handleSend"/>
+                                        <HBox styleClass="card-footer">
+                                            <Button fx:id="attachButton" styleClass="attach-button" onAction="#handleAttach">
+                                                <graphic>
+                                                    <Label styleClass="icon" text="&#xE723;"/>
+                                                </graphic>
+                                            </Button>
+                                            <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
+                                            <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
+                                            <Region HBox.hgrow="ALWAYS"/>
+                                            <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
+                                            <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSend">
+                                                <graphic>
+                                                    <Label styleClass="send-icon" text="&#xE724;"/>
+                                                </graphic>
+                                            </Button>
+                                        </HBox>
+                                    </VBox>
+                                </VBox>
+                            </VBox>
+                        </items>
+                    </SplitPane>
                 </center>
-                <bottom>
-                    <VBox styleClass="input-wrap">
-                        <VBox styleClass="input-card">
-                            <FlowPane fx:id="attachChipsBox" styleClass="attach-chips"/>
-                            <TextField fx:id="inputField" styleClass="input-field"
-                                       promptText="描述任务，Enter 发送" onAction="#handleSend"/>
-                            <HBox styleClass="card-footer">
-                                <Button fx:id="attachButton" styleClass="attach-button" onAction="#handleAttach">
-                                    <graphic>
-                                        <Label styleClass="icon" text="&#xE723;"/>
-                                    </graphic>
-                                </Button>
-                                <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
-                                <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
-                                <Region HBox.hgrow="ALWAYS"/>
-                                <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
-                                <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSend">
-                                    <graphic>
-                                        <Label styleClass="send-icon" text="&#xE724;"/>
-                                    </graphic>
-                                </Button>
-                            </HBox>
-                        </VBox>
-                    </VBox>
-                </bottom>
             </BorderPane>
             </StackPane>
         </StackPane>

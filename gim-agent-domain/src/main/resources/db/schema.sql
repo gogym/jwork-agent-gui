@@ -34,18 +34,24 @@ CREATE TABLE IF NOT EXISTS sessions (
 );
 
 CREATE TABLE IF NOT EXISTS conversations (
-    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id  TEXT NOT NULL,
-    agent_code  TEXT,
-    role        TEXT NOT NULL,
-    content     TEXT,
-    tokens_used INTEGER,
-    model_code  TEXT,
-    tool_calls  TEXT,
-    metadata    TEXT,
-    created_at  TEXT
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id     TEXT NOT NULL,
+    agent_code     TEXT,
+    role           TEXT NOT NULL,
+    content        TEXT,
+    tokens_input   INTEGER,
+    tokens_output  INTEGER,
+    tokens_cached  INTEGER,
+    llm_calls      INTEGER,
+    llm_elapsed_ms INTEGER,
+    model_code     TEXT,
+    tool_calls     TEXT,
+    metadata       TEXT,
+    created_at     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations (session_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_agent ON conversations (agent_code);
+CREATE INDEX IF NOT EXISTS idx_conversations_model ON conversations (model_code);
 
 CREATE TABLE IF NOT EXISTS model_providers (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -67,7 +73,8 @@ CREATE TABLE IF NOT EXISTS models (
     model_code         TEXT NOT NULL UNIQUE,
     model_name         TEXT NOT NULL,
     priority           INTEGER DEFAULT 100,
-    cost_per_1k_tokens REAL,
+    cost_per_1k_input  REAL,
+    cost_per_1k_output REAL,
     rate_limit_rpm     INTEGER,
     rate_limit_tpm     INTEGER,
     enabled            INTEGER DEFAULT 1,

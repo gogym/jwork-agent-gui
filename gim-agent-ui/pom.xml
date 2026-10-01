@@ -44,6 +44,21 @@
             <groupId>io.github.mkpaz</groupId>
             <artifactId>atlantafx-base</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.techsenger.jeditermfx</groupId>
+            <artifactId>jeditermfx-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.techsenger.jeditermfx</groupId>
+            <artifactId>jeditermfx-ui</artifactId>
+            <exclusions>
+                <!-- 该库自带 JavaFX 19 传递依赖，项目统一用 17.0.12，排除以免版本冲突 -->
+                <exclusion>
+                    <groupId>org.openjfx</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
     </dependencies>
 
    <build>

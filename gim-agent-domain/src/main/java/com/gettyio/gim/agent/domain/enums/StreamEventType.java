@@ -20,6 +20,9 @@ public enum StreamEventType {
     /** 思考过程增量 */
     THINKING_DELTA,
 
+    /** 本轮 token 用量汇总（携带累计的输入/输出/缓存 token） */
+    USAGE,
+
     /** 本轮对话完成 */
     COMPLETE,
 

@@ -6,6 +6,7 @@ import com.gettyio.gim.agent.core.capability.AgentCapabilityResolver;
 import com.gettyio.gim.agent.core.capability.CapabilityCodec;
 import com.gettyio.gim.agent.core.chat.AgentGateway;
 import com.gettyio.gim.agent.core.chat.ChatService;
+import com.gettyio.gim.agent.core.chat.EffectiveModelResolver;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
 import com.gettyio.gim.agent.core.model.ModelProbe;
@@ -168,8 +169,31 @@ public class GimAgentConfiguration {
     }
 
     @Bean
-    public ChatService chatService(AgentGateway agentGateway, GimDatabase db, GimPaths paths) {
-        return new ChatService(agentGateway, db, paths);
+    public UsageStatsService usageStatsService(GimDatabase db) {
+        return new UsageStatsService(db);
+    }
+
+    @Bean
+    public com.gettyio.gim.agent.ui.view.UsageView usageView(UsageStatsService usageStatsService) {
+        return new com.gettyio.gim.agent.ui.view.UsageView(usageStatsService);
+    }
+
+    @Bean
+    public ChatService chatService(AgentGateway agentGateway, GimDatabase db, GimPaths paths,
+                                   DefaultModelResolver resolver) {
+        // 生效模型编码：复用与运行时一致的选模链（消息级覆盖 → 智能体自带 → 应用默认），
+        // 解析失败（如未配默认模型）返回 null，让用量落入「未标注」桶而非丢消息
+        EffectiveModelResolver effective = (agentCode, providerCode, modelCode) -> {
+            try {
+                String code = agentCode == null || agentCode.isBlank()
+                        ? MultiAgentGateway.DEFAULT_AGENT_CODE : agentCode;
+                AgentDefinition def = db.agentDao().findByCode(code).orElse(null);
+                return resolver.resolveFor(def, providerCode, modelCode).modelCode();
+            } catch (RuntimeException e) {
+                return null;
+            }
+        };
+        return new ChatService(agentGateway, db, paths, effective);
     }
 
     @Bean

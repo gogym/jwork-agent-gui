@@ -3,6 +3,7 @@ package com.gettyio.gim.agent.core.chat;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.ConfirmResult;
+import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.RequireUserConfirmEvent;
 import io.agentscope.core.message.Base64Source;
 import io.agentscope.core.message.ContentBlock;
@@ -12,6 +13,7 @@ import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.model.Model;
+import io.agentscope.core.model.ChatUsage;
 import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.skill.SkillFilter;
@@ -35,6 +37,7 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
 /**
@@ -202,10 +205,17 @@ public class HarnessAgentGateway implements AutoCloseable {
         Msg input = buildUserMsg(request.getText(), request.getImages());
         PermissionMode mode = request.getPermissionMode() == null
                 ? PermissionMode.DEFAULT : request.getPermissionMode();
+        // 整条流（含 HITL 续跑的每一段）共享一个用量累加器；流结束时一次性下发累计用量
+        AtomicReference<TokenUsage> usageAcc = new AtomicReference<>(TokenUsage.ZERO);
         return Flux.defer(() -> {
-            agent().setPermissionMode(ctx, mode);
-            return runEvents(input, ctx, sessionId);
-        });
+                    agent().setPermissionMode(ctx, mode);
+                    return runEvents(input, ctx, sessionId, usageAcc);
+                })
+                .concatWith(Flux.defer(() -> {
+                    TokenUsage total = usageAcc.get();
+                    return total == null || total.isEmpty()
+                            ? Flux.empty() : Flux.just(StreamEvent.usage(sessionId, total));
+                }));
     }
 
     /** 组装 USER 消息：文本块 + 若干图片块（Base64）；无文本时至少留一个空文本块以满足角色约束。 */
@@ -231,12 +241,19 @@ public class HarnessAgentGateway implements AutoCloseable {
     }
 
     /** 消费一次 Agent 轮次的事件流；遇到确认事件则解析决策并续跑，形成连续流 */
-    private Flux<StreamEvent> runEvents(Msg input, RuntimeContext ctx, String sessionId) {
+    private Flux<StreamEvent> runEvents(Msg input, RuntimeContext ctx, String sessionId,
+                                        AtomicReference<TokenUsage> usageAcc) {
         return Flux.defer(() -> agent().streamEvents(input, ctx))
-                .concatMap(event -> handle(event, ctx, sessionId));
+                .concatMap(event -> handle(event, ctx, sessionId, usageAcc));
     }
 
-    private Flux<StreamEvent> handle(AgentEvent event, RuntimeContext ctx, String sessionId) {
+    private Flux<StreamEvent> handle(AgentEvent event, RuntimeContext ctx, String sessionId,
+                                     AtomicReference<TokenUsage> usageAcc) {
+        // 每次模型调用结束都累加其用量（含工具循环里的多轮），不下发给 UI
+        if (event instanceof ModelCallEndEvent mce) {
+            accumulate(usageAcc, mce.getUsage());
+            return Flux.empty();
+        }
         if (event instanceof RequireUserConfirmEvent rc) {
             List<ToolUseBlock> calls = rc.getToolCalls() == null ? List.of() : rc.getToolCalls();
             String toolName = calls.isEmpty() ? "tool" : calls.get(0).getName();
@@ -247,11 +264,22 @@ public class HarnessAgentGateway implements AutoCloseable {
                     .map(allowed -> toResults(calls, allowed))
                     .flatMapMany(results -> {
                         Msg resume = buildConfirmMsg(rc, results);
-                        return Flux.concat(Flux.just(ask), runEvents(resume, ctx, sessionId));
+                        return Flux.concat(Flux.just(ask), runEvents(resume, ctx, sessionId, usageAcc));
                     });
         }
         StreamEvent mapped = AgentEventMapper.toStreamEvent(sessionId, event);
         return mapped == null ? Flux.empty() : Flux.just(mapped);
+    }
+
+    /** 把一次模型调用的 {@link ChatUsage} 累进本轮总用量（一次调用计一次，耗时秒转毫秒累加）。 */
+    private static void accumulate(AtomicReference<TokenUsage> acc, ChatUsage usage) {
+        if (usage == null) {
+            return;
+        }
+        long elapsedMillis = Math.round(usage.getTime() * 1000.0);
+        TokenUsage delta = new TokenUsage(usage.getInputTokens(), usage.getOutputTokens(),
+                usage.getCachedTokens(), 1, elapsedMillis);
+        acc.updateAndGet(cur -> cur.plus(delta));
     }
 
     private Mono<Boolean> confirmDecision(String sessionId, String toolName, String toolInput) {

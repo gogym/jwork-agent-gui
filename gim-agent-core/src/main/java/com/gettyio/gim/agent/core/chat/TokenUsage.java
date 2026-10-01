@@ -1,0 +1,41 @@
+package com.gettyio.gim.agent.core.chat;
+
+/**
+ * 一轮对话累计的模型用量（把 AgentScope 每次模型调用的 {@code ChatUsage} 累加后的结果）。
+ * <p>除 token 外还记录本轮触发的 LLM 调用次数与累计耗时，供「LLM 调用统计」使用：
+ * 一次 {@code ModelCallEndEvent} 计一次调用，其 {@code ChatUsage.getTime()}（秒）累加为耗时。</p>
+ *
+ * @param inputTokens   输入 token 合计
+ * @param outputTokens  输出 token 合计
+ * @param cachedTokens  输入中命中提示缓存的 token 合计（{@code inputTokens} 的子集）
+ * @param calls         本轮成功结束的 LLM 调用次数
+ * @param elapsedMillis 本轮模型调用累计耗时（毫秒，各次 {@code getTime()} 秒 × 1000 取整之和）
+ */
+public record TokenUsage(int inputTokens, int outputTokens, int cachedTokens,
+                         int calls, long elapsedMillis) {
+
+    public static final TokenUsage ZERO = new TokenUsage(0, 0, 0, 0, 0L);
+
+    /** 是否一次用量都没记录（用于落库前判空，避免给消息写一堆 0）。 */
+    public boolean isEmpty() {
+        return inputTokens == 0 && outputTokens == 0 && cachedTokens == 0
+                && calls == 0 && elapsedMillis == 0;
+    }
+
+    /** 与另一次用量相加（跨 HITL 续跑时合并多段累加器）。 */
+    public TokenUsage plus(TokenUsage other) {
+        if (other == null) {
+            return this;
+        }
+        return new TokenUsage(inputTokens + other.inputTokens,
+                outputTokens + other.outputTokens,
+                cachedTokens + other.cachedTokens,
+                calls + other.calls,
+                elapsedMillis + other.elapsedMillis);
+    }
+
+    /** 输入 + 输出总量。 */
+    public int totalTokens() {
+        return inputTokens + outputTokens;
+    }
+}

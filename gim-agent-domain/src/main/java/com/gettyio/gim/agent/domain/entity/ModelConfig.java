@@ -23,7 +23,11 @@ public class ModelConfig {
     /** 路由优先级，越小越优先 */
     private Integer priority = 100;
 
-    private Double costPer1kTokens;
+    /** 每 1K 输入 token 单价（成本估算用，留空表示未配置） */
+    private Double costPer1kInput;
+
+    /** 每 1K 输出 token 单价 */
+    private Double costPer1kOutput;
 
     private Integer rateLimitRpm;
 

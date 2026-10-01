@@ -36,45 +36,85 @@ public class ChatService {
     private final AgentGateway gateway;
     private final GimDatabase db;
     private final GimPaths gimPaths;
+    private final EffectiveModelResolver modelResolver;
 
-    public ChatService(AgentGateway gateway, GimDatabase db, GimPaths gimPaths) {
+    public ChatService(AgentGateway gateway, GimDatabase db, GimPaths gimPaths,
+                       EffectiveModelResolver modelResolver) {
         this.gateway = gateway;
         this.db = db;
         this.gimPaths = gimPaths;
+        this.modelResolver = modelResolver;
     }
 
     /**
-     * 主动消息运行（定时任务语义）：落盘系统指令 → 非流式应答 → 落盘助手消息。
-     * <p>自主会话无 UI，敏感工具在无确认通道时被网关默认拒绝。</p>
+     * 主动消息运行（定时任务语义）：落盘系统指令 → 非流式应答 → 落盘助手消息（含本轮 token 用量）。
+     * <p>自主会话无 UI，走 {@code DONT_ASK} 权限模式，敏感工具不阻塞等待确认。</p>
      *
      * @return 助手应答文本（可能为空）
      */
     public String proactiveRun(String sessionId, String agentCode, String prompt) {
         ensureSession(sessionId, agentCode, prompt);
         persistMessage(sessionId, agentCode, ConversationRole.SYSTEM, prompt);
-        String reply = gateway.ask(agentCode, sessionId, prompt).block();
-        persistAssistant(sessionId, agentCode, reply);
-        return reply;
+        ChatRequest req = ChatRequest.builder()
+                .agentCode(agentCode)
+                .sessionId(sessionId)
+                .text(prompt)
+                .permissionMode(io.agentscope.core.permission.PermissionMode.DONT_ASK)
+                .build();
+        StringBuilder buf = new StringBuilder();
+        java.util.concurrent.atomic.AtomicReference<TokenUsage> usage =
+                new java.util.concurrent.atomic.AtomicReference<>(TokenUsage.ZERO);
+        gateway.stream(req)
+                .doOnNext(event -> {
+                    if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
+                        buf.append(event.getText());
+                    } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
+                        usage.set(event.getUsage());
+                    }
+                })
+                .blockLast();
+        persistAssistant(sessionId, agentCode, effectiveModelCode(req), buf.toString(), usage.get());
+        return buf.toString();
     }
 
     /**
-     * 发起一轮流式对话：落盘用户消息（含图片附件）→ 流式应答 → 落盘助手消息。
+     * 发起一轮流式对话：落盘用户消息（含图片附件）→ 流式应答 → 落盘助手消息（含本轮累计 token 用量）。
      * <p>{@link ChatRequest} 携带消息级模型覆盖与图片附件；无附件时行为与纯文本对话一致。</p>
      */
     public Flux<StreamEvent> chat(ChatRequest req) {
         String sessionId = req.getSessionId();
         String agentCode = req.getAgentCode();
         ensureSession(sessionId, agentCode, req.getText());
-        persistUser(req);
+        String effectiveModel = effectiveModelCode(req);
+        persistUser(req, effectiveModel);
 
         StringBuilder assistantBuf = new StringBuilder();
+        java.util.concurrent.atomic.AtomicReference<TokenUsage> usageRef =
+                new java.util.concurrent.atomic.AtomicReference<>(TokenUsage.ZERO);
         return gateway.stream(req)
                 .doOnNext(event -> {
                     if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                         assistantBuf.append(event.getText());
+                    } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
+                        usageRef.set(event.getUsage());
                     }
                 })
-                .doOnComplete(() -> persistAssistant(sessionId, agentCode, req.getModelCode(), assistantBuf.toString()));
+                .doOnComplete(() -> persistAssistant(sessionId, agentCode, effectiveModel,
+                        assistantBuf.toString(), usageRef.get()));
+    }
+
+    /** 解析本轮实际使用的模型编码；解析器缺失或解析失败时回退消息级覆盖值。 */
+    private String effectiveModelCode(ChatRequest req) {
+        if (modelResolver == null) {
+            return req.getModelCode();
+        }
+        try {
+            String code = modelResolver.resolveModelCode(req.getAgentCode(), req.getProviderCode(), req.getModelCode());
+            return code != null ? code : req.getModelCode();
+        } catch (RuntimeException e) {
+            log.warn("生效模型解析失败，回退消息级覆盖值: agent={}", req.getAgentCode(), e);
+            return req.getModelCode();
+        }
     }
 
     private void ensureSession(String sessionId, String agentCode, String firstUserText) {
@@ -105,15 +145,15 @@ public class ChatService {
         db.sessionDao().incrementMessageCount(sessionId, 1);
     }
 
-    /** 落盘用户消息：正文入 content，本轮模型入 model_code，图片附件落盘后清单入 metadata。 */
-    private void persistUser(ChatRequest req) {
+    /** 落盘用户消息：正文入 content，生效模型入 model_code，图片附件落盘后清单入 metadata。 */
+    private void persistUser(ChatRequest req, String effectiveModel) {
         List<StoredAttachment> stored = storeImages(req.getSessionId(), req.getImages());
         ChatConversation c = new ChatConversation();
         c.setSessionId(req.getSessionId());
         c.setAgentCode(req.getAgentCode());
         c.setRole(ConversationRole.USER.getCode());
         c.setContent(req.getText() == null ? "" : req.getText());
-        c.setModelCode(req.getModelCode());
+        c.setModelCode(effectiveModel != null ? effectiveModel : req.getModelCode());
         c.setMetadata(AttachmentCodec.write(stored));
         c.setCreatedAt(LocalDateTime.now());
         db.conversationDao().insert(c);
@@ -163,11 +203,8 @@ public class ChatService {
         return ".png";
     }
 
-    private void persistAssistant(String sessionId, String agentCode, String assistantText) {
-        persistAssistant(sessionId, agentCode, null, assistantText);
-    }
-
-    private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText) {
+    private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText,
+                                  TokenUsage usage) {
         if (assistantText == null || assistantText.isEmpty()) {
             return;
         }
@@ -177,6 +214,14 @@ public class ChatService {
         c.setRole(ConversationRole.ASSISTANT.getCode());
         c.setContent(assistantText);
         c.setModelCode(modelCode);
+        // 仅当本轮确有模型用量回报时才写列，否则留 null（区分「0」与「未采集」）
+        if (usage != null && !usage.isEmpty()) {
+            c.setTokensInput(usage.inputTokens());
+            c.setTokensOutput(usage.outputTokens());
+            c.setTokensCached(usage.cachedTokens());
+            c.setLlmCalls(usage.calls());
+            c.setLlmElapsedMillis(usage.elapsedMillis());
+        }
         c.setCreatedAt(LocalDateTime.now());
         db.conversationDao().insert(c);
         db.sessionDao().incrementMessageCount(sessionId, 1);

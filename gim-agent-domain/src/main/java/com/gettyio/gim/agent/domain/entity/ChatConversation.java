@@ -21,7 +21,20 @@ public class ChatConversation {
 
     private String content;
 
-    private Integer tokensUsed;
+    /** 本轮累计的输入 token（含多次模型调用；仅 assistant 消息写入） */
+    private Integer tokensInput;
+
+    /** 本轮累计的输出 token */
+    private Integer tokensOutput;
+
+    /** 输入中命中提示缓存的 token（{@code tokensInput} 的子集，通常按折扣计费） */
+    private Integer tokensCached;
+
+    /** 本轮成功结束的 LLM 调用次数（含工具循环多轮；仅 assistant 消息写入） */
+    private Integer llmCalls;
+
+    /** 本轮模型调用累计耗时（毫秒） */
+    private Long llmElapsedMillis;
 
     private String modelCode;
 
