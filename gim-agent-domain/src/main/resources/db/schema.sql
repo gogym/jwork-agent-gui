@@ -74,6 +74,7 @@ CREATE TABLE IF NOT EXISTS models (
     status             TEXT,
     last_test_at       TEXT,
     last_test_result   TEXT,
+    supports_vision    INTEGER,
     created_at         TEXT,
     updated_at         TEXT
 );

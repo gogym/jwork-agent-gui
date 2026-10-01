@@ -12,6 +12,7 @@ import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
+import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
@@ -34,7 +35,6 @@ import javafx.collections.ObservableList;
 import javafx.fxml.FXML;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
-import javafx.scene.control.ComboBox;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
@@ -45,12 +45,14 @@ import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.Parent;
 import javafx.scene.Node;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.image.Image;
@@ -61,6 +63,7 @@ import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.MouseEvent;
 import javafx.geometry.Bounds;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
 import javafx.stage.FileChooser;
@@ -80,8 +83,10 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 
 /**
  * 主窗口控制器：侧边栏导航驱动页面切换（对话/定时任务/技能），
@@ -180,7 +185,7 @@ public class MainController {
     @FXML
     private Button attachButton;
     @FXML
-    private ComboBox<ModelOption> modelCombo;
+    private Button modelButton;
     @FXML
     private Button approvalButton;
 
@@ -221,6 +226,16 @@ public class MainController {
     private final List<ImageAttachment> pendingImages = new ArrayList<>();
     /** 当前审批档位（工具调用权限模式）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
     private PermissionMode approvalMode = PermissionMode.DEFAULT;
+    /** 审批选择菜单：复用单一实例（与齿轮菜单同策略），避免每次 new 导致旧弹出窗阴影/落点累积漂移 */
+    private ContextMenu approvalMenu;
+    /** 审批菜单最近一次关闭的时间戳（毫秒）：用于把「再点按钮」识别为关闭手势，避免自动收起后又被立即重开 */
+    private long approvalMenuHiddenAt;
+    /** 当前选中的模型（工具条模型菜单选择）；null 或跟随默认项表示不覆盖 */
+    private ModelOption selectedModel;
+    /** 模型选择菜单：复用单一实例，同审批菜单 */
+    private ContextMenu modelMenu;
+    /** 模型菜单最近一次关闭的时间戳（毫秒）：同审批菜单的开关切换 */
+    private long modelMenuHiddenAt;
 
     @FXML
     private void initialize() {
@@ -273,7 +288,7 @@ public class MainController {
         // 输入框工具条：附件芯片行仅在有待发图时占位；模型与审批下拉填充可选项
         attachChipsBox.visibleProperty().bind(Bindings.isNotEmpty(attachChipsBox.getChildren()));
         attachChipsBox.managedProperty().bind(attachChipsBox.visibleProperty());
-        populateModelCombo();
+        renderModelButton();
         renderApprovalButton();
         // 语言切换：静态文案、智能体卡片与列表都需重刷（展示名与占位文案都是本地化的）
         I18n.onChange(lang -> {
@@ -281,7 +296,7 @@ public class MainController {
             buildThemeMenu();
             renderAgentSwitcher();
             renderSessions();
-            populateModelCombo();
+            renderModelButton();
             renderApprovalButton();
         });
     }
@@ -448,6 +463,11 @@ public class MainController {
 
     @FXML
     public void handleOpenSettings() {
+        handleOpenSettings(null);
+    }
+
+    /** 打开设置页；{@code selectMenuLabel} 非空时直达对应菜单（如模型菜单底部的「模型管理」→「模型」页）。 */
+    public void handleOpenSettings(String selectMenuLabel) {
         if (settingsOpen) {
             return;
         }
@@ -456,7 +476,7 @@ public class MainController {
             return;
         }
         settingsOpen = true;
-        settingsWindow.showIn(appShell, scene, () -> {
+        settingsWindow.showIn(appShell, scene, selectMenuLabel, () -> {
             appShell.showApp();
             UiTheme.apply(scene);
             settingsOpen = false;
@@ -464,6 +484,8 @@ public class MainController {
             renderAgentSwitcher();
             refreshSessions();
             dropForeignSession();
+            // 模型列表可能在设置页被增删改，重刷工具条模型按钮
+            renderModelButton();
         });
     }
 
@@ -480,7 +502,7 @@ public class MainController {
             currentSessionId = chatService.createSession(currentAgentCode());
             refreshSessions();
         }
-        ModelOption model = modelCombo.getValue();
+        ModelOption model = selectedModel;
         List<ImageAttachment> images = List.copyOf(pendingImages);
         String body = hasText ? text : "";
 
@@ -1031,16 +1053,21 @@ public class MainController {
         return "image/jpeg";
     }
 
-    /** 填充模型下拉：首项「跟随默认」（不覆盖），其余为已启用的模型；切换语言后保持原选择。 */
-    private void populateModelCombo() {
-        if (modelCombo == null) {
-            return;
+    /** 模型菜单可选项：首项「跟随默认」（不覆盖），其余为已启用且连通测试可用的模型；文案随语言解析。 */
+    private List<ModelOption> modelOptions() {
+        List<ModelOption> out = new ArrayList<>();
+        out.add(new ModelOption(null, null, I18n.t("model.followDefault"),
+                "\uEC92", I18n.t("model.followDefault.desc"), false));
+        Map<String, String> providerNames = new LinkedHashMap<>();
+        for (ModelProviderConfig p : providerAdminService.listProviders()) {
+            providerNames.put(p.getProviderCode(), p.getProviderName());
         }
-        String keepCode = modelCombo.getValue() == null ? null : modelCombo.getValue().modelCode();
-        modelCombo.getItems().clear();
-        modelCombo.getItems().add(ModelOption.followDefault(I18n.t("model.followDefault")));
         for (ModelConfig m : providerAdminService.listModels()) {
             if (!EnabledStatus.isEnabled(m.getEnabled())) {
+                continue;
+            }
+            // 只列可用模型：未测试/不可用的先去设置里测通连接再来选，避免选了打不通的模型
+            if (!ProviderAdminService.MODEL_STATUS_VALID.equalsIgnoreCase(m.getStatus())) {
                 continue;
             }
             if (m.getProviderCode() == null || m.getProviderCode().isBlank()) {
@@ -1048,11 +1075,99 @@ public class MainController {
             }
             String label = m.getModelName() == null || m.getModelName().isBlank()
                     ? m.getModelCode() : m.getModelName();
-            modelCombo.getItems().add(new ModelOption(m.getProviderCode(), m.getModelCode(), label));
+            String provider = providerNames.get(m.getProviderCode());
+            String desc = provider == null || provider.isBlank() ? m.getProviderCode() : provider;
+            out.add(new ModelOption(m.getProviderCode(), m.getModelCode(), label, "\uE99A", desc,
+                    Integer.valueOf(1).equals(m.getSupportsVision())));
         }
-        ModelOption keep = keepCode == null ? null : modelCombo.getItems().stream()
-                .filter(o -> keepCode.equals(o.modelCode())).findFirst().orElse(null);
-        modelCombo.setValue(keep != null ? keep : modelCombo.getItems().get(0));
+        return out;
+    }
+
+    /** 模型按钮闭合态：图标 + 模型名 + 小箭头。 */
+    private void renderModelButton() {
+        if (modelButton == null) {
+            return;
+        }
+        List<ModelOption> options = modelOptions();
+        String keepCode = selectedModel == null ? null : selectedModel.modelCode();
+        selectedModel = options.stream()
+                .filter(o -> keepCode == null ? o.followDefault() : keepCode.equals(o.modelCode()))
+                .findFirst().orElse(options.get(0));
+        Label icon = UiTheme.icon(selectedModel.icon());
+        icon.getStyleClass().add("approval-icon");
+        Label title = new Label(selectedModel.label());
+        title.getStyleClass().add("approval-title-compact");
+        title.setMaxWidth(180);
+        title.setEllipsisString("\u2026");
+        Label caret = UiTheme.icon("\uE70D");
+        caret.getStyleClass().add("approval-caret");
+        HBox box = selectedModel.vision()
+                ? new HBox(6, icon, title, visionMark(), caret)
+                : new HBox(6, icon, title, caret);
+        box.setAlignment(Pos.CENTER_LEFT);
+        modelButton.setGraphic(box);
+        modelButton.setText("");
+    }
+
+    /** 点模型按钮：向上弹出模型选择卡（图标 + 名称/提供商两行，当前项右侧带勾，底部「模型管理」入口）。
+     * 复用单实例 + 开关切换，与审批菜单同款。 */
+    @FXML
+    public void showModelMenu() {
+        if (modelMenu == null) {
+            modelMenu = new ContextMenu();
+            modelMenu.getStyleClass().add("rich-menu");
+            modelMenu.setOnHiding(e -> modelMenuHiddenAt = System.currentTimeMillis());
+        }
+        if (modelMenu.isShowing()) {
+            modelMenu.hide();
+            return;
+        }
+        if (System.currentTimeMillis() - modelMenuHiddenAt < 250) {
+            return;
+        }
+        List<ModelOption> options = modelOptions();
+        modelMenu.getItems().setAll(
+                options.stream().map(opt -> modelMenuItem(opt, opt.equals(selectedModel))).toList());
+        modelMenu.getItems().add(new SeparatorMenuItem());
+        // 「模型管理」也画进 graphic（MenuItem 不设 text），避免 text 列拉高 maxLabelWidth 把上方富行的勾挤离右缘
+        Label manageIcon = UiTheme.icon("\uE713");
+        manageIcon.getStyleClass().add("approval-icon");
+        Label manageText = new Label(I18n.t("model.manage"));
+        HBox manageBox = new HBox(10, manageIcon, manageText);
+        manageBox.setAlignment(Pos.CENTER_LEFT);
+        manageBox.setMinWidth(200);
+        manageBox.setPrefWidth(200);
+        manageBox.setMaxWidth(200);
+        MenuItem manage = new MenuItem();
+        manage.setGraphic(manageBox);
+        manage.getStyleClass().add("model-manage");
+        manage.setOnAction(e -> handleOpenSettings(I18n.t("settings.menu.models")));
+        modelMenu.getItems().add(manage);
+        showMenuAboveWithinWindow(modelMenu, modelButton);
+    }
+
+    /** 模型菜单项：图标 + 名称/提供商两行，支持多模态的名称右侧加图片小标，当前选中右侧带勾。 */
+    private MenuItem modelMenuItem(ModelOption opt, boolean checked) {
+        Label icon = UiTheme.icon(opt.icon());
+        icon.getStyleClass().add("approval-icon");
+        Label title = new Label(opt.label());
+        title.getStyleClass().add("approval-title");
+        Label desc = new Label(opt.desc());
+        desc.getStyleClass().add("approval-desc");
+        // 说明保持单行（不换行）；超长时由 StackPane 布局压缩截断，不挤压右侧勾选
+        return twoLineMenuItem(icon, title, opt.vision() ? visionMark() : null, desc, checked, 200, () -> {
+            selectedModel = opt;
+            renderModelButton();
+        });
+    }
+
+    /** 多模态小图标：E8B9 图片字形（蓝色），紧跟模型名称右侧，悬停提示「支持」。 */
+    private Label visionMark() {
+        Label mark = UiTheme.icon("\uE8B9");
+        mark.getStyleClass().add("model-vision");
+        mark.setMinWidth(Region.USE_PREF_SIZE);
+        mark.setTooltip(new Tooltip(I18n.t("settings.model.vision.supported")));
+        return mark;
     }
 
     /** 审批三档：询问(DEFAULT)/自动(BYPASS)/完全访问(DONT_ASK)；文案随语言解析。 */
@@ -1090,14 +1205,30 @@ public class MainController {
         approvalButton.setText("");
     }
 
-    /** 点审批按钮：向上弹出右键菜单式的选择卡（图标 + 标题/说明，当前档右侧带勾）。 */
+    /** 点审批按钮：向上弹出右键菜单式的选择卡（图标 + 标题/说明，当前档右侧带勾）。
+     * 复用单一 {@link #approvalMenu} 实例并在已弹出时直接返回，防止反复点击累积多个弹出窗（阴影叠加、位置逐次上移）。 */
     @FXML
     public void showApprovalMenu() {
-        ContextMenu menu = new ContextMenu();
-        for (ApprovalOption opt : approvalOptions()) {
-            menu.getItems().add(approvalMenuItem(opt, opt.mode() == approvalMode));
+        if (approvalMenu == null) {
+            approvalMenu = new ContextMenu();
+            approvalMenu.getStyleClass().add("rich-menu");
+            // 无论自动还是主动 hide，都记下关闭时刻
+            approvalMenu.setOnHiding(e -> approvalMenuHiddenAt = System.currentTimeMillis());
         }
-        showMenuAboveWithinWindow(menu, approvalButton);
+        if (approvalMenu.isShowing()) {
+            approvalMenu.hide();   // 已弹出再点按钮：收起，做成开关切换
+            return;
+        }
+        // 弹窗在本次按钮点击前已被系统自动收起（isShowing 已为 false）：视为「关闭」手势，不要立刻重开
+        if (System.currentTimeMillis() - approvalMenuHiddenAt < 250) {
+            return;
+        }
+        // 每次重灌选项：保证「当前档打勾」与语言随点随新
+        approvalMenu.getItems().setAll(
+                approvalOptions().stream()
+                        .map(opt -> approvalMenuItem(opt, opt.mode() == approvalMode))
+                        .toList());
+        showMenuAboveWithinWindow(approvalMenu, approvalButton);
     }
 
     /**
@@ -1117,7 +1248,7 @@ public class MainController {
         double h = skin.getBoundsInLocal().getHeight();
         double margin = 8;
         double x = b.getMinX();
-        double y = b.getMinY() - h + 4; // 贴合按钮顶边：基准 0 因 DPI 缩放逻辑/物理像素偏差仍偏上几 px，+4 轻微压住按钮顶边彻底盖掉缝
+        double y = b.getMinY() - h; // 贴合按钮顶边：复用实例消除累积漂移后，基准 0 即贴合（与 showThemeMenu 一致）
         Window win = anchor.getScene() == null ? null : anchor.getScene().getWindow();
         if (win != null) {
             double winLeft = win.getX() + margin;
@@ -1137,7 +1268,55 @@ public class MainController {
         menu.setY(y);
     }
 
-    /** 审批菜单项：图标 + 标题/说明两行，固定宽度让右侧勾对齐；危险项标红。 */
+    /** 两行富菜单项通用布局（无标题尾随节点）。 */
+    private MenuItem twoLineMenuItem(Label icon, Label title, Label desc, boolean checked, double width,
+                                     Runnable onPick) {
+        return twoLineMenuItem(icon, title, null, desc, checked, width, onPick);
+    }
+
+    /** 两行富菜单项通用布局：图标 + 标题/说明占满左侧，勾选独立叠层固定右对齐，与文字不共享宽度。
+     * {@code titleExtra} 非空时紧跟标题右侧同行（如多模态小标），超长时先截标题、尾随不缩。 */
+    private MenuItem twoLineMenuItem(Label icon, Label title, Node titleExtra, Label desc, boolean checked, double width,
+                                     Runnable onPick) {
+        // 标题/说明钉最大宽度并启用省略号：超长先截断，不把行撑宽、不顶勾
+        title.setMaxWidth(width - 74);
+        title.setEllipsisString("\u2026");
+        desc.setMaxWidth(width - 74);
+        desc.setEllipsisString("\u2026");
+        Node firstLine = title;
+        if (titleExtra != null) {
+            // 尾随图标不参与压缩：允许标题压到 0 宽先截断，保证小标始终紧跟名称且不顶勾
+            title.setMinWidth(0);
+            HBox titleRow = new HBox(6, title, titleExtra);
+            titleRow.setAlignment(Pos.CENTER_LEFT);
+            titleRow.setMaxWidth(width - 74);
+            firstLine = titleRow;
+        }
+        VBox col = new VBox(2, firstLine, desc);
+        col.setAlignment(Pos.CENTER_LEFT);
+        col.setPadding(new Insets(0, 26, 0, 0)); // 右侧预留勾选位
+        Label check = new Label("\u2713");
+        check.getStyleClass().add("approval-check");
+        check.setVisible(checked);
+        check.setManaged(checked);
+        StackPane textZone = new StackPane(col, check);
+        StackPane.setAlignment(col, Pos.CENTER_LEFT);    // 文字钉左，撑满后不被居中右移
+        StackPane.setAlignment(check, Pos.CENTER_RIGHT); // 勾选贴行右缘
+        HBox.setHgrow(textZone, Priority.ALWAYS);        // textZone 撑满整行，把勾推到右缘（行已钉宽，不会被长内容撑开）
+        HBox row = new HBox(10, icon, textZone);
+        row.setAlignment(Pos.CENTER_LEFT);
+        // min=pref=max 钉死宽度：所有行等宽，勾才能统一贴到菜单右缘（仅设 prefWidth 会被长内容撑开）
+        row.setMinWidth(width);
+        row.setPrefWidth(width);
+        row.setMaxWidth(width);
+        row.getStyleClass().add("approval-menu");
+        MenuItem item = new MenuItem();
+        item.setGraphic(row);
+        item.setOnAction(e -> onPick.run());
+        return item;
+    }
+
+    /** 审批菜单项：图标 + 标题/说明两行，勾选固定右侧独立对齐；危险项标红。 */
     private MenuItem approvalMenuItem(ApprovalOption opt, boolean checked) {
         Label icon = UiTheme.icon(opt.icon());
         icon.getStyleClass().add("approval-icon");
@@ -1145,29 +1324,15 @@ public class MainController {
         title.getStyleClass().add("approval-title");
         Label desc = new Label(opt.desc());
         desc.getStyleClass().add("approval-desc");
-        // 说明保持单行（不换行）；靠容器固定宽度把打勾顶到右侧对齐，文字过长时菜单自动变宽
+        // 说明保持单行（不换行）；勾选由 twoLineMenuItem 固定在右侧，文字超长先截断不顶勾
         if (opt.danger()) {
             icon.getStyleClass().add("approval-icon-danger");
             title.getStyleClass().add("approval-title-danger");
         }
-        VBox col = new VBox(2, title, desc);
-        col.setAlignment(Pos.CENTER_LEFT);
-        HBox.setHgrow(col, Priority.ALWAYS);
-        Label check = new Label("\u2713");
-        check.getStyleClass().add("approval-check");
-        check.setVisible(checked);
-        check.setManaged(checked);
-        HBox box = new HBox(10, icon, col, check);
-        box.setAlignment(Pos.CENTER_LEFT);
-        box.setPrefWidth(360);
-        box.getStyleClass().add("approval-menu");
-        MenuItem item = new MenuItem();
-        item.setGraphic(box);
-        item.setOnAction(e -> {
+        return twoLineMenuItem(icon, title, desc, checked, 360, () -> {
             approvalMode = opt.mode();
             renderApprovalButton();
         });
-        return item;
     }
 
     /** 用户气泡：文本 + 图片缩略图（若有）；无文本时只渲染图。 */
@@ -1245,10 +1410,11 @@ public class MainController {
         }
     }
 
-    /** 模型下拉条目：providerCode/modelCode 同时为空表示「跟随默认」（不覆盖）；toString 供 ComboBox 显示。 */
-    private record ModelOption(String providerCode, String modelCode, String label) {
-        static ModelOption followDefault(String label) {
-            return new ModelOption(null, null, label);
+    /** 模型菜单条目：providerCode/modelCode 同时为空表示「跟随默认」（不覆盖）；携带图标、提供商说明与多模态标记供菜单富渲染。 */
+    private record ModelOption(String providerCode, String modelCode, String label, String icon, String desc,
+                               boolean vision) {
+        boolean followDefault() {
+            return providerCode == null;
         }
 
         @Override

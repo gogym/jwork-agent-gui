@@ -16,7 +16,7 @@ public class ModelConfigDao {
 
     private static final String COLUMNS =
             "id, provider_code, model_code, model_name, priority, cost_per_1k_tokens, rate_limit_rpm, rate_limit_tpm, "
-                    + "enabled, status, last_test_at, last_test_result, created_at, updated_at";
+                    + "enabled, status, last_test_at, last_test_result, supports_vision, created_at, updated_at";
 
     private final SqlRunner runner;
 
@@ -38,6 +38,7 @@ public class ModelConfigDao {
         m.setStatus(rs.getString("status"));
         m.setLastTestAt(SqlRunner.getDateTime(rs, "last_test_at"));
         m.setLastTestResult(rs.getString("last_test_result"));
+        m.setSupportsVision(SqlRunner.getInt(rs, "supports_vision"));
         m.setCreatedAt(SqlRunner.getDateTime(rs, "created_at"));
         m.setUpdatedAt(SqlRunner.getDateTime(rs, "updated_at"));
         return m;
@@ -49,11 +50,11 @@ public class ModelConfigDao {
         m.setUpdatedAt(now);
         long id = runner.insert(
                 "INSERT INTO models (provider_code, model_code, model_name, priority, cost_per_1k_tokens, rate_limit_rpm, "
-                        + "rate_limit_tpm, enabled, status, last_test_at, last_test_result, created_at, updated_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        + "rate_limit_tpm, enabled, status, last_test_at, last_test_result, supports_vision, created_at, updated_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 m.getProviderCode(), m.getModelCode(), m.getModelName(), m.getPriority(), m.getCostPer1kTokens(),
                 m.getRateLimitRpm(), m.getRateLimitTpm(), m.getEnabled(), m.getStatus(), m.getLastTestAt(),
-                m.getLastTestResult(), now, now);
+                m.getLastTestResult(), m.getSupportsVision(), now, now);
         m.setId(id);
         return id;
     }
@@ -62,10 +63,10 @@ public class ModelConfigDao {
         m.setUpdatedAt(LocalDateTime.now());
         return runner.update(
                 "UPDATE models SET provider_code=?, model_name=?, priority=?, cost_per_1k_tokens=?, rate_limit_rpm=?, "
-                        + "rate_limit_tpm=?, enabled=?, status=?, last_test_at=?, last_test_result=?, updated_at=? WHERE model_code=?",
+                        + "rate_limit_tpm=?, enabled=?, status=?, last_test_at=?, last_test_result=?, supports_vision=?, updated_at=? WHERE model_code=?",
                 m.getProviderCode(), m.getModelName(), m.getPriority(), m.getCostPer1kTokens(), m.getRateLimitRpm(),
                 m.getRateLimitTpm(), m.getEnabled(), m.getStatus(), m.getLastTestAt(), m.getLastTestResult(),
-                m.getUpdatedAt(), m.getModelCode());
+                m.getSupportsVision(), m.getUpdatedAt(), m.getModelCode());
     }
 
     public Optional<ModelConfig> findByCode(String modelCode) {

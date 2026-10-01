@@ -38,6 +38,9 @@ public class ModelConfig {
 
     private String lastTestResult;
 
+    /** 多模态（图片输入）支持：1=支持、0=不支持、null=未测试，由多模态测试写回 */
+    private Integer supportsVision;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

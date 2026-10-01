@@ -133,7 +133,7 @@
                                 <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
                                 <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
                                 <Region HBox.hgrow="ALWAYS"/>
-                                <ComboBox fx:id="modelCombo" styleClass="model-combo" promptText=""/>
+                                <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
                                 <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSend">
                                     <graphic>
                                         <Label styleClass="send-icon" text="&#xE724;"/>

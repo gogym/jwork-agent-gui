@@ -131,11 +131,39 @@ public class ProviderAdminService {
         return result;
     }
 
+    /**
+     * 多模态测试：向正在编辑的模型发一条带图片的最小对话，判断它是否支持图片输入。
+     * <p>与连通性测试 {@link #testModel} 不同，结果只落到 {@code supports_vision} 能力位，
+     * 不碰模型的可用性 {@code status}——「不支持多模态」只是能力边界，不代表模型不可用。
+     * 模型尚未入库（新增）时只返回结果，交由保存流程写入。本方法不抛异常。</p>
+     */
+    public ModelProbe.Result testModelVision(String providerCode, String modelCode, String modelName) {
+        ModelSpec spec;
+        try {
+            spec = resolver.specForModel(providerCode, modelCode, modelName);
+        } catch (RuntimeException e) {
+            return new ModelProbe.Result(false, e.getMessage());
+        }
+        ModelProbe.Result result = modelProbe.probeVision(spec);
+        if (modelCode != null && !modelCode.isBlank()) {
+            db.modelConfigDao().findByCode(modelCode).ifPresent(saved -> {
+                applyVision(saved, result);
+                db.modelConfigDao().update(saved);
+            });
+        }
+        return result;
+    }
+
     /** 把探测结果落到模型实体上：状态 + 最近一次测试时间与详情（供保存时一并入库）。 */
     public static void applyProbe(ModelConfig form, ModelProbe.Result result) {
         form.setStatus(result.ok() ? MODEL_STATUS_VALID : MODEL_STATUS_INVALID);
         form.setLastTestAt(LocalDateTime.now());
         form.setLastTestResult(result.detail());
+    }
+
+    /** 把多模态探测结果落到能力位：支持=1、不支持=0（独立于 {@link #applyProbe}，不改写可用性状态）。 */
+    public static void applyVision(ModelConfig form, ModelProbe.Result result) {
+        form.setSupportsVision(result.ok() ? 1 : 0);
     }
 
     // ---- 默认模型 ----

@@ -419,7 +419,7 @@
     -fx-cursor: hand;
 }
 .attach-remove:hover { -fx-text-fill: -gim-badge-red-fg; }
-.model-combo, .approval-combo {
+.model-button, .approval-combo {
     -fx-background-color: -gim-btn;
     -fx-background-radius: 8;
     -fx-border-color: -gim-border-2;
@@ -430,37 +430,15 @@
     -fx-font-size: 12px;
     -fx-cursor: hand;
 }
-.model-combo:hover, .approval-combo:hover {
+.model-button:hover, .approval-combo:hover {
     -fx-background-color: -gim-btn-hover;
     -fx-border-color: -gim-border-hover;
 }
-/* 键盘聚焦或正在展开下拉时描边转主色，明确「当前操作的是哪个选择器」 */
-.model-combo:focused, .approval-combo:focused,
-.model-combo:showing, .approval-combo:showing {
+/* 键盘聚焦或菜单展开时描边转主色，明确「当前操作的是哪个选择器」 */
+.model-button:focused, .approval-combo:focused,
+.model-button:showing, .approval-combo:showing {
     -fx-border-color: -gim-accent;
 }
-
-/* 选中值显示区：文字垂直居中，右侧与箭头留距 */
-.model-combo .list-cell, .approval-combo .list-cell {
-    -fx-background-color: transparent;
-    -fx-text-fill: -gim-text-2;
-    -fx-font-size: 12px;
-    -fx-padding: 0;
-    -fx-alignment: center-left;
-    -fx-graphic-text-gap: 6;
-}
-
-/* 箭头按钮与箭头：小巧、与文字留出间距，跟随前景色 */
-.model-combo .arrow-button, .approval-combo .arrow-button {
-    -fx-background-color: transparent;
-    -fx-padding: 0 0 0 6;
-}
-.model-combo .arrow, .approval-combo .arrow {
-    -fx-background-color: -gim-arrow;
-    -fx-scale-x: 0.85;
-    -fx-scale-y: 0.85;
-}
-.model-combo:hover .arrow, .approval-combo:hover .arrow { -fx-background-color: -gim-text-3; }
 
 /* 审批下拉富单元格：图标 + 标题/说明两行，当前选中项右侧带勾、危险项标红 */
 .approval-icon { -fx-font-size: 15px; -fx-text-fill: -gim-icon; -fx-min-width: 18; }
@@ -469,7 +447,7 @@
 .approval-title-compact { -fx-font-size: 12px; -fx-text-fill: -gim-text-2; }
 .approval-title-danger { -fx-text-fill: -gim-badge-red-fg; }
 .approval-desc { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; -fx-line-spacing: 1; }
-.approval-check { -fx-text-fill: -gim-accent; -fx-font-size: 12px; -fx-padding: 0 4 0 18; -fx-min-width: 20; }
+.approval-check { -fx-text-fill: -gim-accent; -fx-font-size: 12px; -fx-padding: 0 2 0 0; }
 .approval-caret { -fx-font-size: 9px; -fx-text-fill: -gim-arrow; }
 /* 菜单项里的标签会被通用 .menu-item .label 的 text-fill 覆盖，用同级选择器按源序夺回颜色 */
 .approval-menu .approval-icon { -fx-text-fill: -gim-icon; }
@@ -478,6 +456,14 @@
 .approval-menu .approval-title.approval-title-danger { -fx-text-fill: -gim-badge-red-fg; }
 .approval-menu .approval-desc { -fx-text-fill: -gim-text-4; }
 .approval-menu .approval-check { -fx-text-fill: -gim-accent; }
+/* 模型名称右侧的多模态小标（E8B9 图片字形，蓝色）；菜单项里同样需夺回 .menu-item .label 的颜色 */
+.model-vision { -fx-font-size: 12px; -fx-text-fill: -gim-badge-blue-fg; }
+.approval-menu .model-vision { -fx-text-fill: -gim-badge-blue-fg; }
+/* 模型菜单复用 approval-* 富渲染类；「模型管理」底部条目与 .menu-item .label 同特异性，靠源序夺回图标颜色 */
+.model-manage .label { -fx-text-fill: -gim-text-2; }
+/* 富菜单（审批/模型）：收紧右侧留白，让勾选更贴近菜单右缘（左/上/下保持呼吸感） */
+.rich-menu { -fx-padding: 6 5 6 6; }
+.rich-menu .menu-item { -fx-padding: 7 5 7 12; }
 .bubble-images { -fx-alignment: center-right; -fx-spacing: 6; }
 
 /* ---------- 状态栏 ---------- */
@@ -827,6 +813,13 @@
 .badge-gray  { -fx-background-color: -gim-badge-gray-bg;  -fx-text-fill: -gim-badge-gray-fg; }
 .badge-blue  { -fx-background-color: -gim-badge-blue-bg;  -fx-text-fill: -gim-badge-blue-fg; }
 .badge-red   { -fx-background-color: -gim-badge-red-bg;   -fx-text-fill: -gim-badge-red-fg; }
+
+/* 模型卡片状态/多模态图标：沿用 .icon 字体，仅按语义夺回文字颜色（源序晚于 .icon） */
+.card-status-icon { -fx-font-size: 13px; -fx-min-width: 16; }
+.status-ok      { -fx-text-fill: -gim-tint-fg-3; }
+.status-bad     { -fx-text-fill: -gim-badge-red-fg; }
+.status-unknown { -fx-text-fill: -gim-text-5; }
+.status-vision  { -fx-text-fill: -gim-badge-blue-fg; }
 
 .link-btn {
     -fx-background-color: transparent;

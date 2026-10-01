@@ -1,14 +1,25 @@
 package com.gettyio.gim.agent.core.model;
 
+import io.agentscope.core.message.Base64Source;
+import io.agentscope.core.message.ContentBlock;
+import io.agentscope.core.message.ImageBlock;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
+import io.agentscope.core.message.TextBlock;
 import io.agentscope.core.model.ChatResponse;
 import io.agentscope.core.model.GenerateOptions;
 import io.agentscope.core.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import javax.imageio.ImageIO;
+import java.awt.Color;
+import java.awt.Graphics2D;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 
 /**
@@ -25,6 +36,9 @@ public class ModelProbe {
     /** 只要一个回包就够，限制输出长度，避免真的生成一段话白烧 token。 */
     private static final int MAX_TOKENS = 16;
     private static final String PING = "ping";
+    /** 多模态探测：发一张纯色小图问颜色，端点若不支持图片输入会直接报错，支持则给出回答。 */
+    private static final String VISION_PROMPT = "这张图片是什么颜色？只回答一个词。";
+    private static final String VISION_MEDIA_TYPE = "image/png";
 
     private final AgentScopeModelFactory modelFactory;
 
@@ -59,6 +73,74 @@ public class ModelProbe {
         } catch (Exception e) {
             return failure(spec, describe(e));
         }
+    }
+
+    /**
+     * 多模态探测：随一条最小对话附一张程序生成的纯色小图，验证模型是否真能吃图片。
+     * <p>与 {@link #probe} 一样走独立实例、永不抛异常。文本模型收到 image 块通常直接返回 4xx，
+     * 归一化成失败；能正常回包的视为支持多模态，并把模型的简短回答作为佐证一并回显。</p>
+     */
+    public Result probeVision(ModelSpec spec) {
+        long start = System.nanoTime();
+        try {
+            Model model = modelFactory.create(spec);
+            Msg msg = Msg.builder().role(MsgRole.USER).content(List.of(
+                    TextBlock.builder().text(VISION_PROMPT).build(),
+                    ImageBlock.builder()
+                            .source(new Base64Source(VISION_MEDIA_TYPE, redSquarePngBase64()))
+                            .build()
+            )).build();
+            GenerateOptions options = GenerateOptions.builder()
+                    .modelName(spec.modelName())
+                    .maxTokens(MAX_TOKENS)
+                    .build();
+            List<ChatResponse> chunks = model.stream(List.of(msg), List.of(), options)
+                    .collectList().block(TIMEOUT);
+            if (chunks == null || chunks.isEmpty()) {
+                return failure(spec, "已接受图片输入，但模型没有返回任何内容");
+            }
+            String answer = assembleText(chunks);
+            String evidence = answer.isBlank() ? "" : "（回答：" + trimAnswer(answer) + "）";
+            return new Result(true, "支持多模态" + evidence + " · " + elapsedMs(start) + "ms");
+        } catch (Exception e) {
+            return failure(spec, describe(e));
+        }
+    }
+
+    /** 生成 64×64 纯红 PNG 并转 Base64（不含 data URI 前缀），作为多模态探测的固定输入。 */
+    private static String redSquarePngBase64() throws IOException {
+        BufferedImage image = new BufferedImage(64, 64, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g = image.createGraphics();
+        try {
+            g.setColor(Color.RED);
+            g.fillRect(0, 0, 64, 64);
+        } finally {
+            g.dispose();
+        }
+        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+        ImageIO.write(image, "png", bos);
+        return Base64.getEncoder().encodeToString(bos.toByteArray());
+    }
+
+    /** 拼接流式回包里所有文本块（增量或非增量都适用），得到模型完整回答。 */
+    private static String assembleText(List<ChatResponse> chunks) {
+        StringBuilder sb = new StringBuilder();
+        for (ChatResponse chunk : chunks) {
+            if (chunk == null || chunk.getContent() == null) {
+                continue;
+            }
+            for (ContentBlock block : chunk.getContent()) {
+                if (block instanceof TextBlock text && text.getText() != null) {
+                    sb.append(text.getText());
+                }
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private static String trimAnswer(String answer) {
+        String oneLine = answer.replaceAll("\\s+", " ").trim();
+        return oneLine.length() <= 40 ? oneLine : oneLine.substring(0, 40) + "…";
     }
 
     private Result failure(ModelSpec spec, String reason) {

@@ -28,6 +28,7 @@ import javafx.geometry.VPos;
 import javafx.scene.Node;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckBox;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
@@ -37,6 +38,7 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Toggle;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.ToolBar;
@@ -145,10 +147,14 @@ public class SettingsWindow {
     private boolean loading;
     private boolean langListenerRegistered;
     private boolean modelProviderListenerAdded;
+    /** 本次打开要直达的设置菜单文案（如「模型」）；为空则默认选中第一项 */
+    private String pendingMenuLabel;
     /** 模型表单本次弹窗里的连接测试结果；为空表示没测过。 */
     private ModelProbe.Result modelProbeResult;
     /** 正在编辑的模型原记录：未重新测试时沿用它已有的可用状态，不被抹成 UNKNOWN。 */
     private ModelConfig modelBaseline;
+    /** 本次弹窗里的多模态测试结果；为空表示没测过，不影响可用性状态。 */
+    private ModelProbe.Result modelVisionResult;
 
     /** 菜单项与搜索元数据。 */
     private static final class MenuEntry {
@@ -165,9 +171,15 @@ public class SettingsWindow {
 
     /** 在主窗口外壳内显示设置：替换 shell 中部内容（标题栏常驻），点击“返回应用”回调切回主界面。 */
     public void showIn(AppShell shell, Scene scene, Runnable onBack) {
+        showIn(shell, scene, null, onBack);
+    }
+
+    /** 同上；{@code selectMenuLabel} 非空时直达对应菜单项（找不到则回退第一项）。 */
+    public void showIn(AppShell shell, Scene scene, String selectMenuLabel, Runnable onBack) {
         this.shell = shell;
         this.hostScene = scene;
         this.onBack = onBack;
+        this.pendingMenuLabel = selectMenuLabel;
         this.showing = true;
         shell.setContent(buildRoot());
         UiTheme.apply(scene);
@@ -318,9 +330,21 @@ public class SettingsWindow {
     }
 
     private void selectFirstMenu() {
-        if (!menuGroup.getToggles().isEmpty()) {
-            ((ToggleButton) menuGroup.getToggles().get(0)).setSelected(true);
+        if (menuGroup.getToggles().isEmpty()) {
+            return;
         }
+        // 有直达目标（如模型菜单的「模型管理」→「模型」页）则先选它，消费一次后恢复默认行为
+        String want = pendingMenuLabel;
+        pendingMenuLabel = null;
+        if (want != null && !want.isBlank()) {
+            for (Toggle t : menuGroup.getToggles()) {
+                if (t instanceof ToggleButton tb && want.equals(tb.getText())) {
+                    tb.setSelected(true);
+                    return;
+                }
+            }
+        }
+        ((ToggleButton) menuGroup.getToggles().get(0)).setSelected(true);
     }
 
     // ---- 页面 / 行 / 分组 辅助 ----
@@ -981,12 +1005,55 @@ public class SettingsWindow {
                 kvLine(I18n.t("settings.model.code"), m.getModelCode()),
                 kvLine(I18n.t("settings.model.provider"), m.getProviderCode()),
                 kvLine(I18n.t("settings.model.priority"), String.valueOf(m.getPriority())),
-                kvLine(I18n.t("common.status"), modelStatusText(m.getStatus())),
+                kvIconLine(I18n.t("common.status"), statusIconValue(m.getStatus())),
+                kvIconLine(I18n.t("settings.model.multimodal"), visionIconValue(m.getSupportsVision())),
                 kvLine(I18n.t("settings.model.lastTest"), lastTestText(m)));
         card.getStyleClass().add("provider-card");
         card.setPrefWidth(CARD_WIDTH);
         card.setMaxWidth(CARD_WIDTH);
         return card;
+    }
+
+    /** 图标行：与 kvLine 同构，但值是一个富节点（图标 + 文字）。 */
+    private HBox kvIconLine(String key, Node value) {
+        Label k = new Label(key);
+        k.getStyleClass().add("provider-card-key");
+        HBox h = new HBox(12, k, value);
+        h.setAlignment(Pos.CENTER_LEFT);
+        return h;
+    }
+
+    /** 构造“Segoe 图标 + 主题色 + 说明文字”的小行值。 */
+    private HBox iconTextValue(String glyph, String colorClass, String text) {
+        Label ic = new Label(glyph);
+        ic.getStyleClass().addAll("icon", "card-status-icon", colorClass);
+        Label tx = new Label(text);
+        tx.getStyleClass().add("provider-card-val");
+        HBox h = new HBox(6, ic, tx);
+        h.setAlignment(Pos.CENTER_LEFT);
+        return h;
+    }
+
+    /** 连通状态行：可用=绿勾、不可用=红叉、未测试=灰问号。 */
+    private HBox statusIconValue(String status) {
+        if (ProviderAdminService.MODEL_STATUS_VALID.equalsIgnoreCase(status)) {
+            return iconTextValue("\uE73E", "status-ok", I18n.t("settings.model.status.valid"));
+        }
+        if (ProviderAdminService.MODEL_STATUS_INVALID.equalsIgnoreCase(status)) {
+            return iconTextValue("\uE711", "status-bad", I18n.t("settings.model.status.invalid"));
+        }
+        return iconTextValue("\uE897", "status-unknown", I18n.t("settings.model.status.unknown"));
+    }
+
+    /** 多模态行：支持=蓝图片、不支持=红图片、未测试=灰图片。 */
+    private HBox visionIconValue(Integer supportsVision) {
+        if (supportsVision == null) {
+            return iconTextValue("\uE8B9", "status-unknown", I18n.t("settings.model.vision.unknown"));
+        }
+        if (supportsVision == 1) {
+            return iconTextValue("\uE8B9", "status-vision", I18n.t("settings.model.vision.supported"));
+        }
+        return iconTextValue("\uE8B9", "status-bad", I18n.t("settings.model.vision.unsupported"));
     }
 
     /** 弹出无边框模态窗口新增/编辑模型；{@code editing} 为 null 表示新增。 */
@@ -1019,9 +1086,11 @@ public class SettingsWindow {
         });
         Button test = new Button(I18n.t("settings.model.test"));
         test.setOnAction(e -> runModelTest(test, probeHint));
+        Button testVision = new Button(I18n.t("settings.model.visionTest"));
+        testVision.setOnAction(e -> runModelVisionTest(testVision, probeHint));
         Region gap = new Region();
         HBox.setHgrow(gap, Priority.ALWAYS);
-        HBox btns = new HBox(8, test, gap, cancel, save);
+        HBox btns = new HBox(8, test, testVision, gap, cancel, save);
         btns.setAlignment(Pos.CENTER_RIGHT);
 
         shell.body().getChildren().addAll(form, probeHint, btns);
@@ -1060,6 +1129,38 @@ public class SettingsWindow {
         worker.start();
     }
 
+    /** 发起多模态探测：与连通性测试共用回显位，但不写入 modelProbeResult（不影响保存时的可用状态）。 */
+    private void runModelVisionTest(Button btn, Label hint) {
+        String provider = modelProviderCombo.getValue();
+        String modelName = modelNameField.getText().trim();
+        if (provider == null || provider.isBlank() || modelName.isEmpty()) {
+            hint.getStyleClass().removeAll("probe-ok", "probe-fail");
+            hint.getStyleClass().add("probe-fail");
+            hint.setText(I18n.t("settings.model.testNeedFields"));
+            return;
+        }
+        String modelCode = modelCodeField.getText().trim();
+        btn.setDisable(true);
+        hint.getStyleClass().removeAll("probe-ok", "probe-fail");
+        hint.setText(I18n.t("settings.model.visionTesting"));
+        Thread worker = new Thread(() -> {
+            ModelProbe.Result result = adminService.testModelVision(provider, modelCode, modelName);
+            Platform.runLater(() -> {
+                if (btn.getScene() == null) {
+                    return;
+                }
+                btn.setDisable(false);
+                modelVisionResult = result;
+                hint.getStyleClass().removeAll("probe-ok", "probe-fail");
+                hint.getStyleClass().add(result.ok() ? "probe-ok" : "probe-fail");
+                hint.setText(I18n.t(result.ok() ? "settings.model.visionOk" : "settings.model.visionFail",
+                        result.detail()));
+            });
+        }, "model-vision-test");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
     /** 把本次探测结果落到待保存实体；没测过则沿用原记录，避免编辑把已验证状态抹成 UNKNOWN。 */
     private void applyModelStatus(ModelConfig m) {
         if (modelProbeResult != null) {
@@ -1071,16 +1172,14 @@ public class SettingsWindow {
         } else {
             m.setStatus(ProviderAdminService.MODEL_STATUS_UNKNOWN);
         }
-    }
-
-    private String modelStatusText(String status) {
-        if (ProviderAdminService.MODEL_STATUS_VALID.equalsIgnoreCase(status)) {
-            return I18n.t("settings.model.status.valid");
+        // 多模态能力位独立于可用状态：测过则写入，没测则沿用原值
+        if (modelVisionResult != null) {
+            ProviderAdminService.applyVision(m, modelVisionResult);
+        } else if (modelBaseline != null) {
+            m.setSupportsVision(modelBaseline.getSupportsVision());
+        } else {
+            m.setSupportsVision(null);
         }
-        if (ProviderAdminService.MODEL_STATUS_INVALID.equalsIgnoreCase(status)) {
-            return I18n.t("settings.model.status.invalid");
-        }
-        return I18n.t("settings.model.status.unknown");
     }
 
     private String lastTestText(ModelConfig m) {
@@ -1113,7 +1212,7 @@ public class SettingsWindow {
         return box;
     }
 
-    /** 弹窗选择默认模型：列出所有已启用模型，选中后确定即设为默认。 */
+    /** 弹窗选择默认模型：列出所有已启用模型，可勾选只看多模态，选中后确定即设为默认。 */
     private void openDefaultModelPicker() {
         GimDialog.Shell shell = GimDialog.shell(hostWindow(), I18n.t("settings.default.pickTitle"));
 
@@ -1126,7 +1225,7 @@ public class SettingsWindow {
             return;
         }
 
-        ListView<ModelConfig> listView = new ListView<>(FXCollections.observableArrayList(models));
+        ListView<ModelConfig> listView = new ListView<>();
         listView.setPrefSize(420, 300);
         listView.setCellFactory(lv -> new ListCell<>() {
             @Override
@@ -1138,22 +1237,42 @@ public class SettingsWindow {
                 }
                 String name = item.getModelName() == null || item.getModelName().isBlank()
                         ? item.getModelCode() : item.getModelName();
-                setText(name + "  (" + item.getProviderCode() + ")");
+                String vision = Integer.valueOf(1).equals(item.getSupportsVision())
+                        ? " · " + I18n.t("settings.model.multimodal") : "";
+                setText(name + "  (" + item.getProviderCode() + ")" + vision);
             }
         });
 
-        // 预选当前默认
+        // 预选当前默认（若存在）
         String curModel = adminService.getDefaultModelCode().orElse(null);
-        if (curModel != null) {
-            for (int i = 0; i < models.size(); i++) {
-                if (models.get(i).getModelCode().equals(curModel)) {
-                    listView.getSelectionModel().select(i);
-                    break;
+
+        CheckBox filterCheck = new CheckBox(I18n.t("settings.model.vision.only"));
+        filterCheck.getStyleClass().add("cap-check");
+        // 默认不勾选：避免误杀尚未测过或纯文本的模型
+        filterCheck.setSelected(false);
+
+        Runnable refill = () -> {
+            List<ModelConfig> shown = filterCheck.isSelected()
+                    ? models.stream().filter(m -> Integer.valueOf(1).equals(m.getSupportsVision())).toList()
+                    : models;
+            listView.setItems(FXCollections.observableArrayList(shown));
+            int idx = -1;
+            if (curModel != null) {
+                for (int i = 0; i < shown.size(); i++) {
+                    if (shown.get(i).getModelCode().equals(curModel)) {
+                        idx = i;
+                        break;
+                    }
                 }
             }
-        } else {
-            listView.getSelectionModel().selectFirst();
-        }
+            if (idx >= 0) {
+                listView.getSelectionModel().select(idx);
+            } else if (!shown.isEmpty()) {
+                listView.getSelectionModel().selectFirst();
+            }
+        };
+        filterCheck.setOnAction(e -> refill.run());
+        refill.run();
 
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
@@ -1175,10 +1294,12 @@ public class SettingsWindow {
                 ok.fire();
             }
         });
+        HBox filterRow = new HBox(filterCheck);
+        filterRow.setPadding(new Insets(0, 0, 6, 0));
         HBox btns = new HBox(8, cancel, ok);
         btns.setAlignment(Pos.CENTER_RIGHT);
 
-        shell.body().getChildren().addAll(listView, btns);
+        shell.body().getChildren().addAll(filterRow, listView, btns);
         shell.showAndWait();
     }
 
@@ -1352,6 +1473,7 @@ public class SettingsWindow {
         modelEnabledCheck.setSelected(true);
         modelBaseline = null;
         modelProbeResult = null;
+        modelVisionResult = null;
         if (modelProviderCombo.getItems().isEmpty()) {
             refreshProviderCombos();
         }
@@ -1369,6 +1491,7 @@ public class SettingsWindow {
         modelEnabledCheck.setSelected(EnabledStatus.isEnabled(m.getEnabled()));
         modelBaseline = m;
         modelProbeResult = null;
+        modelVisionResult = null;
         loading = false;
     }
 
