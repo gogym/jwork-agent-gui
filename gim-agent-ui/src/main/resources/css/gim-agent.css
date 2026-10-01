@@ -416,7 +416,7 @@
 }
 .terminal-drawer-theme:hover { -fx-background-color: -gim-hover; }
 .terminal-drawer-theme .icon { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; }
-.terminal-host { -fx-padding: 6 8 10 8; -fx-background-color: -gim-bg; }
+.terminal-host { -fx-padding: 12 8 10 8; -fx-background-color: -gim-bg; }
 .terminal-error { -fx-text-fill: -gim-badge-red-fg; -fx-padding: 12; }
 
 .input-wrap { -fx-padding: 10 24 20 24; }

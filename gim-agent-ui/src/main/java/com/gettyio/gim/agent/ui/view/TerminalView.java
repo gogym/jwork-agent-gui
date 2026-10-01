@@ -96,7 +96,7 @@ public class TerminalView {
             if (!host.getChildren().contains(widget.getPane())) {
                 host.getChildren().setAll(widget.getPane());
             }
-            widget.getPreferredFocusableNode().requestFocus();
+            focusTerminal();
             return;
         }
         try {
@@ -137,11 +137,20 @@ public class TerminalView {
             javafx.application.Platform.runLater(onCloseRequest);
         });
         widget.start();
-        // 块状光标会走反色计算（默认样式已置为无色，会 NPE 致光标不可见）；改用竖线光标，仅取实时前景色，深浅主题均可见
+        // 默认用竖线光标（现代终端常见，且不受块状光标反色渲染分支影响）
         widget.getTerminalPanel().setCursorShape(CursorShape.BLINK_VERTICAL_BAR);
         host.getChildren().setAll(widget.getPane());
         applyTerminalChrome();
-        widget.getPreferredFocusableNode().requestFocus();
+        focusTerminal();
+    }
+
+    /** 光标闪烁仅在 canvas 聚焦时进行；面板刚挂进场景时同步 requestFocus 常失效，故延后聚焦到 canvas 本身。 */
+    private void focusTerminal() {
+        JediTermFxWidget w = widget;
+        if (w == null) {
+            return;
+        }
+        javafx.application.Platform.runLater(() -> w.getTerminalPanel().getCanvas().requestFocus());
     }
 
     /** 优先 PowerShell（含 -NoLogo 去横幅），探测不到回退 cmd.exe。 */
@@ -263,6 +272,12 @@ public class TerminalView {
         }
 
         @Override
+        public float getTerminalFontSize() {
+            // 库默认 14，略调小以与聊天区文字观感更协调
+            return 13f;
+        }
+
+        @Override
         public ColorPalette getTerminalColorPalette() {
             ColorPalette cache = paletteCache;
             if (cache == null) {
@@ -291,9 +306,9 @@ public class TerminalView {
 
         @Override
         public TextStyle getDefaultStyle() {
-            // 返回无色的默认样式，使未显式带 ANSI 色的文本在绘制时回退到实时的窗口前景/背景，
-            // 因此主题切换只需改色 + 重绘即可让已有内容一起变色，无需重建终端
-            return TextStyle.EMPTY;
+            // 返回带具体颜色的默认样式：模拟机在 SGR 重置时会写入无色的 TextStyle，故单元格颜色仍走实时窗口色（改色不需重建）；
+            // 而光标/反色路径会 requireNonNull(默认前景色)，必须非 null 才不会抛 NPE 导致光标画不出来
+            return new TextStyle(getDefaultForeground(), getDefaultBackground());
         }
 
         @Override
