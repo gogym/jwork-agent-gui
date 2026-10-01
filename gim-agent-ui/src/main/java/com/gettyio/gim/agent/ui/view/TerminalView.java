@@ -247,10 +247,10 @@ public class TerminalView {
         host.setStyle("-fx-background-color: " + (isTerminalDark() ? "#1e1e1d" : "#ffffff") + ";");
     }
 
-    /** 根据终端当前配色更新按钮图标：亮底显示太阳（点击转暗），暗底显示月亮（点击转亮）。 */
+    /** 根据终端当前配色更新按钮图标：图标代指“点击后要去”的主题——浅色显月亮（转暗），深色显太阳（转亮）。 */
     private void updateThemeIcon() {
         if (themeButton != null) {
-            themeButton.setGraphic(UiTheme.icon(isTerminalDark() ? "\uE708" : "\uE706"));
+            themeButton.setGraphic(UiTheme.icon(isTerminalDark() ? "\uE706" : "\uE708"));
         }
     }
 
