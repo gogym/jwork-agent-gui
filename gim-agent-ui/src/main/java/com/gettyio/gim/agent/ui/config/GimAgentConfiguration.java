@@ -24,6 +24,7 @@ import com.gettyio.gim.agent.scheduler.TaskSchedulerService;
 import com.gettyio.gim.agent.scheduler.tool.ScheduleTools;
 import com.gettyio.gim.agent.tools.ToolSecurityFacade;
 import com.gettyio.gim.agent.tools.guard.DangerousCommandPolicy;
+import com.gettyio.gim.agent.tools.guard.ExecutableAllowlistPolicy;
 import com.gettyio.gim.agent.tools.guard.GuardChain;
 import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
@@ -207,6 +208,10 @@ public class GimAgentConfiguration {
         // 动态授权根：各智能体配置的项目目录实时入白名单，避免项目内写被误报越界
         List<ToolGuard> guards = List.of(
                 new DangerousCommandPolicy(),
+                // shell 只能启动白名单内的程序；用户可写入 ~/.gim-agent/shell-allowlist.txt 扩展
+                new ExecutableAllowlistPolicy(ExecutableAllowlistPolicy.DEFAULT_ALLOWED,
+                        ExecutableAllowlistPolicy.fileSupplier(
+                                paths.root().resolve("shell-allowlist.txt"))),
                 new PathWhitelistPolicy(List.of(allowed, paths.workspaceDir()),
                         () -> agentProjectRoots(db))
         );

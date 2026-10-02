@@ -32,7 +32,7 @@ public class SkillService {
     private static final Logger log = LoggerFactory.getLogger(SkillService.class);
 
     /** 随应用分发的内置示例技能（classpath: /skills/<code>/SKILL.md） */
-    private static final List<String> BUILTIN_SKILLS = List.of("translate", "weekly-report", "office-documents");
+    private static final List<String> BUILTIN_SKILLS = List.of("translate", "weekly-report", "office-documents", "software-automation");
 
     private final GimPaths paths;
     private final GimDatabase db;
