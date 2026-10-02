@@ -15,6 +15,7 @@ import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.view.McpView;
+import com.gettyio.gim.agent.ui.view.SkillsView;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
@@ -73,7 +74,7 @@ import java.nio.file.Path;
  * 设置窗口：左侧分类菜单（含搜索）+ 右侧内容页（对标 Qoder 设置风格）。
  * <p>分页：个人资料 / 外观（主题·字体·语言，接入 {@link UiTheme}/{@link I18n}）/
  * 记忆（只读查看 workspace/MEMORY.md）/ 通用（数据与路径）/ 智能体 /
- * 模型提供商 / 模型 / 默认模型 / MCP 服务 / 工具权限。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
+ * 模型提供商 / 模型 / 默认模型 / 技能 / MCP 服务 / 工具权限。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
  * 外观页改动即时生效；语言切换时整窗重建以刷新全部文案。</p>
  */
 @Component
@@ -133,6 +134,10 @@ public class SettingsWindow {
 
     /** MCP 服务页复用组件（自包含）；与拓展页各自实例化，互不干扰场景图父子关系。 */
     private McpView mcpView;
+
+    /** 技能页复用组件：与拓展页共用同一 Spring 单例，两处不同时展示，节点挂接互斥安全。 */
+    @Autowired
+    private SkillsView skillsView;
 
     private final ListView<ToolPermissionRule> permissionListView = new ListView<>();
 
@@ -283,6 +288,7 @@ public class SettingsWindow {
         addMenu(model, "\uE8CC", I18n.t("settings.menu.default"), buildDefaultPage());
 
         Label extension = addSection(I18n.t("settings.section.extension"));
+        addMenu(extension, "\uE945", I18n.t("skills.title"), buildSkillsPage());
         addMenu(extension, "\uE71B", I18n.t("settings.menu.mcp"), buildMcpPage());
         addMenu(extension, "\uE72E", I18n.t("settings.menu.security"), buildSecurityPage());
 
@@ -1318,6 +1324,14 @@ public class SettingsWindow {
                     .findFirst().orElse(model);
             defaultModelInfoLabel.setText(provider + " / " + displayName);
         }
+    }
+
+    // ---- 技能页 ----
+
+    /** 复用拓展页的技能整页；设置内显示一级标题（拓展 Tab 内被隐去）。 */
+    private VBox buildSkillsPage() {
+        skillsView.showHeaderTitle(true);
+        return skillsView.getNode();
     }
 
     // ---- MCP 服务页 ----

@@ -80,6 +80,8 @@ public class ExtensionsView {
         if (tabPane.getSelectionModel().getSelectedItem() == mcpTab) {
             mcpView.reload();
         } else {
+            // 设置页可能把共享单例的一级标题改回显示，Tab 内需重新隐去（与 Tab 名重复）
+            skillsView.showHeaderTitle(false);
             skillsView.reload();
         }
     }
