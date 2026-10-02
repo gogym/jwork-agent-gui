@@ -26,7 +26,10 @@ public class ChatRequest {
     /** 图片附件；无附件时为空列表。 */
     @Singular
     private final List<ImageAttachment> images;
-    /** 本轮工具调用的权限模式；为空按 {@link PermissionMode#DEFAULT} 处理。 */
+    /** 本轮工具调用的权限模式；为空按 {@link PermissionMode#ACCEPT_EDITS} 处理（只读自动、写需确认）。 */
     @Builder.Default
-    private final PermissionMode permissionMode = PermissionMode.DEFAULT;
+    private final PermissionMode permissionMode = PermissionMode.ACCEPT_EDITS;
+    /** 自动通过档（配合 ACCEPT_EDITS）：确认事件照常触发拦截链评估，但 ASK 不弹窗直接放行。 */
+    @Builder.Default
+    private final boolean autoApprove = false;
 }

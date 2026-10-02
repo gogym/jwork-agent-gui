@@ -19,6 +19,7 @@ import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.filesystem.spec.LocalFilesystemSpec;
 import io.agentscope.harness.agent.tools.McpServerRegistrationListener;
 import io.agentscope.harness.agent.tools.ToolsConfig;
 import org.slf4j.Logger;
@@ -33,7 +34,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -43,8 +43,9 @@ import java.util.function.Supplier;
 /**
  * 基于 AgentScope {@link HarnessAgent} 的单体智能体运行体（一个实例对应一个智能体定义）。
  * <p>由 {@link MultiAgentGateway} 按 agentCode 装配与路由，本身不感知智能体选择。</p>
- * <p>流式逐 token 映射（M2）+ HITL 工具确认回流（M3）：当权限引擎抛出
- * {@link RequireUserConfirmEvent} 时，运行体调用 {@link ToolConfirmCallback} 获取用户决策，
+ * <p>流式逐 token 映射（M2）+ HITL 工具确认回流（M3）：权限引擎按会话档位评估工具调用，
+ * 对副作用工具（文件写/Shell）抛出 {@link RequireUserConfirmEvent}，运行体调用
+ * {@link ToolConfirmCallback} 获取用户决策（自动通过档不弹窗但仍送评估，黑名单照样拦截），
  * 构造携带 {@link Msg#METADATA_CONFIRM_RESULTS} 的恢复消息续跑同一条流，UI 侧感知为连续事件流。</p>
  * <p>模型与工作区在首次调用时惰性装配，以便未配置模型的启动流程也能显示空窗口。</p>
  * <p><b>agentId 必须显式给出</b>：Harness 未指定 agentId 时会回退用 {@code name} 作为智能体标识，
@@ -68,6 +69,13 @@ public class HarnessAgentGateway implements AutoCloseable {
     private final Path workspace;
     private volatile ToolConfirmCallback confirmCallback;
     private volatile Path skillsDir;
+    /**
+     * 授权项目目录（绝对路径）；非空时以 projectWritable 本地文件系统装配：
+     * 读先查工作区再回落项目目录，项目内绝对路径的写操作直接落在项目文件上。
+     */
+    private volatile Path projectDir;
+    /** 本轮是否自动通过确认（审批档位「自动」）：仍走拦截链评估，仅 ASK 时不弹窗 */
+    private volatile boolean autoApprove;
     /**
      * 技能名白名单（由智能体定义的 skills_json 解析而来）。
      * {@code null} 表示不干预（沿用仓库内全部技能）；空集表示该智能体没有技能。
@@ -99,6 +107,11 @@ public class HarnessAgentGateway implements AutoCloseable {
     /** 指定技能目录（workspace/skills），Harness 将以 FileSystemSkillRepository 加载其中的 SKILL.md */
     public void setSkillsDir(Path skillsDir) {
         this.skillsDir = skillsDir;
+    }
+
+    /** 授权项目目录；必须在首次装配前设置（null 表示不开放项目目录读写，写操作全部落在工作区） */
+    public void setProjectDir(Path projectDir) {
+        this.projectDir = projectDir;
     }
 
     /**
@@ -149,10 +162,19 @@ public class HarnessAgentGateway implements AutoCloseable {
                             .sysPrompt(sysPrompt)
                             .model(modelSupplier.get())
                             .workspace(workspace)
-                            // 默认权限模式：对副作用工具（文件/Shell）触发确认，交由 HITL 链路处理
+                            // 初始权限上下文：真实档位由每次对话前的 setPermissionMode 设定；
+                            // 副作用工具（文件写/Shell）在询问档下触发确认，交由 HITL 链路处理
                             .permissionContext(PermissionContextState.builder()
                                     .mode(PermissionMode.DEFAULT)
                                     .build());
+                    Path project = this.projectDir;
+                    if (project != null) {
+                        // 用户显式授权的项目目录：开启 projectWritable，写操作可落在项目文件上；
+                        // ROOTED 路径策略仍以 项目+工作区 为硬边界，越界路径被文件系统拒绝
+                        builder = builder.filesystem(new LocalFilesystemSpec()
+                                .project(project)
+                                .projectWritable(true));
+                    }
                     Path skills = this.skillsDir;
                     Set<String> allowedSkills = this.skillAllowlist;
                     if (allowedSkills != null && allowedSkills.isEmpty()) {
@@ -186,14 +208,14 @@ public class HarnessAgentGateway implements AutoCloseable {
         return local;
     }
 
-    /** 非流式单轮问答（自主会话，无 UI 确认通道） */
+    /** 非流式单轮问答（自主会话，无 UI 确认通道）：以只读档运行，副作用工具被明确拒绝 */
     public Mono<String> ask(String sessionId, String userText) {
         RuntimeContext ctx = RuntimeContext.builder().sessionId(sessionId).build();
         Msg input = Msg.builder().role(MsgRole.USER).textContent(userText).build();
         return Mono.fromCallable(() -> {
-            // 自主会话（无 UI）：不进入询问模式，敏感工具不阻塞等待确认
+            // 自主会话（无 UI）：只读档——读类工具可用，写/Shell 直接 DENY，不弹确认也不静默放行
             HarnessAgent a = agent();
-            a.setPermissionMode(ctx, PermissionMode.DONT_ASK);
+            a.setPermissionMode(ctx, PermissionMode.EXPLORE);
             return a.call(input, ctx).block();
         }).map(Msg::getTextContent).subscribeOn(Schedulers.boundedElastic());
     }
@@ -204,7 +226,9 @@ public class HarnessAgentGateway implements AutoCloseable {
         RuntimeContext ctx = RuntimeContext.builder().sessionId(sessionId).build();
         Msg input = buildUserMsg(request.getText(), request.getImages());
         PermissionMode mode = request.getPermissionMode() == null
-                ? PermissionMode.DEFAULT : request.getPermissionMode();
+                ? PermissionMode.ACCEPT_EDITS : request.getPermissionMode();
+        // 自动通过档：框架仍发确认事件，但本运行体收到 ASK 时不弹窗、直接放行（黑名单照旧）
+        this.autoApprove = request.isAutoApprove();
         // 整条流（含 HITL 续跑的每一段）共享一个用量累加器；流结束时一次性下发累计用量
         AtomicReference<TokenUsage> usageAcc = new AtomicReference<>(TokenUsage.ZERO);
         return Flux.defer(() -> {
@@ -257,7 +281,8 @@ public class HarnessAgentGateway implements AutoCloseable {
         if (event instanceof RequireUserConfirmEvent rc) {
             List<ToolUseBlock> calls = rc.getToolCalls() == null ? List.of() : rc.getToolCalls();
             String toolName = calls.isEmpty() ? "tool" : calls.get(0).getName();
-            String toolInput = describeInput(calls);
+            // 结构化 JSON：拦截链提取 path，HITL 弹框渲染 diff 预览
+            String toolInput = ToolCallsCodec.encode(calls);
             StreamEvent ask = StreamEvent.confirmRequest(sessionId, toolName, toolInput);
 
             return confirmDecision(sessionId, toolName, toolInput)
@@ -288,8 +313,9 @@ public class HarnessAgentGateway implements AutoCloseable {
             log.warn("无 HITL 通道，敏感工具被拒绝: tool={}", toolName);
             return Mono.just(false);
         }
+        boolean auto = this.autoApprove;
         return Mono.defer(() -> {
-            CompletableFuture<Boolean> future = callback.confirm(sessionId, toolName, toolInput);
+            CompletableFuture<Boolean> future = callback.confirm(sessionId, toolName, toolInput, auto);
             return Mono.fromFuture(future);
         }).onErrorResume(e -> {
             log.warn("工具确认流程异常，默认拒绝: tool={}", toolName, e);
@@ -314,17 +340,6 @@ public class HarnessAgentGateway implements AutoCloseable {
                 .textContent("")
                 .metadata(metadata)
                 .build();
-    }
-
-    private static String describeInput(List<ToolUseBlock> calls) {
-        StringBuilder sb = new StringBuilder();
-        for (ToolUseBlock call : calls) {
-            if (sb.length() > 0) {
-                sb.append("; ");
-            }
-            sb.append(call.getName()).append('(').append(Objects.toString(call.getInput(), "")).append(')');
-        }
-        return sb.toString();
     }
 
     @Override

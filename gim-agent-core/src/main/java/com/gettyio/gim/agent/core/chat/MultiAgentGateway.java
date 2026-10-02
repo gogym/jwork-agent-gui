@@ -133,9 +133,10 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         String prompt = blank(def.getSystemPrompt()) ? fallbackPrompt : def.getSystemPrompt();
         String name = blank(def.getAgentName()) ? agentCode : def.getAgentName();
         Path workspace = workspaceFor(def);
-        log.info("装配智能体: code={}, name={}, override={}/{}, defProvider={}, defModel={}, workspace={}",
+        Path project = projectFor(def);
+        log.info("装配智能体: code={}, name={}, override={}/{}, defProvider={}, defModel={}, workspace={}, project={}",
                 agentCode, name, request.getProviderCode(), request.getModelCode(),
-                def.getProviderCode(), def.getModelCode(), workspace);
+                def.getProviderCode(), def.getModelCode(), workspace, project);
 
         final AgentDefinition effective = def;
         final String providerCode = request.getProviderCode();
@@ -143,6 +144,7 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         // 第一个参数是上下文目录键（不可变编码），第二个才是可改的显示名
         HarnessAgentGateway gateway = new HarnessAgentGateway(agentCode, name, prompt,
                 () -> modelResolver.resolve(effective, providerCode, modelCode), workspace);
+        gateway.setProjectDir(project);
         assembler.accept(gateway);
         // 能力在通用挂载之后下发：白名单可以覆盖共享技能目录等全局默认
         capabilities.applyTo(gateway, effective);
@@ -165,6 +167,23 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         } catch (IOException e) {
             log.warn("创建智能体工作区失败，回退共享目录: {}", candidate, e);
             return fallbackWorkspace;
+        }
+        return candidate;
+    }
+
+    /**
+     * 智能体授权的项目目录（绝对路径）：未填、不存在或不是目录则不开放（返回 null，
+     * 写操作全部落在工作区），避免把一个失效路径当成可编辑目标。
+     */
+    private Path projectFor(AgentDefinition def) {
+        String configured = def.getProjectPath();
+        if (blank(configured)) {
+            return null;
+        }
+        Path candidate = Path.of(configured.trim());
+        if (!Files.isDirectory(candidate)) {
+            log.warn("智能体项目目录不存在或不是目录，不开放文件编辑: {}", candidate);
+            return null;
         }
         return candidate;
     }

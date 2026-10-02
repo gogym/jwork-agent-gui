@@ -85,6 +85,29 @@ public final class AgentDialog {
         workspaceField.setPromptText(I18n.t("agent.workspace.prompt"));
         workspaceField.setMaxWidth(Double.MAX_VALUE);
 
+        // 授权项目目录：非空即允许智能体用文件工具真正编辑该目录内的文件（写前逐次 diff 确认）
+        TextField projectField = new TextField(nz(form.getProjectPath()));
+        projectField.setPromptText(I18n.t("agent.project.prompt"));
+        HBox.setHgrow(projectField, Priority.ALWAYS);
+        Button browseProject = new Button(I18n.t("agent.project.browse"));
+        browseProject.setOnAction(e -> {
+            javafx.stage.DirectoryChooser chooser = new javafx.stage.DirectoryChooser();
+            chooser.setTitle(I18n.t("agent.project.browse"));
+            String current = projectField.getText().trim();
+            if (!current.isEmpty()) {
+                java.nio.file.Path seed = java.nio.file.Paths.get(current);
+                if (java.nio.file.Files.isDirectory(seed)) {
+                    chooser.setInitialDirectory(seed.toFile());
+                }
+            }
+            java.io.File picked = chooser.showDialog(shell.stage());
+            if (picked != null) {
+                projectField.setText(picked.getAbsolutePath());
+            }
+        });
+        HBox projectBox = new HBox(8, projectField, browseProject);
+        projectBox.setMaxWidth(Double.MAX_VALUE);
+
         CapabilityPicker skillsPicker = new CapabilityPicker(
                 service.skillOptions(), service.selectedSkillCodes(form), I18n.t("agent.cap.noneSkills"));
         CapabilityPicker mcpPicker = new CapabilityPicker(
@@ -106,6 +129,7 @@ public final class AgentDialog {
                 fieldRow(I18n.t("agent.model"), modelBox),
                 fieldRow(I18n.t("agent.params"), paramBox),
                 fieldRow(I18n.t("agent.workspace"), workspaceField),
+                fieldRow(I18n.t("agent.project"), projectBox),
                 fieldRow(I18n.t("agent.skills"), skillsPicker.node()),
                 fieldRow(I18n.t("agent.mcp"), mcpPicker.node()),
                 capHint,
@@ -141,6 +165,7 @@ public final class AgentDialog {
             form.setTemperature(temperature);
             form.setMaxTokens(maxTokens);
             form.setWorkspaceDir(workspaceField.getText().trim());
+            form.setProjectPath(projectField.getText().trim());
             // 能力白名单：一个都没勾也要写 []，无能力统一落在空清单而不是留 NULL
             form.setSkillsJson(service.toSkillsJson(skillsPicker.selectedCodes()));
             form.setMcpServersJson(service.toMcpServersJson(mcpPicker.selectedCodes()));

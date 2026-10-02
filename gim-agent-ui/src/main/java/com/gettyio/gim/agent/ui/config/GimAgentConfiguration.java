@@ -121,7 +121,7 @@ public class GimAgentConfiguration {
                 paths.workspaceDir(),
                 capabilities,
                 gw -> {
-                    // HITL：把工具安全门面的 precheck 作为网关的确认回调
+                    // HITL：把工具安全门面的 precheck（含自动通过档）作为网关的确认回调
                     gw.setConfirmCallback(toolSecurityFacade::precheck);
                     // Skills：挂载 workspace/skills 作为 Harness 技能仓库（可见范围仍由智能体白名单决定）
                     gw.setSkillsDir(skillService.skillsRoot());
@@ -204,11 +204,33 @@ public class GimAgentConfiguration {
         } catch (IOException ignored) {
             // 目录创建失败不阻断，白名单仍可使用
         }
+        // 动态授权根：各智能体配置的项目目录实时入白名单，避免项目内写被误报越界
         List<ToolGuard> guards = List.of(
                 new DangerousCommandPolicy(),
-                new PathWhitelistPolicy(List.of(allowed, paths.workspaceDir()))
+                new PathWhitelistPolicy(List.of(allowed, paths.workspaceDir()),
+                        () -> agentProjectRoots(db))
         );
         return new GuardChain(guards, db.permissionRuleDao());
+    }
+
+    /** 当前库中全部智能体定义的有效项目目录（失效路径与空白忽略）。 */
+    private static List<Path> agentProjectRoots(GimDatabase db) {
+        List<Path> roots = new ArrayList<>();
+        for (AgentDefinition agent : db.agentDao().findAll()) {
+            String configured = agent.getProjectPath();
+            if (configured == null || configured.isBlank()) {
+                continue;
+            }
+            try {
+                Path dir = Path.of(configured.trim());
+                if (Files.isDirectory(dir)) {
+                    roots.add(dir);
+                }
+            } catch (java.nio.file.InvalidPathException ignored) {
+                // 畸形路径不参与白名单
+            }
+        }
+        return roots;
     }
 
     /** 默认确认处理器：无 UI 通道时保守拒绝；UI 控制器可以 @Primary 覆盖 */

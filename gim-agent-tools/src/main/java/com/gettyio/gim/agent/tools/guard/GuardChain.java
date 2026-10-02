@@ -11,7 +11,8 @@ import java.util.Optional;
 
 /**
  * 安全拦截责任链：按 order 依次执行策略；先查历史"总是允许"规则短路，
- * 首个非空策略结论即为最终决策，全部沉默则默认放行。
+ * 首个非空策略结论即为最终决策。链只对框架已判为敏感的工具征求，
+ * 全部沉默则维持询问（弹框确认），绝不静默放行副作用操作。
  */
 public class GuardChain {
 
@@ -42,8 +43,8 @@ public class GuardChain {
             }
         }
 
-        // 3) 默认放行
-        return GuardResult.allow("无拦截规则命中");
+        // 3) 无人异议也要弹框：进入拦截链的已是副作用工具，默认询问
+        return GuardResult.ask("该操作有副作用，需用户确认");
     }
 
     /** 记录用户对某次 ASK 的决策，ALWAYS_ALLOW 持久化 */

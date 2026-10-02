@@ -6,20 +6,24 @@ import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.window.GimDialog;
+import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
+import javafx.scene.text.Text;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Window;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -81,19 +85,31 @@ public class SkillsView {
         titleLabel.getStyleClass().add("page-h1");
         descLabel = new Label();
         descLabel.getStyleClass().add("page-desc");
-        VBox headText = new VBox(4, titleLabel, descLabel);
+        // 窄窗口下描述不换行，压缩到极限后省略号隐藏，始终保住右侧操作区
+        descLabel.setMinWidth(0);
+        descLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
         refreshButton = iconButton("\uE72C", this::reload);
+        refreshButton.setMinWidth(Region.USE_PREF_SIZE);
         searchField.getStyleClass().add("search-field");
+        searchField.setMinWidth(140);
         searchField.textProperty().addListener((obs, o, n) -> reload());
         installButton = new Button();
         installButton.getStyleClass().add("btn-primary");
+        installButton.setMinWidth(Region.USE_PREF_SIZE);
         installButton.setOnAction(e -> handleInstall());
 
-        HBox header = new HBox(10, headText, spacer, refreshButton, searchField, installButton);
+        // 右侧控件与描述同一行：行内中心对齐使控件中心线与描述文字中心共线，标题独占上一行
+        HBox descRow = new HBox(10, descLabel, spacer, refreshButton, searchField, installButton);
+        descRow.setAlignment(Pos.CENTER_LEFT);
+        VBox headText = new VBox(4, titleLabel, descRow);
+        headText.setMaxWidth(Double.MAX_VALUE);
+
+        HBox header = new HBox(headText);
+        HBox.setHgrow(headText, Priority.ALWAYS);
         header.getStyleClass().add("page-header");
 
         grid.getStyleClass().add("card-grid");
@@ -143,26 +159,35 @@ public class SkillsView {
     private Node card(SkillPackage s) {
         VBox card = new VBox(6);
         card.getStyleClass().add("skill-card");
-        card.setMinWidth(380);
-        card.setMaxWidth(500);
+        card.setMinWidth(280);
+        card.setMaxWidth(340);
 
         Label avatar = new Label(initial(s.getSkillName(), s.getSkillCode()));
         avatar.getStyleClass().add("skill-avatar");
 
         Label name = new Label(s.getSkillName() + "  " + (s.getVersion() == null ? "" : "v" + s.getVersion()));
         name.getStyleClass().add("card-title");
+        // 窄卡下长名称允许压缩，最多折两行后省略号，不撑宽瓦片；悬停看全文
+        name.setMinWidth(0);
+        name.setMaxWidth(Double.MAX_VALUE);
+        clampLines(name, 2);
+        name.setTooltip(new Tooltip(name.getText()));
         Label code = new Label(s.getSkillCode());
         code.getStyleClass().add("mono");
+        code.setMinWidth(0);
+        code.setMaxWidth(Double.MAX_VALUE);
         VBox textBox = new VBox(2, name, code);
         HBox.setHgrow(textBox, Priority.ALWAYS);
 
         Label badge = enabledStatusBadge(s);
+        badge.setMinWidth(Region.USE_PREF_SIZE);
         HBox top = new HBox(12, avatar, textBox, badge);
         top.setAlignment(Pos.CENTER_LEFT);
 
-        Label desc = new Label(truncate(s.getDescription(), 100));
+        Label desc = new Label(oneLine(s.getDescription()));
         desc.getStyleClass().add("card-desc");
-        desc.setWrapText(true);
+        clampLines(desc, 2);
+        desc.setTooltip(new Tooltip(desc.getText()));
 
         Label meta = new Label(sourceText(s.getSource()));
         meta.getStyleClass().add("card-meta");
@@ -170,14 +195,41 @@ public class SkillsView {
         boolean enabled = EnabledStatus.isEnabled(s.getEnabled());
         HBox actions = new HBox(4);
         actions.getStyleClass().add("card-actions");
+        actions.setMinWidth(Region.USE_PREF_SIZE);
         actions.getChildren().add(linkButton(enabled ? I18n.t("skills.action.disable") : I18n.t("skills.action.enable"), () -> handleSetEnabled(s, !enabled)));
         actions.getChildren().add(linkButton(I18n.t("skills.action.detail"), () -> openDetail(s)));
         Button del = linkButton(I18n.t("skills.action.delete"), () -> confirmDelete(s));
         del.getStyleClass().add("link-btn-danger");
         actions.getChildren().add(del);
 
-        card.getChildren().addAll(top, desc, meta, new Separator(), actions);
+        // 弹性占位把「来源 + 分隔线 + 操作按钮」整体压到卡片底部，同瓦片高度的卡片按钮行齐平
+        Region footSpacer = new Region();
+        VBox.setVgrow(footSpacer, Priority.ALWAYS);
+
+        card.getChildren().addAll(top, desc, footSpacer, meta, new Separator(), actions);
         return card;
+    }
+
+    /**
+     * 文本最多折 maxLines 行、超出截为省略号：wrapText + 按标签实际字体把 maxHeight 钉在 N 行高。
+     * 字体/内边距由 CSS 异步套用（字号三档样式表会切），故在皮肤创建与字体变更时各重测一次。
+     */
+    private static void clampLines(Label label, int maxLines) {
+        label.setWrapText(true);
+        label.setTextOverrun(OverrunStyle.ELLIPSIS);
+        Runnable apply = () -> {
+            Text probe = new Text("Ag中文");
+            probe.setFont(label.getFont());
+            double lineHeight = Math.ceil(probe.getBoundsInLocal().getHeight());
+            label.setMaxHeight(lineHeight * maxLines
+                    + label.getPadding().getTop() + label.getPadding().getBottom());
+        };
+        label.skinProperty().addListener((obs, old, skin) -> {
+            if (skin != null) {
+                Platform.runLater(apply);
+            }
+        });
+        label.fontProperty().addListener((obs, old, font) -> Platform.runLater(apply));
     }
 
     private Label enabledStatusBadge(SkillPackage s) {
@@ -330,11 +382,11 @@ public class SkillsView {
         return s != null && s.toLowerCase(Locale.ROOT).contains(kw);
     }
 
-    private static String truncate(String s, int max) {
+    /** 描述压成单行文本（换行/连续空白折叠），空描述用占位文案；行数截断交给 clampLines。 */
+    private static String oneLine(String s) {
         if (s == null || s.isBlank()) {
             return I18n.t("skills.noDesc");
         }
-        String one = s.replaceAll("\\s+", " ").trim();
-        return one.length() <= max ? one : one.substring(0, max) + "…";
+        return s.replaceAll("\\s+", " ").trim();
     }
 }

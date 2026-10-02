@@ -14,6 +14,7 @@ CREATE TABLE IF NOT EXISTS agents (
     skills_json      TEXT,
     mcp_servers_json TEXT,
     workspace_dir    TEXT,
+    project_path     TEXT,
     temperature      REAL DEFAULT 0.7,
     max_tokens       INTEGER DEFAULT 2000,
     enabled          INTEGER DEFAULT 1,

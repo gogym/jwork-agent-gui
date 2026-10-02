@@ -672,6 +672,7 @@ public class SettingsWindow {
                 kvLine(I18n.t("settings.agent.model"), model),
                 kvLine(I18n.t("settings.agent.params"), params),
                 kvLine(I18n.t("settings.agent.workspace"), a.getWorkspaceDir()),
+                kvLine(I18n.t("settings.agent.project"), a.getProjectPath()),
                 kvLine(I18n.t("settings.agent.skills"), capability(agentAdminService.declaredSkillNames(a.getSkillsJson()))),
                 kvLine(I18n.t("settings.agent.mcp"), capability(agentAdminService.declaredMcpNames(a.getMcpServersJson()))),
                 kvLine(I18n.t("settings.agent.usage"), I18n.t("settings.agent.usageValue",

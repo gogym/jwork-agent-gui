@@ -74,13 +74,23 @@ public class UsageView {
         titleLabel.getStyleClass().add("page-h1");
         descLabel = new Label();
         descLabel.getStyleClass().add("page-desc");
-        VBox headText = new VBox(4, titleLabel, descLabel);
+        // 窄窗口下描述不换行，压缩到极限后省略号隐藏，始终保住右侧操作区
+        descLabel.setMinWidth(0);
+        descLabel.setTextOverrun(javafx.scene.control.OverrunStyle.ELLIPSIS);
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         refreshButton = iconButton("\uE72C", this::reload);
+        refreshButton.setMinWidth(Region.USE_PREF_SIZE);
 
-        HBox header = new HBox(10, headText, spacer, refreshButton);
+        // 刷新按钮与描述同一行：行内中心对齐使按钮中心线与描述文字中心共线，标题独占上一行
+        HBox descRow = new HBox(10, descLabel, spacer, refreshButton);
+        descRow.setAlignment(Pos.CENTER_LEFT);
+        VBox headText = new VBox(4, titleLabel, descRow);
+        headText.setMaxWidth(Double.MAX_VALUE);
+
+        HBox header = new HBox(headText);
+        HBox.setHgrow(headText, Priority.ALWAYS);
         header.getStyleClass().add("page-header");
 
         summaryBox.getStyleClass().add("usage-summary");

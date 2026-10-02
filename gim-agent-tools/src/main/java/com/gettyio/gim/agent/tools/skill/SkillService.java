@@ -32,7 +32,7 @@ public class SkillService {
     private static final Logger log = LoggerFactory.getLogger(SkillService.class);
 
     /** 随应用分发的内置示例技能（classpath: /skills/<code>/SKILL.md） */
-    private static final List<String> BUILTIN_SKILLS = List.of("translate", "weekly-report");
+    private static final List<String> BUILTIN_SKILLS = List.of("translate", "weekly-report", "office-documents");
 
     private final GimPaths paths;
     private final GimDatabase db;
@@ -90,8 +90,10 @@ public class SkillService {
             if (Files.exists(target) || Files.exists(disabledRoot().resolve(code))) {
                 continue;
             }
-            Path resource = Path.of("/skills", code, SkillManifest.ENTRY_FILE);
-            try (InputStream in = getClass().getResourceAsStream(resource.toString())) {
+            // 必须是正斜杠且以 / 开头的绝对资源路径；用 Path.of 在 Windows 上会生成 \skills\... 前缀，
+            // getResourceAsStream 会把它当包内相对路径解析，导致播种在 Windows 上静默失败
+            String resource = "/skills/" + code + "/" + SkillManifest.ENTRY_FILE;
+            try (InputStream in = getClass().getResourceAsStream(resource)) {
                 if (in == null) {
                     log.warn("内置技能资源缺失: {}", resource);
                     continue;

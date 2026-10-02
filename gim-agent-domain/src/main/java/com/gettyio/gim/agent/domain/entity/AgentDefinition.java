@@ -42,6 +42,9 @@ public class AgentDefinition {
     /** 工作区目录（相对 ~/.gim-agent/workspace） */
     private String workspaceDir;
 
+    /** 授权项目目录（绝对路径）；智能体可在其中读写文件，非空即启用 projectWritable 文件系统 */
+    private String projectPath;
+
     private Double temperature = 0.7;
 
     private Integer maxTokens = 2000;

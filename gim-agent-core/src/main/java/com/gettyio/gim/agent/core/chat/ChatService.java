@@ -48,7 +48,8 @@ public class ChatService {
 
     /**
      * 主动消息运行（定时任务语义）：落盘系统指令 → 非流式应答 → 落盘助手消息（含本轮 token 用量）。
-     * <p>自主会话无 UI，走 {@code DONT_ASK} 权限模式，敏感工具不阻塞等待确认。</p>
+     * <p>自主会话无 UI，走 {@code EXPLORE} 只读档：读类工具正常，副作用工具被明确拒绝，
+     * 不会阻塞等待确认也不会静默执行。</p>
      *
      * @return 助手应答文本（可能为空）
      */
@@ -59,7 +60,7 @@ public class ChatService {
                 .agentCode(agentCode)
                 .sessionId(sessionId)
                 .text(prompt)
-                .permissionMode(io.agentscope.core.permission.PermissionMode.DONT_ASK)
+                .permissionMode(io.agentscope.core.permission.PermissionMode.EXPLORE)
                 .build();
         StringBuilder buf = new StringBuilder();
         java.util.concurrent.atomic.AtomicReference<TokenUsage> usage =

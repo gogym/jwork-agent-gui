@@ -16,7 +16,7 @@ public class AgentDefinitionDao {
 
     private static final String COLUMNS =
             "id, agent_code, agent_name, agent_type, description, system_prompt, model_code, provider_code, "
-                    + "model_name, skills_json, mcp_servers_json, workspace_dir, temperature, max_tokens, enabled, "
+                    + "model_name, skills_json, mcp_servers_json, workspace_dir, project_path, temperature, max_tokens, enabled, "
                     + "created_at, updated_at";
 
     private final SqlRunner runner;
@@ -39,6 +39,7 @@ public class AgentDefinitionDao {
         a.setSkillsJson(rs.getString("skills_json"));
         a.setMcpServersJson(rs.getString("mcp_servers_json"));
         a.setWorkspaceDir(rs.getString("workspace_dir"));
+        a.setProjectPath(rs.getString("project_path"));
         a.setTemperature(SqlRunner.getDouble(rs, "temperature"));
         a.setMaxTokens(SqlRunner.getInt(rs, "max_tokens"));
         a.setEnabled(SqlRunner.getInt(rs, "enabled"));
@@ -53,11 +54,11 @@ public class AgentDefinitionDao {
         a.setUpdatedAt(now);
         long id = runner.insert(
                 "INSERT INTO agents (agent_code, agent_name, agent_type, description, system_prompt, model_code, "
-                        + "provider_code, model_name, skills_json, mcp_servers_json, workspace_dir, temperature, "
-                        + "max_tokens, enabled, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                        + "provider_code, model_name, skills_json, mcp_servers_json, workspace_dir, project_path, "
+                        + "temperature, max_tokens, enabled, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 a.getAgentCode(), a.getAgentName(), a.getAgentType(), a.getDescription(), a.getSystemPrompt(),
                 a.getModelCode(), a.getProviderCode(), a.getModelName(), a.getSkillsJson(), a.getMcpServersJson(),
-                a.getWorkspaceDir(), a.getTemperature(), a.getMaxTokens(), a.getEnabled(), a.getCreatedAt(), a.getUpdatedAt());
+                a.getWorkspaceDir(), a.getProjectPath(), a.getTemperature(), a.getMaxTokens(), a.getEnabled(), a.getCreatedAt(), a.getUpdatedAt());
         a.setId(id);
         return id;
     }
@@ -67,9 +68,10 @@ public class AgentDefinitionDao {
         return runner.update(
                 "UPDATE agents SET agent_name=?, agent_type=?, description=?, system_prompt=?, model_code=?, "
                         + "provider_code=?, model_name=?, skills_json=?, mcp_servers_json=?, workspace_dir=?, "
-                        + "temperature=?, max_tokens=?, enabled=?, updated_at=? WHERE agent_code=?",
+                        + "project_path=?, temperature=?, max_tokens=?, enabled=?, updated_at=? WHERE agent_code=?",
                 a.getAgentName(), a.getAgentType(), a.getDescription(), a.getSystemPrompt(), a.getModelCode(),
                 a.getProviderCode(), a.getModelName(), a.getSkillsJson(), a.getMcpServersJson(), a.getWorkspaceDir(),
+                a.getProjectPath(),
                 a.getTemperature(), a.getMaxTokens(), a.getEnabled(), a.getUpdatedAt(), a.getAgentCode());
     }
 

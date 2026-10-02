@@ -736,6 +736,11 @@
     -fx-padding: 26 30 26 30;
     -fx-spacing: 14;
 }
+/* 拓展页 Tab 内的 MCP 视图：顶距/间距对齐 .content-page（技能页），不改动设置页共用的 .settings-page */
+.settings-page.mcp-page {
+    -fx-padding: 8 30 18 30;
+    -fx-spacing: 18;
+}
 .page-title    { -fx-font-size: 19px; -fx-font-weight: bold; -fx-text-fill: -gim-text-strong; }
 .page-subtitle { -fx-font-size: 12px; -fx-text-fill: -gim-section; }
 .form-card {
@@ -842,7 +847,7 @@
  * ============================================================ */
 .content-page {
     -fx-background-color: -gim-bg;
-    -fx-padding: 26 30 18 30;
+    -fx-padding: 8 30 18 30;
     -fx-spacing: 18;
 }
 .page-header { -fx-alignment: center-left; -fx-spacing: 10; }
@@ -1042,7 +1047,7 @@
     -fx-border-color: transparent;
     -fx-border-width: 0;
 }
-.extensions-tabs > .tab-header-area { -fx-padding: 6 0 6 26; }
+.extensions-tabs > .tab-header-area { -fx-padding: 10 0 4 20; }
 .extensions-tabs > .tab-content-area { -fx-background-color: -gim-bg; }
 .extensions-tabs .tab {
     -fx-background-color: transparent;

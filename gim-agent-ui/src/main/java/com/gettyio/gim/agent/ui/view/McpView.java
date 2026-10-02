@@ -14,6 +14,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
+import javafx.scene.control.OverrunStyle;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -72,16 +73,19 @@ public class McpView {
     }
 
     private void buildUi() {
-        root.getStyleClass().add("settings-page");
+        // 拓展页 Tab 内的 MCP 视图：容器内边距对齐 .content-page（技能页），不再吃 .settings-page 的 26px 顶距
+        root.getStyleClass().addAll("settings-page", "mcp-page");
         root.setMaxWidth(Double.MAX_VALUE);
         root.setMaxHeight(Double.MAX_VALUE);
 
         titleLabel.getStyleClass().add("page-title");
         subtitleLabel.getStyleClass().add("page-subtitle");
-        subtitleLabel.setWrapText(true);
-        VBox headText = new VBox(4, titleLabel, subtitleLabel);
+        // 窄窗口下描述不换行，压缩到极限后省略号截断，始终保住右侧操作区
+        subtitleLabel.setMinWidth(0);
+        subtitleLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
 
         addBtn.getStyleClass().add("btn-primary");
+        addBtn.setMinWidth(Region.USE_PREF_SIZE);
         Label addIcon = new Label("\uE710");
         addIcon.getStyleClass().add("icon");
         addBtn.setGraphic(addIcon);
@@ -89,8 +93,15 @@ public class McpView {
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox header = new HBox(headText, spacer, addBtn);
-        header.setAlignment(Pos.CENTER_LEFT);
+        // 新增按钮与描述同一行：行内中心对齐使按钮中心线与描述文字中心共线，标题独占上一行
+        HBox descRow = new HBox(10, subtitleLabel, spacer, addBtn);
+        descRow.setAlignment(Pos.CENTER_LEFT);
+        VBox headText = new VBox(4, titleLabel, descRow);
+        headText.setMaxWidth(Double.MAX_VALUE);
+
+        HBox header = new HBox(headText);
+        HBox.setHgrow(headText, Priority.ALWAYS);
+        header.getStyleClass().add("page-header");
 
         transportCombo.getItems().setAll(
                 McpTransportType.STDIO.name(), McpTransportType.HTTP.name(), McpTransportType.SSE.name());

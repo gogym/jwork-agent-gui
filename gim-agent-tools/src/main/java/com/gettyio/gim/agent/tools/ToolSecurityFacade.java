@@ -13,7 +13,8 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * 工具门面安全编排：把 {@link GuardChain} 的结论与 HITL 确认串起来，
- * 供 AgentScope 工具执行前置检查调用（工具注册细节在 M3 接入）。
+ * 由 {@code HarnessAgentGateway} 在收到框架 RequireUserConfirmEvent 后调用
+ * （适配为 {@link com.gettyio.gim.agent.core.chat.ToolConfirmCallback}）。
  */
 public class ToolSecurityFacade {
 
@@ -31,6 +32,15 @@ public class ToolSecurityFacade {
      * @return 最终是否放行
      */
     public CompletableFuture<Boolean> precheck(String sessionId, String toolName, String toolInput) {
+        return precheck(sessionId, toolName, toolInput, false);
+    }
+
+    /**
+     * 执行前置检查（含自动通过档）：DENY 照旧拒绝；ASK 时若 {@code autoApprove}
+     * 则不弹窗直接放行（审批档位「自动」，黑名单等硬拦截仍然生效）。
+     */
+    public CompletableFuture<Boolean> precheck(String sessionId, String toolName, String toolInput,
+                                               boolean autoApprove) {
         GuardContext ctx = new GuardContext(sessionId, toolName, toolInput);
         GuardResult result = guardChain.evaluate(ctx);
 
@@ -41,6 +51,9 @@ public class ToolSecurityFacade {
             return CompletableFuture.completedFuture(false);
         }
         // ASK
+        if (autoApprove) {
+            return CompletableFuture.completedFuture(true);
+        }
         if (confirmHandler == null) {
             // 无确认通道时，高危默认拒绝
             return CompletableFuture.completedFuture(false);

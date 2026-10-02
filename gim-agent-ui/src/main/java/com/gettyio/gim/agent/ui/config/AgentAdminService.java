@@ -257,6 +257,9 @@ public class AgentAdminService {
         if (blank(form.getWorkspaceDir())) {
             form.setWorkspaceDir(null);
         }
+        if (blank(form.getProjectPath())) {
+            form.setProjectPath(null);
+        }
         // 只指定了 provider 或只指定了 model 都视为未定向，避免跨提供商错配
         if (blank(form.getProviderCode()) || blank(form.getModelCode())) {
             form.setProviderCode(null);

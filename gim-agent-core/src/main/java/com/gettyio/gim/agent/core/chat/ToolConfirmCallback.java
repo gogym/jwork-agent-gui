@@ -12,10 +12,11 @@ import java.util.concurrent.CompletableFuture;
 public interface ToolConfirmCallback {
 
     /**
-     * @param sessionId 会话 ID
-     * @param toolName  待确认的工具名
-     * @param toolInput 工具入参的文本化描述
+     * @param sessionId    会话 ID
+     * @param toolName     待确认的工具名
+     * @param toolInput    工具入参的结构化 JSON（{@link ToolCallsCodec#encode}）
+     * @param autoApprove  自动通过档：拦截链照常评估（黑名单仍 DENY），但 ASK 不弹窗直接放行
      * @return 异步决策：true 放行，false 拒绝
      */
-    CompletableFuture<Boolean> confirm(String sessionId, String toolName, String toolInput);
+    CompletableFuture<Boolean> confirm(String sessionId, String toolName, String toolInput, boolean autoApprove);
 }

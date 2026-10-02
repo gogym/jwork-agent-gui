@@ -278,8 +278,8 @@ public class MainController {
     private final List<ImageAttachment> pendingImages = new ArrayList<>();
     /** 待发送的文件/文件夹引用（与 attachChipsBox 中的引用芯片一一对应）；发送时拼进正文，由 Agent 用文件工具按需读取 */
     private final List<FileRef> pendingRefs = new ArrayList<>();
-    /** 当前审批档位（工具调用权限模式）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
-    private PermissionMode approvalMode = PermissionMode.DEFAULT;
+    /** 当前审批档位（权限模式 + 是否自动通过）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
+    private ApprovalOption approval = approvalOptions().get(0);
     /** 审批选择菜单：复用单一实例（与齿轮菜单同策略），避免每次 new 导致旧弹出窗阴影/落点累积漂移 */
     private ContextMenu approvalMenu;
     /** 审批菜单最近一次关闭的时间戳（毫秒）：用于把「再点按钮」识别为关闭手势，避免自动收起后又被立即重开 */
@@ -658,7 +658,8 @@ public class MainController {
                 .providerCode(model == null ? null : model.providerCode())
                 .modelCode(model == null ? null : model.modelCode())
                 .images(images)
-                .permissionMode(approvalMode)
+                .permissionMode(approval.mode())
+                .autoApprove(approval.autoApprove())
                 .build();
 
         chatService.chat(req)
@@ -1514,15 +1515,23 @@ public class MainController {
         return mark;
     }
 
-    /** 审批三档：询问(DEFAULT)/自动(BYPASS)/完全访问(DONT_ASK)；文案随语言解析。 */
+    /** 审批三档：询问(ACCEPT_EDITS)/自动通过(ACCEPT_EDITS+autoApprove)/只读(EXPLORE)；文案随语言解析。 */
     private List<ApprovalOption> approvalOptions() {
         return List.of(
-                new ApprovalOption(PermissionMode.DEFAULT, I18n.t("approval.ask"),
+                new ApprovalOption(PermissionMode.ACCEPT_EDITS, false, I18n.t("approval.ask"),
                         "\uEA18", I18n.t("approval.ask.desc"), false),
-                new ApprovalOption(PermissionMode.BYPASS, I18n.t("approval.auto"),
+                new ApprovalOption(PermissionMode.ACCEPT_EDITS, true, I18n.t("approval.auto"),
                         "\uE946", I18n.t("approval.auto.desc"), false),
-                new ApprovalOption(PermissionMode.DONT_ASK, I18n.t("approval.dontAsk"),
-                        "\uE7BA", I18n.t("approval.dontAsk.desc"), true));
+                new ApprovalOption(PermissionMode.EXPLORE, false, I18n.t("approval.readonly"),
+                        "\uE7BA", I18n.t("approval.readonly.desc"), false));
+    }
+
+    /** 当前选择对应的选项对象（档位切换后旧对象不在新列表里，按字段匹配）。 */
+    private ApprovalOption currentApproval(ApprovalOption fallback) {
+        return approvalOptions().stream()
+                .filter(o -> o.equalsOption(approval))
+                .findFirst()
+                .orElse(fallback);
     }
 
     /** 审批按钮闭合态：图标 + 标题 + 小箭头；危险档图标与标题标红。 */
@@ -1530,9 +1539,7 @@ public class MainController {
         if (approvalButton == null) {
             return;
         }
-        ApprovalOption opt = approvalOptions().stream()
-                .filter(o -> o.mode() == approvalMode).findFirst()
-                .orElseGet(() -> approvalOptions().get(0));
+        ApprovalOption opt = currentApproval(approvalOptions().get(0));
         Label icon = UiTheme.icon(opt.icon());
         icon.getStyleClass().add("approval-icon");
         Label title = new Label(opt.label());
@@ -1570,7 +1577,7 @@ public class MainController {
         // 每次重灌选项：保证「当前档打勾」与语言随点随新
         approvalMenu.getItems().setAll(
                 approvalOptions().stream()
-                        .map(opt -> approvalMenuItem(opt, opt.mode() == approvalMode))
+                        .map(opt -> approvalMenuItem(opt, opt.equalsOption(approval)))
                         .toList());
         showMenuAboveWithinWindow(approvalMenu, approvalButton);
     }
@@ -1674,7 +1681,7 @@ public class MainController {
             title.getStyleClass().add("approval-title-danger");
         }
         return twoLineMenuItem(icon, title, desc, checked, 360, () -> {
-            approvalMode = opt.mode();
+            approval = opt;
             renderApprovalButton();
         });
     }
@@ -1772,7 +1779,14 @@ public class MainController {
     }
 
     /** 审批下拉条目：映射到 {@link PermissionMode}，携带图标、说明与危险标记（供菜单项富渲染）。 */
-    private record ApprovalOption(PermissionMode mode, String label, String icon, String desc, boolean danger) {
+    private record ApprovalOption(PermissionMode mode, boolean autoApprove, String label, String icon, String desc,
+                                  boolean danger) {
+
+        /** 档位同一性：权限模式 + 自动通过标志（询问/自动同为 ACCEPT_EDITS，靠 autoApprove 区分）。 */
+        boolean equalsOption(ApprovalOption other) {
+            return other != null && mode == other.mode && autoApprove == other.autoApprove;
+        }
+
         @Override
         public String toString() {
             return label;
