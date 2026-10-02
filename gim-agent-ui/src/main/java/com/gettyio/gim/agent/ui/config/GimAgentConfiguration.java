@@ -42,9 +42,12 @@ import org.springframework.core.annotation.Order;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.List;
+import java.util.function.Supplier;
 
 /**
  * 应用级 Bean 装配：把 domain/core/tools/scheduler 的组件注册为 Spring 单例。
@@ -198,24 +201,53 @@ public class GimAgentConfiguration {
     }
 
     @Bean
-    public GuardChain guardChain(GimPaths paths, GimDatabase db) {
+    public GuardChain guardChain(GimPaths paths, GimDatabase db, SecurityAdminService securityAdminService) {
         Path allowed = paths.root().resolve("allowed");
         try {
             Files.createDirectories(allowed);
         } catch (IOException ignored) {
             // 目录创建失败不阻断，白名单仍可使用
         }
-        // 动态授权根：各智能体配置的项目目录实时入白名单，避免项目内写被误报越界
         List<ToolGuard> guards = List.of(
-                new DangerousCommandPolicy(),
-                // shell 只能启动白名单内的程序；用户可写入 ~/.gim-agent/shell-allowlist.txt 扩展
+                // 危险命令黑名单：每次评估实时读库，设置页增删改/启停无需重启即生效
+                new DangerousCommandPolicy(securityAdminService::listDangerousRules),
+                // shell 只能启动白名单内的程序；扩展来源 = 用户文件 + 设置页新增（实时合并）
                 new ExecutableAllowlistPolicy(ExecutableAllowlistPolicy.DEFAULT_ALLOWED,
-                        ExecutableAllowlistPolicy.fileSupplier(
-                                paths.root().resolve("shell-allowlist.txt"))),
+                        shellExtraSupplier(paths, securityAdminService)),
+                // 动态授权根：各智能体项目目录 + 设置页新增目录，实时并入白名单
                 new PathWhitelistPolicy(List.of(allowed, paths.workspaceDir()),
-                        () -> agentProjectRoots(db))
+                        pathExtraSupplier(db, securityAdminService))
         );
         return new GuardChain(guards, db.permissionRuleDao());
+    }
+
+    /** Shell 白名单扩展：文本文件与设置页新增程序名实时合并（归一交给策略本身）。 */
+    private static Supplier<Collection<String>> shellExtraSupplier(GimPaths paths, SecurityAdminService security) {
+        Supplier<Collection<String>> file =
+                ExecutableAllowlistPolicy.fileSupplier(paths.root().resolve("shell-allowlist.txt"));
+        return () -> {
+            List<String> merged = new ArrayList<>(file.get());
+            merged.addAll(security.listShellAllowlist());
+            return merged;
+        };
+    }
+
+    /** 文件授权目录扩展：各智能体项目目录 + 设置页新增目录（仅收录真实存在的目录）。 */
+    private static Supplier<Collection<Path>> pathExtraSupplier(GimDatabase db, SecurityAdminService security) {
+        return () -> {
+            List<Path> roots = new ArrayList<>(agentProjectRoots(db));
+            for (String configured : security.listPathRoots()) {
+                try {
+                    Path dir = Path.of(configured.trim());
+                    if (Files.isDirectory(dir)) {
+                        roots.add(dir);
+                    }
+                } catch (InvalidPathException ignored) {
+                    // 畸形路径不参与白名单
+                }
+            }
+            return roots;
+        };
     }
 
     /** 当前库中全部智能体定义的有效项目目录（失效路径与空白忽略）。 */

@@ -731,6 +731,29 @@
 .settings-toggle .icon    { -fx-text-fill: -gim-icon; }
 .settings-toggle:selected .icon { -fx-text-fill: -gim-tint-fg-3; }
 
+/* 安全页内子 Tab（工具防护/文件防护/授权管理）：横向胶囊切换条 */
+.settings-subtabs { -fx-padding: 2 0 4 0; }
+.settings-subtab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 999;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 999;
+    -fx-padding: 6 16 6 16;
+    -fx-text-fill: -gim-text-nav;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+.settings-subtab:hover { -fx-background-color: -gim-hover; }
+.settings-subtab:selected { -fx-background-color: -gim-tint-2; -fx-text-fill: -gim-tint-fg-3; -fx-font-weight: bold; }
+.settings-subtab-content { -fx-padding: 6 0 0 0; }
+.settings-subtab-page { -fx-padding: 4 0 0 0; }
+.dangerous-category {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-section;
+    -fx-padding: 8 2 0 2;
+}
+
 .settings-page {
     -fx-background-color: -gim-bg;
     -fx-padding: 26 30 26 30;

@@ -11,6 +11,7 @@ import com.gettyio.gim.agent.domain.enums.ApiProtocol;
 import com.gettyio.gim.agent.domain.enums.AuthMethod;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
+import com.gettyio.gim.agent.tools.guard.DangerousRule;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
@@ -42,7 +43,6 @@ import javafx.scene.control.TextField;
 import javafx.scene.control.Toggle;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
-import javafx.scene.control.ToolBar;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.FlowPane;
@@ -53,6 +53,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextAlignment;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.Window;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -64,8 +65,10 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 import java.awt.Desktop;
 import java.io.IOException;
+import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -74,7 +77,7 @@ import java.nio.file.Path;
  * 设置窗口：左侧分类菜单（含搜索）+ 右侧内容页（对标 Qoder 设置风格）。
  * <p>分页：个人资料 / 外观（主题·字体·语言，接入 {@link UiTheme}/{@link I18n}）/
  * 记忆（只读查看 workspace/MEMORY.md）/ 通用（数据与路径）/ 智能体 /
- * 模型提供商 / 模型 / 默认模型 / 技能 / MCP 服务 / 工具权限。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
+ * 模型提供商 / 模型 / 默认模型 / 技能 / MCP 服务 / 安全（工具防护·文件防护·授权管理）。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
  * 外观页改动即时生效；语言切换时整窗重建以刷新全部文案。</p>
  */
 @Component
@@ -139,7 +142,11 @@ public class SettingsWindow {
     @Autowired
     private SkillsView skillsView;
 
-    private final ListView<ToolPermissionRule> permissionListView = new ListView<>();
+    /** 安全页动态容器：危险命令规则 / Shell 白名单 / 文件授权目录 / 授权管理，reloadAll 时重绘。 */
+    private final VBox dangerousRulesBox = new VBox(8);
+    private final VBox shellAllowBox = new VBox(0);
+    private final VBox pathRootsBox = new VBox(0);
+    private final VBox grantBox = new VBox(0);
 
     private Scene hostScene;
     private AppShell shell;
@@ -1341,36 +1348,415 @@ public class SettingsWindow {
         return mcpView.getNode();
     }
 
-    // ---- 工具权限页（撤销 HITL"总是允许"授权） ----
+    // ---- 安全页（工具防护 / 文件防护 / 授权管理 三 Tab） ----
 
     private VBox buildSecurityPage() {
         VBox box = page(I18n.t("settings.menu.security"), I18n.t("settings.security.subtitle"));
 
-        Label hint = new Label(I18n.t("settings.security.hint"));
-        hint.getStyleClass().add("row-desc");
-        hint.setWrapText(true);
+        ToggleGroup subGroup = new ToggleGroup();
+        HBox tabBar = new HBox(4);
+        tabBar.getStyleClass().add("settings-subtabs");
+        StackPane subContent = new StackPane();
+        subContent.getStyleClass().add("settings-subtab-content");
 
-        permissionListView.setCellFactory(lv -> new ListCell<>() {
-            @Override
-            protected void updateItem(ToolPermissionRule item, boolean empty) {
-                super.updateItem(item, empty);
-                if (empty || item == null) {
-                    setText(null);
-                    return;
-                }
-                String scope = item.getRuleContent() == null || item.getRuleContent().isBlank()
-                        ? I18n.t("settings.security.wholeTool") : item.getRuleContent();
-                setText(item.getToolName() + " · " + scope + " · " + item.getDecision());
+        addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.tools"), buildToolGuardTab());
+        addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.file"), buildFileGuardTab());
+        addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.grant"), buildGrantTab());
+        if (!subGroup.getToggles().isEmpty()) {
+            ((ToggleButton) subGroup.getToggles().get(0)).setSelected(true);
+        }
+
+        box.getChildren().addAll(tabBar, subContent);
+        return box;
+    }
+
+    /** 页内子 Tab：选中即把对应面板换进内容区（自绘头部，避免 TabPane 在 ScrollPane 内的高度塌陷）。 */
+    private void addSubTab(ToggleGroup group, HBox bar, StackPane content, String label, Node pane) {
+        ToggleButton tab = new ToggleButton(label);
+        tab.setToggleGroup(group);
+        tab.getStyleClass().add("settings-subtab");
+        tab.setFocusTraversable(false);
+        tab.selectedProperty().addListener((obs, o, sel) -> {
+            if (sel) {
+                content.getChildren().setAll(pane);
             }
         });
+        bar.getChildren().add(tab);
+    }
 
-        ToolBar bar = new ToolBar(
-                newButton(I18n.t("settings.security.revoke"), this::handleRevokePermission),
-                newButton(I18n.t("settings.security.clear"), this::handleClearPermissions));
+    /** 工具防护 Tab：审批档位默认 + 危险命令黑名单 + Shell 程序白名单。 */
+    private VBox buildToolGuardTab() {
+        VBox tab = new VBox(16);
+        tab.getStyleClass().add("settings-subtab-page");
+        tab.setMaxWidth(Double.MAX_VALUE);
 
-        box.getChildren().addAll(hint, bar, permissionListView);
-        VBox.setVgrow(permissionListView, Priority.ALWAYS);
-        return box;
+        String[] opts = {I18n.t("approval.ask"), I18n.t("approval.auto"), I18n.t("approval.readonly")};
+        ComboBox<String> approvalCombo = pillCombo(opts);
+        approvalCombo.setValue(opts[approvalDefaultIndex(securityAdminService.getApprovalDefault())]);
+        approvalCombo.setOnAction(e -> {
+            int i = Math.max(0, approvalCombo.getSelectionModel().getSelectedIndex());
+            securityAdminService.setApprovalDefault(i == 1 ? SecurityAdminService.APPROVAL_AUTO
+                    : i == 2 ? SecurityAdminService.APPROVAL_READONLY : SecurityAdminService.APPROVAL_ASK);
+            statusLabel.setText(I18n.t("settings.status.savedApprovalDefault", opts[i]));
+        });
+        tab.getChildren().add(groupCard(I18n.t("settings.security.approval.group"),
+                List.of(settingRow(I18n.t("settings.security.approval.default"),
+                        I18n.t("settings.security.approval.default.desc"), approvalCombo))));
+
+        Button addRule = newButton(I18n.t("settings.security.rule.add"), this::handleAddDangerousRule);
+        addRule.getStyleClass().add("btn-primary");
+        Button resetRules = newButton(I18n.t("settings.security.rule.reset"), this::handleResetDangerousRules);
+        resetRules.getStyleClass().add("link-btn");
+        renderDangerousRules();
+        tab.getChildren().add(sectionBlock(I18n.t("settings.security.dangerous.group"),
+                I18n.t("settings.security.dangerous.desc"), List.of(resetRules, addRule), dangerousRulesBox));
+
+        Button addProg = newButton(I18n.t("settings.security.shell.add"), this::handleAddShellProgram);
+        addProg.getStyleClass().add("btn-primary");
+        renderShellAllowlist();
+        tab.getChildren().add(sectionBlockCentered(I18n.t("settings.security.shell.group"),
+                I18n.t("settings.security.shell.desc"), List.of(addProg), shellAllowBox));
+        return tab;
+    }
+
+    /** 文件防护 Tab：文件授权目录（越界仅提示，写操作仍逐次确认）。 */
+    private VBox buildFileGuardTab() {
+        VBox tab = new VBox(16);
+        tab.getStyleClass().add("settings-subtab-page");
+        tab.setMaxWidth(Double.MAX_VALUE);
+
+        Button addDir = newButton(I18n.t("settings.security.path.add"), this::handleAddPathRoot);
+        addDir.getStyleClass().add("btn-primary");
+        renderPathRoots();
+        tab.getChildren().add(sectionBlockCentered(I18n.t("settings.security.path.group"),
+                I18n.t("settings.security.path.desc"), List.of(addDir), pathRootsBox));
+
+        Label builtin = new Label(I18n.t("settings.security.path.builtin",
+                String.valueOf(gimPaths.workspaceDir())));
+        builtin.getStyleClass().add("row-desc");
+        builtin.setWrapText(true);
+        tab.getChildren().add(builtin);
+        return tab;
+    }
+
+    /** 授权管理 Tab：逐条内联撤销 HITL「总是允许」授权，另有整体「全部撤销」。 */
+    private VBox buildGrantTab() {
+        VBox tab = new VBox(16);
+        tab.getStyleClass().add("settings-subtab-page");
+        tab.setMaxWidth(Double.MAX_VALUE);
+
+        Button clearAll = newButton(I18n.t("settings.security.clear"), this::handleClearPermissions);
+        clearAll.getStyleClass().add("link-btn");
+        renderGrants();
+        tab.getChildren().add(sectionBlockCentered(I18n.t("settings.security.grant.group"),
+                I18n.t("settings.security.hint"), List.of(clearAll), grantBox));
+        return tab;
+    }
+
+    // ---- 安全页渲染 ----
+
+    /** 危险命令黑名单：按 category 分组，逐条带严重程度徽标、描述/正则、启停开关与删除。 */
+    private void renderDangerousRules() {
+        dangerousRulesBox.getChildren().clear();
+        List<DangerousRule> rules = securityAdminService.listDangerousRules();
+        if (rules.isEmpty()) {
+            dangerousRulesBox.getChildren().add(emptyHint(I18n.t("settings.security.rule.empty")));
+            return;
+        }
+        Map<String, List<DangerousRule>> groups = new LinkedHashMap<>();
+        for (DangerousRule r : rules) {
+            String cat = r.category() == null || r.category().isBlank() ? "-" : r.category();
+            groups.computeIfAbsent(cat, k -> new ArrayList<>()).add(r);
+        }
+        for (Map.Entry<String, List<DangerousRule>> g : groups.entrySet()) {
+            Label gt = new Label(g.getKey() + "  " + g.getValue().size() + " 条");
+            gt.getStyleClass().add("dangerous-category");
+            VBox card = new VBox();
+            card.getStyleClass().add("settings-group");
+            List<DangerousRule> rs = g.getValue();
+            for (int i = 0; i < rs.size(); i++) {
+                HBox row = dangerousRuleRow(rs.get(i));
+                if (i > 0) {
+                    row.getStyleClass().add("settings-row-divider");
+                }
+                card.getChildren().add(row);
+            }
+            dangerousRulesBox.getChildren().addAll(gt, card);
+        }
+    }
+
+    private HBox dangerousRuleRow(DangerousRule rule) {
+        boolean critical = DangerousRule.SEVERITY_CRITICAL.equalsIgnoreCase(rule.severity());
+        Label sev = new Label(I18n.t(critical ? "settings.security.severity.critical" : "settings.security.severity.high"));
+        sev.getStyleClass().addAll("badge", critical ? "badge-red" : "badge-blue");
+        sev.setMinWidth(Region.USE_PREF_SIZE);
+
+        String desc = rule.description() == null || rule.description().isBlank() ? rule.pattern() : rule.description();
+        Label title = new Label(desc);
+        title.getStyleClass().add("row-title");
+        Label pattern = new Label(rule.pattern());
+        pattern.getStyleClass().add("row-desc");
+        VBox text = new VBox(2, title, pattern);
+        text.getStyleClass().add("row-text");
+
+        ToggleSwitch toggle = new ToggleSwitch();
+        toggle.setSelected(rule.enabled());
+        toggle.selectedProperty().addListener((obs, o, sel) -> {
+            securityAdminService.setDangerousRuleEnabled(rule.id(), sel);
+            statusLabel.setText(I18n.t(sel ? "settings.status.enabledRule" : "settings.status.disabledRule", desc));
+        });
+
+        Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> {
+            securityAdminService.deleteDangerousRule(rule.id());
+            statusLabel.setText(I18n.t("settings.status.deletedRule", desc));
+            renderDangerousRules();
+        });
+        del.getStyleClass().addAll("link-btn", "link-btn-danger");
+        del.setMinWidth(Region.USE_PREF_SIZE);
+
+        HBox row = new HBox(12, sev, text, toggle, del);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("settings-row");
+        HBox.setHgrow(text, Priority.ALWAYS);
+        return row;
+    }
+
+    private void renderShellAllowlist() {
+        shellAllowBox.getChildren().clear();
+        List<String> list = securityAdminService.listShellAllowlist();
+        if (list.isEmpty()) {
+            shellAllowBox.getChildren().add(emptyHint(I18n.t("settings.security.shell.empty")));
+            return;
+        }
+        for (String prog : list) {
+            shellAllowBox.getChildren().add(listRow(prog, null, () -> {
+                securityAdminService.removeShellProgram(prog);
+                statusLabel.setText(I18n.t("settings.status.removedShell", prog));
+                renderShellAllowlist();
+            }));
+        }
+    }
+
+    private void renderPathRoots() {
+        pathRootsBox.getChildren().clear();
+        List<String> list = securityAdminService.listPathRoots();
+        if (list.isEmpty()) {
+            pathRootsBox.getChildren().add(emptyHint(I18n.t("settings.security.path.empty")));
+            return;
+        }
+        for (String root : list) {
+            pathRootsBox.getChildren().add(listRow(root, null, () -> {
+                securityAdminService.removePathRoot(root);
+                statusLabel.setText(I18n.t("settings.status.removedPath", root));
+                renderPathRoots();
+            }));
+        }
+    }
+
+    /** 授权管理：逐条列出 HITL「总是允许」规则，每行内联撤销。 */
+    private void renderGrants() {
+        grantBox.getChildren().clear();
+        List<ToolPermissionRule> list = securityAdminService.list();
+        if (list.isEmpty()) {
+            grantBox.getChildren().add(emptyHint(I18n.t("settings.security.grant.empty")));
+            return;
+        }
+        for (ToolPermissionRule r : list) {
+            String scope = r.getRuleContent() == null || r.getRuleContent().isBlank()
+                    ? I18n.t("settings.security.wholeTool") : r.getRuleContent();
+            String label = r.getToolName() + " · " + scope + " · " + r.getDecision();
+            grantBox.getChildren().add(listRow(label, null, () -> {
+                securityAdminService.delete(r.getId());
+                statusLabel.setText(I18n.t("settings.status.revoked", r.getToolName()));
+                renderGrants();
+            }));
+        }
+    }
+
+    // ---- 安全页辅助 ----
+
+    private static int approvalDefaultIndex(String mode) {
+        if (SecurityAdminService.APPROVAL_AUTO.equals(mode)) {
+            return 1;
+        }
+        if (SecurityAdminService.APPROVAL_READONLY.equals(mode)) {
+            return 2;
+        }
+        return 0;
+    }
+
+    /** 分组块：标题 + 卡片（首行为描述 + 右侧操作按钮，其下为动态内容容器）。 */
+    private VBox sectionBlock(String title, String desc, List<Node> actions, Region content) {
+        Label gt = new Label(title);
+        gt.getStyleClass().add("settings-group-title");
+
+        Label d = new Label(desc);
+        d.getStyleClass().add("row-desc");
+        d.setWrapText(true);
+        d.setMaxWidth(560);
+        // 占位把操作按钮顶到卡片右缘；header 用 CENTER_LEFT 使按钮相对换行后的描述垂直居中
+        Region sp = new Region();
+        HBox.setHgrow(sp, Priority.ALWAYS);
+        HBox header = new HBox(8, d, sp);
+        header.setAlignment(Pos.CENTER_LEFT);
+        header.getStyleClass().add("settings-row");
+        for (Node a : actions) {
+            if (a instanceof Region r) {
+                r.setMinWidth(Region.USE_PREF_SIZE);
+            }
+            header.getChildren().add(a);
+        }
+
+        content.setMaxWidth(Double.MAX_VALUE);
+        VBox card = new VBox(6, header, content);
+        card.getStyleClass().add("settings-group");
+        return new VBox(6, gt, card);
+    }
+
+    /**
+     * 分组块（按钮整体垂直居中）：适用于描述 + 短列表的分区（Shell 白名单、文件授权目录、授权管理）。
+     * <p>卡片左侧为「描述 + 内容」列，右侧操作按钮相对整列垂直居中，避免按钮只贴首行而右下方留白。
+     * 危险命令区因下方是长列表不适用此布局（仍用 {@link #sectionBlock}）。</p>
+     */
+    private VBox sectionBlockCentered(String title, String desc, List<Node> actions, Region content) {
+        Label gt = new Label(title);
+        gt.getStyleClass().add("settings-group-title");
+
+        Label d = new Label(desc);
+        d.getStyleClass().add("row-desc");
+        d.setWrapText(true);
+        d.setMaxWidth(560);
+
+        content.setMaxWidth(Double.MAX_VALUE);
+        VBox body = new VBox(6, d, content);
+        body.setPadding(new Insets(14, 0, 14, 0));
+        body.setMaxWidth(Double.MAX_VALUE);
+        HBox.setHgrow(body, Priority.ALWAYS);
+
+        HBox actionsBox = new HBox(8);
+        actionsBox.setAlignment(Pos.CENTER);
+        for (Node a : actions) {
+            if (a instanceof Region r) {
+                r.setMinWidth(Region.USE_PREF_SIZE);
+            }
+            actionsBox.getChildren().add(a);
+        }
+
+        HBox card = new HBox(12, body, actionsBox);
+        card.getStyleClass().add("settings-group");
+        card.setAlignment(Pos.CENTER_LEFT);
+        return new VBox(6, gt, card);
+    }
+
+    /** 单行：左侧标题（可带副标题）+ 右侧删除按钮。 */
+    private HBox listRow(String title, String sub, Runnable onRemove) {
+        Label t = new Label(title);
+        t.getStyleClass().add("row-title");
+        t.setWrapText(true);
+        VBox text = new VBox(2, t);
+        if (sub != null && !sub.isBlank()) {
+            Label s = new Label(sub);
+            s.getStyleClass().add("row-desc");
+            text.getChildren().add(s);
+        }
+        text.getStyleClass().add("row-text");
+
+        Button remove = iconTextButton("\uE74D", I18n.t("common.delete"), onRemove);
+        remove.getStyleClass().addAll("link-btn", "link-btn-danger");
+        remove.setMinWidth(Region.USE_PREF_SIZE);
+
+        HBox row = new HBox(12, text, remove);
+        row.setAlignment(Pos.CENTER_LEFT);
+        row.getStyleClass().add("settings-row");
+        HBox.setHgrow(text, Priority.ALWAYS);
+        return row;
+    }
+
+    private Label emptyHint(String text) {
+        Label l = new Label(text);
+        l.getStyleClass().add("row-desc");
+        l.setWrapText(true);
+        return l;
+    }
+
+    // ---- 安全页操作 ----
+
+    private void handleAddDangerousRule() {
+        GimDialog.Shell shell = GimDialog.shell(hostWindow(), I18n.t("settings.security.rule.addTitle"));
+        TextField patternField = new TextField();
+        patternField.setPromptText(I18n.t("settings.security.rule.pattern.prompt"));
+        patternField.setMaxWidth(Double.MAX_VALUE);
+        TextField descField = new TextField();
+        descField.setPromptText(I18n.t("settings.security.rule.desc.prompt"));
+        descField.setMaxWidth(Double.MAX_VALUE);
+        VBox form = new VBox(10,
+                labeledField(I18n.t("settings.security.rule.pattern"), patternField),
+                labeledField(I18n.t("settings.security.rule.desc"), descField));
+        form.setPrefWidth(440);
+
+        Button cancel = new Button(I18n.t("common.cancel"));
+        cancel.setOnAction(e -> shell.stage().close());
+        Button save = new Button(I18n.t("common.save"));
+        save.getStyleClass().add("btn-primary");
+        save.setOnAction(e -> {
+            String p = patternField.getText().trim();
+            if (p.isEmpty()) {
+                statusLabel.setText(I18n.t("settings.status.rulePatternEmpty"));
+                return;
+            }
+            try {
+                java.util.regex.Pattern.compile(p);
+            } catch (java.util.regex.PatternSyntaxException ex) {
+                statusLabel.setText(I18n.t("settings.status.rulePatternBad", ex.getMessage()));
+                return;
+            }
+            securityAdminService.addDangerousRule(p, descField.getText().trim());
+            statusLabel.setText(I18n.t("settings.status.addedRule"));
+            shell.stage().close();
+            renderDangerousRules();
+        });
+        HBox btns = new HBox(8, cancel, save);
+        btns.setAlignment(Pos.CENTER_RIGHT);
+        shell.body().getChildren().addAll(form, btns);
+        shell.showAndWait();
+    }
+
+    private void handleResetDangerousRules() {
+        if (!GimDialog.confirm(hostWindow(), I18n.t("settings.security.dangerous.group"),
+                I18n.t("settings.security.rule.resetConfirm"))) {
+            return;
+        }
+        securityAdminService.resetDangerousRules();
+        statusLabel.setText(I18n.t("settings.status.resetRules"));
+        renderDangerousRules();
+    }
+
+    private void handleAddShellProgram() {
+        Optional<String> name = GimDialog.promptText(hostWindow(),
+                I18n.t("settings.security.shell.addTitle"),
+                I18n.t("settings.security.shell.program"), "", 64);
+        name.ifPresent(n -> {
+            securityAdminService.addShellProgram(n);
+            statusLabel.setText(I18n.t("settings.status.addedShell", n));
+            renderShellAllowlist();
+        });
+    }
+
+    private void handleAddPathRoot() {
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle(I18n.t("settings.security.path.choose"));
+        File dir = chooser.showDialog(hostWindow());
+        if (dir != null) {
+            securityAdminService.addPathRoot(dir.getAbsolutePath());
+            statusLabel.setText(I18n.t("settings.status.addedPath", dir.getAbsolutePath()));
+            renderPathRoots();
+        }
+    }
+
+    private static VBox labeledField(String label, Node field) {
+        Label l = new Label(label);
+        l.getStyleClass().add("form-label");
+        return new VBox(4, l, field);
     }
 
     // ---- 表单 ----
@@ -1540,17 +1926,6 @@ public class SettingsWindow {
 
     // ---- 工具权限操作 ----
 
-    private void handleRevokePermission() {
-        ToolPermissionRule sel = permissionListView.getSelectionModel().getSelectedItem();
-        if (sel == null) {
-            statusLabel.setText(I18n.t("settings.status.pickRevoke"));
-            return;
-        }
-        securityAdminService.delete(sel.getId());
-        statusLabel.setText(I18n.t("settings.status.revoked", sel.getToolName()));
-        reloadAll();
-    }
-
     private void handleClearPermissions() {
         securityAdminService.clear();
         statusLabel.setText(I18n.t("settings.status.clearedPermission"));
@@ -1574,7 +1949,11 @@ public class SettingsWindow {
         if (mcpView != null) {
             mcpView.reload();
         }
-        permissionListView.setItems(FXCollections.observableArrayList(securityAdminService.list()));
+        // 安全页动态列表（危险命令/Shell 白名单/授权目录/授权管理）随数据刷新
+        renderDangerousRules();
+        renderShellAllowlist();
+        renderPathRoots();
+        renderGrants();
         loading = false;
     }
 

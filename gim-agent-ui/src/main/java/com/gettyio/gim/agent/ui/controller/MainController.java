@@ -21,6 +21,7 @@ import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UserPrefs;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
+import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TerminalView;
 import com.gettyio.gim.agent.ui.view.TasksView;
@@ -263,6 +264,9 @@ public class MainController {
     @Autowired
     private ProviderAdminService providerAdminService;
 
+    @Autowired
+    private SecurityAdminService securityAdminService;
+
     private final ObservableList<ChatSession> sessions = FXCollections.observableArrayList();
     private String currentSessionId;
     private boolean settingsOpen;
@@ -358,6 +362,8 @@ public class MainController {
 
         applyI18n();
         buildThemeMenu();
+        // 审批初始档：读设置「安全」页持久化的全局默认（未设置回退询问）
+        approval = approvalForDefault(securityAdminService.getApprovalDefault());
         // 输入框工具条：附件芯片行仅在有待发图时占位；模型与审批下拉填充可选项
         attachChipsBox.visibleProperty().bind(Bindings.isNotEmpty(attachChipsBox.getChildren()));
         attachChipsBox.managedProperty().bind(attachChipsBox.visibleProperty());
@@ -1524,6 +1530,17 @@ public class MainController {
                         "\uE946", I18n.t("approval.auto.desc"), false),
                 new ApprovalOption(PermissionMode.EXPLORE, false, I18n.t("approval.readonly"),
                         "\uE7BA", I18n.t("approval.readonly.desc"), false));
+    }
+
+    /** 按持久化的默认档字符串取对应选项；未知值回退首项（询问）。 */
+    private ApprovalOption approvalForDefault(String mode) {
+        List<ApprovalOption> options = approvalOptions();
+        int index = switch (mode == null ? "" : mode) {
+            case SecurityAdminService.APPROVAL_AUTO -> 1;
+            case SecurityAdminService.APPROVAL_READONLY -> 2;
+            default -> 0;
+        };
+        return options.get(Math.min(index, options.size() - 1));
     }
 
     /** 当前选择对应的选项对象（档位切换后旧对象不在新列表里，按字段匹配）。 */
