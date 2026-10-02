@@ -52,6 +52,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.shape.Rectangle;
 import javafx.scene.text.TextAlignment;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.Window;
@@ -255,8 +256,26 @@ public class SettingsWindow {
         BorderPane centerPane = new BorderPane();
         centerPane.setCenter(scroller);
         centerPane.setBottom(statusLabel);
-        root.setCenter(centerPane);
+
+        // 右侧内容区对齐聊天页：白底圆角面板（.content-panel）浮于画布（.content-area）之上，
+        // 右/下留 12px 空隙（.content-margin），圆角靠矩形裁剪（半径同 CSS 14）。
+        StackPane contentPanel = new StackPane(centerPane);
+        contentPanel.getStyleClass().add("content-panel");
+        applyRoundedClip(contentPanel);
+        StackPane contentMargin = new StackPane(contentPanel);
+        contentMargin.getStyleClass().addAll("content-area", "content-margin");
+        root.setCenter(contentMargin);
         return root;
+    }
+
+    /** 内容面板圆角裁剪：半径与 CSS .content-panel 的 background-radius(14) 一致（arc=2×半径）。 */
+    private static void applyRoundedClip(Region node) {
+        Rectangle clip = new Rectangle();
+        clip.setArcWidth(28);
+        clip.setArcHeight(28);
+        clip.widthProperty().bind(node.widthProperty());
+        clip.heightProperty().bind(node.heightProperty());
+        node.setClip(clip);
     }
 
     // ---- 菜单构建（含搜索过滤） ----
