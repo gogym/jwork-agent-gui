@@ -66,6 +66,13 @@
                             <Region HBox.hgrow="ALWAYS"/>
                         </HBox>
                         <VBox fx:id="sessionsBox" spacing="2" styleClass="session-box"/>
+                        <!-- 最近会话：与「会话」平级的独立顶层区（当前智能体最近更新前 10 条），置于会话区下方 -->
+                        <HBox fx:id="recentHeader" styleClass="section-header" alignment="CENTER_LEFT">
+                            <Label fx:id="recentSectionCaret" text="&#x25BC;" styleClass="ws-caret"/>
+                            <Label fx:id="sectionRecent" text="最近会话" styleClass="section-title"/>
+                            <Region HBox.hgrow="ALWAYS"/>
+                        </HBox>
+                        <VBox fx:id="recentBox" spacing="2" styleClass="session-box"/>
                     </VBox>
                 </content>
             </ScrollPane>
@@ -108,7 +115,7 @@
         </StackPane>
     </left>
     <center>
-        <StackPane styleClass="content-margin">
+        <StackPane fx:id="contentMargin" styleClass="content-margin">
             <StackPane fx:id="mainPages" styleClass="content-panel">
             <BorderPane fx:id="chatPage">
                 <top>

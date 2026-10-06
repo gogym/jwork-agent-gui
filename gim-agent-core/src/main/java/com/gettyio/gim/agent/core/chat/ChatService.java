@@ -4,6 +4,7 @@ import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
+import com.gettyio.gim.agent.domain.entity.SessionGroup;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.SessionStatus;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
@@ -36,6 +37,9 @@ public class ChatService {
 
     /** 会话标题长度上限：自动取名与手动重命名共用一个口径（UI 也拿它限输入框） */
     public static final int TITLE_MAX_LEN = 30;
+
+    /** 分组名长度上限：与标题同口径（UI 也拿它限输入框） */
+    public static final int GROUP_NAME_MAX_LEN = 30;
 
     /** 单个文档附件的字节上限（10MB）：超过不落盘不抽取。 */
     private static final long MAX_DOC_BYTES = 10L * 1024 * 1024;
@@ -497,5 +501,56 @@ public class ChatService {
         session.setUpdatedAt(LocalDateTime.now());
         db.sessionDao().insert(session);
         return sessionId;
+    }
+
+    // ===================== 会话分组（纯 UI 组织层，归属到智能体） =====================
+
+    /**
+     * 在指定智能体下新建分组：trim+截断到 {@link #GROUP_NAME_MAX_LEN}，空名回退「新分组」，立即落盘并返回 groupId。
+     */
+    public String createGroup(String agentCode, String name) {
+        String groupId = UUID.randomUUID().toString();
+        SessionGroup group = new SessionGroup();
+        group.setGroupId(groupId);
+        group.setAgentCode(agentCode);
+        group.setName(normalizeGroupName(name));
+        db.sessionGroupDao().insert(group);
+        log.info("新建分组: {} ({}) agent={}", groupId, group.getName(), agentCode);
+        return groupId;
+    }
+
+    /** 重命名分组：去首尾空白、超长截断后写库。 */
+    public void renameGroup(String groupId, String name) {
+        db.sessionGroupDao().rename(groupId, normalizeGroupName(name));
+        log.info("重命名分组: {} -> {}", groupId, name);
+    }
+
+    /**
+     * 删除分组：先把组内会话退回未分组（{@code clearGroup}），再删分组定义。
+     * <p>绝不删会话——分组只是组织层，删组等于把里面的东西放回原处。</p>
+     */
+    public void deleteGroup(String groupId) {
+        db.sessionDao().clearGroup(groupId);
+        db.sessionGroupDao().deleteByGroupId(groupId);
+        log.info("删除分组: {}（组内会话已退回未分组）", groupId);
+    }
+
+    /** 移动会话到分组：{@code groupId} 传 null 即移出分组。不刷新 updated_at，避免打乱最近排序。 */
+    public void moveSessionToGroup(String sessionId, String groupId) {
+        db.sessionDao().updateGroup(sessionId, groupId);
+    }
+
+    /** 某智能体下的全部分组（按创建顺序）。 */
+    public List<SessionGroup> listGroups(String agentCode) {
+        return db.sessionGroupDao().findByAgent(agentCode);
+    }
+
+    /** 分组名规范化：空白回退「新分组」，超长截断到 {@link #GROUP_NAME_MAX_LEN}。 */
+    private static String normalizeGroupName(String name) {
+        if (name == null || name.isBlank()) {
+            return "新分组";
+        }
+        String t = name.trim();
+        return t.length() > GROUP_NAME_MAX_LEN ? t.substring(0, GROUP_NAME_MAX_LEN) : t;
     }
 }

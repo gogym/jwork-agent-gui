@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id    TEXT NOT NULL UNIQUE,
     agent_code    TEXT,
+    group_id      TEXT,
     title         TEXT,
     model_code    TEXT,
     message_count INTEGER DEFAULT 0,
@@ -33,6 +34,17 @@ CREATE TABLE IF NOT EXISTS sessions (
     created_at    TEXT,
     updated_at    TEXT
 );
+
+-- 会话分组：纯 UI 组织层，归属到某个智能体（agent_code）；会话以 sessions.group_id 关联，NULL=未分组
+CREATE TABLE IF NOT EXISTS session_groups (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    group_id   TEXT NOT NULL UNIQUE,
+    agent_code TEXT NOT NULL,
+    name       TEXT NOT NULL,
+    created_at TEXT,
+    updated_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_session_groups_agent ON session_groups (agent_code);
 
 CREATE TABLE IF NOT EXISTS conversations (
     id             INTEGER PRIMARY KEY AUTOINCREMENT,

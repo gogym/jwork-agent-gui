@@ -15,7 +15,7 @@ import java.util.Optional;
 public class ChatSessionDao {
 
     private static final String COLUMNS =
-            "id, session_id, agent_code, title, model_code, message_count, status, created_at, updated_at";
+            "id, session_id, agent_code, group_id, title, model_code, message_count, status, created_at, updated_at";
 
     private final SqlRunner runner;
 
@@ -28,6 +28,7 @@ public class ChatSessionDao {
         s.setId(SqlRunner.getLong(rs, "id"));
         s.setSessionId(rs.getString("session_id"));
         s.setAgentCode(rs.getString("agent_code"));
+        s.setGroupId(rs.getString("group_id"));
         s.setTitle(rs.getString("title"));
         s.setModelCode(rs.getString("model_code"));
         s.setMessageCount(SqlRunner.getInt(rs, "message_count"));
@@ -42,9 +43,9 @@ public class ChatSessionDao {
         s.setCreatedAt(now);
         s.setUpdatedAt(now);
         long id = runner.insert(
-                "INSERT INTO sessions (session_id, agent_code, title, model_code, message_count, status, created_at, updated_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?)",
-                s.getSessionId(), s.getAgentCode(), s.getTitle(), s.getModelCode(),
+                "INSERT INTO sessions (session_id, agent_code, group_id, title, model_code, message_count, status, created_at, updated_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?)",
+                s.getSessionId(), s.getAgentCode(), s.getGroupId(), s.getTitle(), s.getModelCode(),
                 s.getMessageCount(), s.getStatus(), now, now);
         s.setId(id);
         return id;
@@ -95,5 +96,18 @@ public class ChatSessionDao {
     public int countByAgent(String agentCode) {
         return runner.queryOne("SELECT COUNT(*) AS n FROM sessions WHERE agent_code=?",
                 rs -> rs.getInt("n"), agentCode).orElse(0);
+    }
+
+    /**
+     * 移动会话到分组：只改 {@code group_id}，不碰 {@code updated_at}。
+     * <p>与重命名同理：把会话挪进/移出分组不该打乱按最近更新排序的列表。{@code groupId} 传 null 即移出分组。</p>
+     */
+    public int updateGroup(String sessionId, String groupId) {
+        return runner.update("UPDATE sessions SET group_id=? WHERE session_id=?", groupId, sessionId);
+    }
+
+    /** 删除分组时解绑：把该组下所有会话退回未分组（{@code group_id=NULL}），不删会话本身。 */
+    public int clearGroup(String groupId) {
+        return runner.update("UPDATE sessions SET group_id=NULL WHERE group_id=?", groupId);
     }
 }

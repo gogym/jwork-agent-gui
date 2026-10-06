@@ -166,6 +166,14 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @FXML
     private HBox sessionsHeader;
     @FXML
+    private HBox recentHeader;
+    @FXML
+    private VBox recentBox;
+    @FXML
+    private Label recentSectionCaret;
+    @FXML
+    private Label sectionRecent;
+    @FXML
     private Label sessionsSectionCaret;
     @FXML
     private Label sessionsCount;
@@ -223,6 +231,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 侧栏最外层容器（sidebar-margin，左/下留白）：伸缩动画通过它的 maxWidth 实现 */
     @FXML
     private StackPane sidebarMargin;
+    /** 内容区最外层容器（content-margin）：侧栏收起时补回左侧留白，保持与右侧边距对称 */
+    @FXML
+    private StackPane contentMargin;
     /** 标题栏上侧栏开关按钮：在 initialize() 中构造，通过 AppShell.onTitleBarReady 挂入标题栏 */
     private Button sidebarToggle;
 
@@ -302,7 +313,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
                 themeMenuButton, modelButton, approvalButton, providerAdminService, securityAdminService, this);
         sidebar = new com.gettyio.gim.agent.ui.chat.SessionSidebar(
-                sessionsBox, sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
+                sessionsBox, recentHeader, recentBox, recentSectionCaret,
+                sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
                 sessionsSectionCaret, agentAdminService, chatService, this);
         // 无消息时展示居中欢迎页，有消息后自动隐藏
         welcomePane.visibleProperty().bind(Bindings.isEmpty(messageRenderer.messages()));
@@ -346,6 +358,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         // 「会话」标题行点击：整块区域展开/收起
         sessionsHeader.setOnMouseClicked(e -> sidebar.toggleSessionsSection());
+        // 「最近会话」标题行点击：平级独立区展开/收起
+        recentHeader.setOnMouseClicked(e -> sidebar.toggleRecentSection());
 
         // 恢复侧栏收起/展开状态
         sidebarCollapsed = "true".equals(UserPrefs.get(PREF_SIDEBAR_COLLAPSED, "false"));
@@ -421,6 +435,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         navSkillsLabel.setText(I18n.t("nav.skills"));
         navUsageLabel.setText(I18n.t("nav.usage"));
         sectionSessions.setText(I18n.t("section.sessions"));
+        sectionRecent.setText(I18n.t("section.recent"));
         searchButton.setText(I18n.t("sidebar.search.prompt"));
         userNameLabel.setText(I18n.t("user.local"));
         welcomeTitle.setText(I18n.t("welcome.title"));
@@ -1027,7 +1042,23 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private void handleToggleSidebar() {
         sidebarCollapsed = !sidebarCollapsed;
         UserPrefs.put(PREF_SIDEBAR_COLLAPSED, String.valueOf(sidebarCollapsed));
+        applyContentMargin();
         animateSidebar(!sidebarCollapsed);
+    }
+
+    /**
+     * 侧栏收起时给内容区补回左侧留白（与右侧 content-margin 的 4 对称），展开时去掉。
+     * <p>展开态侧栏紧贴内容区、由 sidebar-margin 负责左沿留白；收起后 maxWidth 归 0 会连那 4 一起没了，
+     * 故此处把留白责任临时交给内容区自身。</p>
+     */
+    private void applyContentMargin() {
+        if (contentMargin == null) {
+            return;
+        }
+        contentMargin.getStyleClass().remove("no-sidebar");
+        if (sidebarCollapsed) {
+            contentMargin.getStyleClass().add("no-sidebar");
+        }
     }
 
     /** 启动侧栏伸缩动画：maxWidth 在 0 ↔ 满量程间缓动；收起后把容器设为鼠标透明 */
@@ -1054,6 +1085,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         sidebarMargin.setMaxWidth(sidebarCollapsed ? 0 : SIDEBAR_FULL_WIDTH);
         sidebarMargin.setMouseTransparent(sidebarCollapsed);
+        applyContentMargin();
     }
 
     /** 构造侧栏开关按钮，挂到标题栏右侧（标题文字后、弹性 spacer 前） */

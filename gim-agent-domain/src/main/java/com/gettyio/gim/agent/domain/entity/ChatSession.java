@@ -18,6 +18,9 @@ public class ChatSession {
     /** 归属智能体：会话与智能体的唯一关联键 */
     private String agentCode;
 
+    /** 所属分组 ID（可空，NULL=未分组）；仅当前智能体范围内的 UI 组织 */
+    private String groupId;
+
     private String title;
 
     private String modelCode;

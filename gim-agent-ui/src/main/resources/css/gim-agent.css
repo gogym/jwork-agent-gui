@@ -234,16 +234,18 @@
  * ============================================================ */
 .content-area { -fx-background-color: -gim-canvas; }
 
-/* 右侧内容区：右/下留出空隙，内容面板圆角 + 轻投影（圆角靠裁剪，见 MainController） */
-.content-margin { -fx-padding: 0 12 12 0; }
+/* 右侧内容区：右/下留出空隙，内容面板圆角 + 轻投影（圆角靠裁剪，见 MainController）；右边距与侧栏左边距一致 */
+.content-margin { -fx-padding: 0 8 12 0; }
+/* 侧栏收起时：左侧也补上 8，与右侧对称（展开态左沿留白由 sidebar-margin 负责，内容区紧贴侧栏） */
+.content-margin.no-sidebar { -fx-padding: 0 8 12 8; }
 .content-panel {
     -fx-background-color: -gim-content;
     -fx-background-radius: 14;
     -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 12, 0.06, 0, 2);
 }
 
-/* 侧栏外部空隙：左/下与右侧内容区镜像对称（上接标题栏、右接内容区无间隙） */
-.sidebar-margin { -fx-padding: 0 0 12 12; -fx-background-color: transparent; }
+/* 侧栏外部空隙：左/右不留白（侧栏紧贴窗体左沿），仅下方留 12；左右 8 的空隙只留给内容区 */
+.sidebar-margin { -fx-padding: 0 0 12 0; -fx-background-color: transparent; }
 
 .sidebar {
     -fx-background-color: -gim-canvas;
@@ -1504,3 +1506,22 @@
 .ws-session-menu { -fx-opacity: 0; }
 .ws-session-row:hover .ws-session-menu,
 .ws-session-row-selected .ws-session-menu { -fx-opacity: 1; }
+
+/* ---------- 会话分组：分区块表头 / 组内会话缩进 / 新建分组入口 ---------- */
+/* 分区块表头（最新 / 分组 / 未分组）：小字、可点折叠、行高与会话行相称 */
+.session-subheader {
+    -fx-padding: 8 8 3 12;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+.session-subheader-title {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-section;
+}
+.session-subheader:hover .session-subheader-title { -fx-text-fill: -gim-text-2; }
+/* 组内会话行左缩进，与折叠 caret 对齐，视觉上归属于上方的组头 */
+.session-group-row { -fx-padding: 5 6 5 18; }
+/* 底部「+ 新建分组」行：文案与普通会话名同字号，弱色 */
+.session-new-group { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+.session-new-group:hover { -fx-text-fill: -gim-text-2; }
