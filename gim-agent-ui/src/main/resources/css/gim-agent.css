@@ -72,6 +72,13 @@
     -gim-section: #9a9a93;
     -gim-subtitle: #b3b3ab;
     -gim-mono-fg: #7a7a72;
+    /* 代码块 / 行内码 / 引用：跨明暗两主题的语义色 */
+    -gim-code-bg: #f4f4f1;
+    -gim-code-fg: #2a2a26;
+    -gim-code-border: #e2e2dd;
+    -gim-inline-code-bg: #ecece7;
+    -gim-quote-bar: #cfcfc8;
+    -gim-quote-fg: #5d5d56;
     -gim-desc: #5d5d56;
     -gim-cell-hover: #f0f0ee;
     -gim-selection-nonfocus: #eef3ef;
@@ -354,6 +361,162 @@
     -fx-line-spacing: 2;
 }
 
+/* ---------- Markdown 渲染（助手气泡 / 历史重放 / 导出共用） ---------- */
+.bubble-text {
+    -fx-text-fill: -gim-text;
+    -fx-line-spacing: 2;
+}
+.md-p {
+    -fx-line-spacing: 2;
+    -fx-text-fill: -gim-text;
+}
+.md-h1, .md-h2, .md-h3, .md-h4 {
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-text-title;
+}
+.md-h1 { -fx-font-size: 20px; -fx-padding: 8 0 4 0; }
+.md-h2 { -fx-font-size: 17px; -fx-padding: 7 0 3 0; }
+.md-h3 { -fx-font-size: 15px; -fx-padding: 6 0 2 0; }
+.md-h4 { -fx-font-size: 14px; -fx-padding: 5 0 2 0; }
+.md-bold { -fx-font-weight: bold; }
+.md-italic { -fx-font-style: italic; }
+.md-link { -fx-fill: -gim-accent; -fx-underline: true; }
+.md-image-alt { -fx-fill: -gim-text-4; -fx-font-style: italic; }
+.md-inline-code {
+    -fx-fill: -gim-code-fg;
+    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+}
+.md-list { -fx-padding: 2 0 2 4; }
+.md-bullet { -fx-text-fill: -gim-text-3; -fx-font-family: "Consolas", monospace; }
+.md-quote {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 6;
+    -fx-padding: 6 10 6 12;
+    -fx-border-color: transparent transparent transparent -gim-quote-bar;
+    -fx-border-width: 0 0 0 3;
+}
+.md-quote .md-p { -fx-text-fill: -gim-quote-fg; }
+.md-rule { -fx-padding: 6 0 6 0; }
+.md-rule .line { -fx-background-color: -gim-border-2; }
+.md-table {
+    -fx-background-color: -gim-code-border;
+    -fx-padding: 1;
+    -fx-background-radius: 6;
+}
+.md-th, .md-td {
+    -fx-background-color: -gim-bg;
+    -fx-padding: 6 10 6 10;
+    -fx-text-fill: -gim-text;
+}
+.md-th { -fx-font-weight: bold; -fx-background-color: -gim-panel-2; -fx-text-fill: -gim-text-title; }
+.md-code-block { -fx-padding: 4 0 4 0; }
+.md-code-area {
+    -fx-background-color: -gim-code-bg;
+    -fx-background-radius: 8;
+    -fx-border-color: -gim-code-border;
+    -fx-border-radius: 8;
+    -fx-padding: 8 10 8 10;
+    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-text-fill: -gim-code-fg;
+    -fx-highlight-fill: -gim-tint;
+    -fx-highlight-text-fill: -gim-code-fg;
+}
+.md-code-area > .content { -fx-background-color: transparent; }
+.md-copy-btn {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 6;
+    -fx-padding: 3 6 3 6;
+    -fx-min-width: 24;
+    -fx-min-height: 24;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+}
+.md-copy-btn:hover { -fx-background-color: -gim-btn-hover; }
+.md-copy-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 13px;
+    -fx-text-fill: -gim-icon;
+}
+
+/* ---------- 气泡悬停操作条（复制 / 重新生成 / 编辑重发）---------- */
+/* 默认隐去，悬停气泡宿主时淡入右上角；不占位（visibility）以免气泡拖动 */
+.msg-actions {
+    -fx-spacing: 2;
+    visibility: hidden;
+    -fx-opacity: 0;
+}
+.bubble-host:hover .msg-actions {
+    visibility: visible;
+    -fx-opacity: 1;
+}
+.msg-action-btn {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 6;
+    -fx-padding: 3 5 3 5;
+    -fx-min-width: 22;
+    -fx-min-height: 22;
+    -fx-graphic-text-gap: 0;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.14), 8, 0, 0, 2);
+}
+.msg-action-btn:hover { -fx-background-color: -gim-btn-hover; }
+.msg-action-btn .icon { -fx-font-size: 13px; -fx-text-fill: -gim-icon; }
+
+/* 搜索命中跳转的短暂高亮：给行内气泡铺一层选中底色 */
+.bubble-hit .bubble-assistant { -fx-background-color: -gim-tint-3; -fx-background-radius: 12; }
+.bubble-hit .bubble-user { -fx-background-color: -gim-tint-2; }
+
+/* ---------- 工具调用折叠卡片（助手气泡内）---------- */
+.tool-card {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 8;
+    -fx-border-color: -gim-code-border;
+    -fx-border-radius: 8;
+    -fx-padding: 0;
+}
+.tool-card-header {
+    -fx-padding: 7 10 7 10;
+    -fx-cursor: hand;
+    -fx-background-radius: 8;
+}
+.tool-card-header:hover { -fx-background-color: -gim-hover; }
+.tool-card-chevron {
+    -fx-font-size: 10px;
+    -fx-text-fill: -gim-text-4;
+    -fx-min-width: 12;
+}
+.tool-card-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    -fx-text-fill: -gim-text-title;
+}
+.tool-card-duration { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; }
+.tool-card-status { -fx-font-size: 11px; }
+.tool-card-ok { -fx-text-fill: -gim-accent; }
+.tool-card-err { -fx-text-fill: -gim-badge-red-fg; }
+.tool-card-body { -fx-padding: 4 10 10 10; }
+.tool-card-field-label {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-text-3;
+}
+.tool-card-field {
+    -fx-background-color: -gim-code-bg;
+    -fx-background-radius: 6;
+    -fx-border-color: -gim-code-border;
+    -fx-border-radius: 6;
+    -fx-padding: 6 8 6 8;
+    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-text-fill: -gim-code-fg;
+    -fx-pref-height: 96;
+    -fx-max-height: 220;
+}
+.tool-card-field > .content { -fx-background-color: transparent; }
+
 /* ---------- 对话区顶部：当前会话标题 ---------- */
 .chat-header {
     -fx-padding: 14 24 4 24;
@@ -467,6 +630,13 @@
 .input-field > .content { -fx-background-color: transparent; }
 .card-footer { -fx-padding: 10 0 0 0; -fx-alignment: center-left; -fx-spacing: 8; }
 .model-hint { -fx-text-fill: -gim-text-4; -fx-font-size: 12px; }
+.usage-bar {
+    -fx-text-fill: -gim-text-4;
+    -fx-font-size: 11px;
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 8;
+    -fx-padding: 2 8 2 8;
+}
 .send-button {
     -fx-background-color: -gim-accent;
     -fx-background-radius: 10;
@@ -554,6 +724,23 @@
 .rich-menu { -fx-padding: 6 5 6 6; }
 .rich-menu .menu-item { -fx-padding: 7 5 7 12; }
 .bubble-images { -fx-alignment: center-right; -fx-spacing: 6; }
+
+/* ---------- 用户气泡内文件行（文档附件：图标+名+大小，点击打开所在目录） ---------- */
+/* 气泡本身为 -gim-tint 底色，文件行用更浅一档的 tint 叠出层次，明暗两套随 -gim-tint-* 变量自适应 */
+.bubble-files { -fx-alignment: center-right; }
+.file-row {
+    -fx-background-color: -gim-tint-3;
+    -fx-background-radius: 8;
+    -fx-padding: 6 10 6 8;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+.file-row:hover { -fx-background-color: -gim-tint-2; }
+.file-row-icon { -fx-font-size: 15px; -fx-text-fill: -gim-tint-fg-2; -fx-min-width: 18; }
+.file-row-name { -fx-font-size: 12px; -fx-text-fill: -gim-tint-fg-2; }
+.file-row-size { -fx-font-size: 11px; -fx-text-fill: -gim-tint-fg-3; }
+/* 输入区文档芯片的大小副标（与 attach-ref-name 同族，弱化显示） */
+.attach-doc-size { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; }
 
 /* ---------- 状态栏 ---------- */
 .status-label { -fx-text-fill: -gim-text-4; -fx-font-size: 12px; }
@@ -886,6 +1073,19 @@
 }
 .btn-primary:hover   { -fx-background-color: -gim-accent-hover; }
 .btn-primary:pressed { -fx-background-color: -gim-accent-press; }
+/* 主按钮内的图标（如各页「+ 添加」的加号）随文字取色，不再用全局 .icon 的灰色，避免与白字色差 */
+.btn-primary .icon { -fx-text-fill: -gim-bg; }
+/* 技能页「导入技能」按钮：收紧内边距；文字与箭头均为自绘子节点（graphic） */
+.skill-import-btn { -fx-padding: 6 14 6 14; -fx-font-size: 13px; }
+/* 自绘文字 Label：用后代选择器(0,2,0)盖过全局 .label(0,1,0)，强制纯白，与 caret 同色 */
+.skill-import-btn .skill-import-text { -fx-text-fill: #ffffff; -fx-font-size: 13px; }
+/* 自绘下拉箭头：实心向下三角（有面积），纯白填充，与实心文字同色同重 */
+.skill-import-caret {
+    -fx-shape: "M 0 0 L 9 0 L 4.5 6 Z";
+    -fx-background-color: #ffffff;
+    -fx-scale-shape: false;
+    -fx-padding: 3 2 3 2;
+}
 .icon-btn {
     -fx-background-color: transparent;
     -fx-background-radius: 8;
@@ -1255,6 +1455,16 @@
 .palette-row { -fx-padding: 7 10 7 10; -fx-background-radius: 8; }
 .palette-row-title { -fx-font-size: 13px; -fx-text-fill: -gim-text-2; }
 .palette-row-date { -fx-font-size: 12px; -fx-text-fill: -gim-text-5; }
+/* 分组标题行：会话 / 消息内容 */
+.palette-header-row { -fx-padding: 8 10 2 10; }
+.palette-header {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-section;
+}
+/* 消息内容命中行：标题行 + 片段行 */
+.palette-msg-row { -fx-padding: 6 10 6 10; -fx-background-radius: 8; }
+.palette-msg-snippet { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
 .palette-empty {
     -fx-padding: 24 16 24 16;
     -fx-text-fill: -gim-text-5;

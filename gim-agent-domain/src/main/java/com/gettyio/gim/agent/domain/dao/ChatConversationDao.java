@@ -1,13 +1,16 @@
 package com.gettyio.gim.agent.domain.dao;
 
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
+import com.gettyio.gim.agent.domain.entity.MessageHit;
 import com.gettyio.gim.agent.domain.entity.UsageAggregate;
+import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.TimeRange;
 import com.gettyio.gim.agent.domain.persist.SqlRunner;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 
 /**
@@ -63,8 +66,69 @@ public class ChatConversationDao {
                 ChatConversationDao::map, sessionId);
     }
 
+    /** 多个会话的全部消息，按会话与插入序排列（会话导出用，一次取齐避免 N+1）。 */
+    public List<ChatConversation> findBySessions(Collection<String> sessionIds) {
+        if (sessionIds == null || sessionIds.isEmpty()) {
+            return List.of();
+        }
+        String placeholders = String.join(",", java.util.Collections.nCopies(sessionIds.size(), "?"));
+        return runner.query("SELECT " + COLUMNS + " FROM conversations WHERE session_id IN (" + placeholders
+                        + ") ORDER BY session_id, id ASC",
+                ChatConversationDao::map, sessionIds.toArray());
+    }
+
     public int deleteBySession(String sessionId) {
         return runner.update("DELETE FROM conversations WHERE session_id=?", sessionId);
+    }
+
+    /**
+     * 消息全文检索：{@code content LIKE} 子串匹配，联接 {@code sessions} 取会话标题，
+     * 排除 SYSTEM 角色；按插入序倒序（新→旧）最多返回 {@code limit} 条。空关键词返回空。
+     * <p>桌面量级不引 FTS5；关键词中的 {@code %}／{@code _} 按字面处理（转义于 {@code ESCAPE}）。</p>
+     */
+    public List<MessageHit> searchContent(String keyword, int limit) {
+        if (keyword == null || keyword.isBlank() || limit <= 0) {
+            return List.of();
+        }
+        String like = "%" + escapeLike(keyword.trim()) + "%";
+        return runner.query(
+                "SELECT c.id AS cid, c.session_id AS sid, s.title AS title, c.role AS role, "
+                        + "c.created_at AS created, c.content AS content "
+                        + "FROM conversations c JOIN sessions s ON c.session_id = s.session_id "
+                        + "WHERE c.role <> ? AND c.content LIKE ? ESCAPE '\\' "
+                        + "ORDER BY c.id DESC LIMIT ?",
+                rs -> new MessageHit(
+                        rs.getLong("cid"),
+                        rs.getString("sid"),
+                        rs.getString("title"),
+                        rs.getString("role"),
+                        SqlRunner.getDateTime(rs, "created"),
+                        rs.getString("content")),
+                ConversationRole.SYSTEM.getCode(), like, limit);
+    }
+
+    /** 转义 LIKE 通配符，使关键词按字面匹配（{@code \} 作 ESCAPE 字符）。 */
+    private static String escapeLike(String s) {
+        return s.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+    }
+
+    /** 删除单条消息（按主键）。 */
+    public int deleteById(long id) {
+        return runner.update("DELETE FROM conversations WHERE id=?", id);
+    }
+
+    /** 会话内最后一条助手消息的主键（重新生成时删除目标）；无助手消息时返回 {@code null}。 */
+    public Long findLastAssistantId(String sessionId) {
+        return runner.queryOne("SELECT id FROM conversations WHERE session_id=? AND role=? ORDER BY id DESC LIMIT 1",
+                rs -> rs.getLong(1), sessionId, ConversationRole.ASSISTANT.getCode()).orElse(null);
+    }
+
+    /**
+     * 截断删除：删除某会话中 {@code id} 及其后的全部消息（含该 id）。
+     * <p>用于「编辑重发」—自该条用户消息起作废重来；自最后一条助手消息起为「重新生成」。</p>
+     */
+    public int deleteFromId(String sessionId, long id) {
+        return runner.update("DELETE FROM conversations WHERE session_id=? AND id>=?", sessionId, id);
     }
 
     // ---- token 用量聚合（实时 SUM + 按模型单价估算成本，四维度共用一套语句模板） ----

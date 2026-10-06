@@ -8,17 +8,22 @@ import org.quartz.JobBuilder;
 import org.quartz.JobDetail;
 import org.quartz.Scheduler;
 import org.quartz.SchedulerException;
+import org.quartz.SimpleScheduleBuilder;
 import org.quartz.Trigger;
 import org.quartz.TriggerBuilder;
 import org.quartz.impl.matchers.GroupMatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.ZoneId;
+import java.util.Date;
 import java.util.List;
 import java.util.Set;
 
 /**
  * 任务调度服务：把 SQLite 任务表映射为 Quartz 作业，并支持启动时恢复。
+ * <p>两类触发器：周期性（cron）与一次性指定时刻（run_at）。misfire 语义：
+ * 周期任务关机期间错过的不补（DoNothing），一次性任务重启后补跑一次（FireAndProceed）。</p>
  */
 public class TaskSchedulerService {
 
@@ -58,13 +63,30 @@ public class TaskSchedulerService {
                 .usingJobData(AgentTaskJob.DATA_PROMPT, task.getPrompt())
                 .build();
 
-        Trigger trigger = TriggerBuilder.newTrigger()
-                .withIdentity(task.getTaskCode(), JOB_GROUP)
-                .withSchedule(CronScheduleBuilder.cronSchedule(task.getCronExpression()))
-                .build();
+        TriggerBuilder<Trigger> tb = TriggerBuilder.newTrigger()
+                .withIdentity(task.getTaskCode(), JOB_GROUP);
+        String cron = task.getCronExpression() == null ? null : task.getCronExpression().trim();
+        boolean hasCron = cron != null && !cron.isBlank();
 
+        if (task.getRunAt() != null) {
+            // 一次性指定时刻：SimpleTrigger 触发一次；错过（关机）则重启后补跑一次
+            Date fireAt = Date.from(task.getRunAt().atZone(ZoneId.systemDefault()).toInstant());
+            tb.startAt(fireAt)
+                    .withSchedule(SimpleScheduleBuilder.simpleSchedule()
+                            .withRepeatCount(0)
+                            .withMisfireHandlingInstructionFireNow());
+        } else if (hasCron) {
+            // 周期任务：关机期间错过的不补，等下一个正常触发点
+            tb.withSchedule(CronScheduleBuilder.cronSchedule(cron)
+                    .withMisfireHandlingInstructionDoNothing());
+        } else {
+            throw new SchedulerException("任务缺少触发定义（cron 与 run_at 至少居其一）: " + task.getTaskCode());
+        }
+
+        Trigger trigger = tb.build();
         scheduler.scheduleJob(job, trigger);
-        log.info("已调度任务: {} cron={}", task.getTaskCode(), task.getCronExpression());
+        log.info("已调度任务: {} {}", task.getTaskCode(),
+                task.getRunAt() != null ? "runAt=" + task.getRunAt() : "cron=" + cron);
     }
 
     public void unschedule(String taskCode) throws SchedulerException {

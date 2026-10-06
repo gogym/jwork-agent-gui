@@ -16,7 +16,10 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * 技能安装服务（MVP SkillInstallHelper/AiSkillHubService 语义迁移）：
@@ -81,6 +84,114 @@ public class SkillService {
             throw new UncheckedIOException("安装技能失败", e);
         }
         return upsert(code, manifest, "INSTALLED", EnabledStatus.ENABLED);
+    }
+
+    /**
+     * 从单个文件导入技能：目录委托 {@link #install(Path)}；{@code .md}（单个 SKILL.md）按名建目录；
+     * {@code .zip}（校验含 SKILL.md、拒绝 {@code ../} 路径穿越）解压落 skillsRoot 并同步 skills 表。
+     */
+    public SkillPackage importFromFile(Path file) {
+        if (Files.isDirectory(file)) {
+            return install(file);
+        }
+        if (!Files.isRegularFile(file)) {
+            throw new IllegalArgumentException("文件不存在: " + file);
+        }
+        String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
+        if (name.endsWith(".zip")) {
+            return importFromZip(file);
+        }
+        if (name.endsWith(".md")) {
+            return importFromMarkdown(file);
+        }
+        throw new IllegalArgumentException("仅支持 .md 或 .zip 文件: " + file.getFileName());
+    }
+
+    /** 单个 SKILL.md：以其文件名（SKILL.md 则取父目录名）建目录，复制为目录内 SKILL.md。 */
+    private SkillPackage importFromMarkdown(Path md) {
+        SkillManifest manifest = SkillManifest.parse(md);
+        String base = stripExtension(md.getFileName().toString());
+        if (base.equalsIgnoreCase("SKILL")) {
+            Path parent = md.getParent();
+            base = (parent != null && parent.getFileName() != null) ? parent.getFileName().toString() : "skill";
+        }
+        String code = sanitizeCode(base);
+        Path target = skillsRoot().resolve(code);
+        try {
+            deleteRecursively(target);
+            deleteRecursively(disabledRoot().resolve(code));
+            Files.createDirectories(target);
+            Files.copy(md, target.resolve(SkillManifest.ENTRY_FILE), StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            throw new UncheckedIOException("导入技能失败", e);
+        }
+        return upsert(code, manifest, "INSTALLED", EnabledStatus.ENABLED);
+    }
+
+    /**
+     * zip 导入：先解到 skillsRoot 下的临时目录，逐条校验条目 normalize 后仍位于临时目录内（拒绝
+     * {@code ../} 与绝对路径穿越），定位最浅层 SKILL.md 作为内容根，整体搬入 skillsRoot/&lt;code&gt;。
+     */
+    private SkillPackage importFromZip(Path zip) {
+        String code = sanitizeCode(stripExtension(zip.getFileName().toString()));
+        Path target = skillsRoot().resolve(code);
+        Path tmp = null;
+        try {
+            Files.createDirectories(skillsRoot());
+            tmp = Files.createTempDirectory(skillsRoot(), ".import-");
+            Path tmpRoot = tmp.toRealPath();
+            try (ZipInputStream zin = new ZipInputStream(Files.newInputStream(zip), StandardCharsets.UTF_8)) {
+                ZipEntry entry;
+                while ((entry = zin.getNextEntry()) != null) {
+                    Path resolved = tmpRoot.resolve(entry.getName()).normalize();
+                    if (!resolved.startsWith(tmpRoot)) {
+                        throw new IllegalArgumentException("压缩包包含非法路径条目: " + entry.getName());
+                    }
+                    if (entry.isDirectory()) {
+                        Files.createDirectories(resolved);
+                    } else {
+                        Files.createDirectories(resolved.getParent());
+                        Files.copy(zin, resolved, StandardCopyOption.REPLACE_EXISTING);
+                    }
+                    zin.closeEntry();
+                }
+            }
+            Path entryFile = findEntryFile(tmpRoot);
+            if (entryFile == null) {
+                throw new IllegalArgumentException("压缩包内未找到 " + SkillManifest.ENTRY_FILE);
+            }
+            deleteRecursively(target);
+            deleteRecursively(disabledRoot().resolve(code));
+            Files.createDirectories(target.getParent());
+            copyTree(entryFile.getParent(), target);
+            SkillManifest manifest = SkillManifest.parse(target.resolve(SkillManifest.ENTRY_FILE));
+            return upsert(code, manifest, "INSTALLED", EnabledStatus.ENABLED);
+        } catch (IOException e) {
+            throw new UncheckedIOException("导入技能失败", e);
+        } finally {
+            if (tmp != null) {
+                try {
+                    deleteRecursively(tmp);
+                } catch (IOException ignored) {
+                    // 临时目录清理失败不影响导入结果
+                }
+            }
+        }
+    }
+
+    /** 在解压树中查找层级最浅的 SKILL.md（兼容 zip 顶层或单一子目录包裹）。 */
+    private static Path findEntryFile(Path root) throws IOException {
+        try (Stream<Path> walk = Files.walk(root)) {
+            return walk.filter(Files::isRegularFile)
+                    .filter(p -> p.getFileName().toString().equalsIgnoreCase(SkillManifest.ENTRY_FILE))
+                    .min(Comparator.comparingInt(Path::getNameCount))
+                    .orElse(null);
+        }
+    }
+
+    private static String stripExtension(String fileName) {
+        int dot = fileName.lastIndexOf('.');
+        return dot > 0 ? fileName.substring(0, dot) : fileName;
     }
 
     /** 启动播种内置示例技能：目录已存在（含禁用态）则跳过，不覆盖用户修改 */

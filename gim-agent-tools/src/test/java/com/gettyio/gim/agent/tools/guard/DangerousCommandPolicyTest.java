@@ -1,0 +1,75 @@
+package com.gettyio.gim.agent.tools.guard;
+
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.List;
+import java.util.function.Supplier;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+
+/**
+ * {@link DangerousCommandPolicy} 单测：命中拒绝、良性放行、停用规则跳过、非法正则不致中断。
+ * <p>纯逻辑，无 Spring/JavaFX 依赖。</p>
+ */
+class DangerousCommandPolicyTest {
+
+    private static GuardContext ctx(String input) {
+        return new GuardContext("s1", "execute", input);
+    }
+
+    private static DangerousRule rule(String id, String pattern, boolean enabled) {
+        return new DangerousRule(id, pattern, "desc-" + id,
+                DangerousRule.SEVERITY_HIGH, "数据破坏", enabled);
+    }
+
+    @Test
+    @DisplayName("默认黑名单命中 rm -rf 硬拒绝")
+    void deniesDangerousCommand() {
+        DangerousCommandPolicy policy = new DangerousCommandPolicy();
+        GuardResult result = policy.inspect(ctx("rm -rf /home/user/data"));
+        assertNotNull(result);
+        assertEquals(GuardDecision.DENY, result.decision());
+    }
+
+    @Test
+    @DisplayName("良性命令不表态（返回 null 交链后续）")
+    void benignCommandIsSilent() {
+        DangerousCommandPolicy policy = new DangerousCommandPolicy();
+        assertNull(policy.inspect(ctx("ls -la /tmp")));
+    }
+
+    @Test
+    @DisplayName("空/空白输入不表态")
+    void blankInputIsSilent() {
+        DangerousCommandPolicy policy = new DangerousCommandPolicy();
+        assertNull(policy.inspect(ctx(null)));
+        assertNull(policy.inspect(ctx("   ")));
+    }
+
+    @Test
+    @DisplayName("停用规则被跳过，即便模式本会命中也不拒绝")
+    void disabledRuleSkipped() {
+        Supplier<List<DangerousRule>> supplier = () -> List.of(rule("rm_rf", "\\brm\\s+-[rf]{1,2}\\b", false));
+        DangerousCommandPolicy policy = new DangerousCommandPolicy(supplier);
+        assertNull(policy.inspect(ctx("rm -rf /")), "规则已停用不应命中");
+    }
+
+    @Test
+    @DisplayName("非法正则静默跳过，不抛异常且不影响其他规则评估")
+    void invalidRegexSkippedWithoutThrowing() {
+        Supplier<List<DangerousRule>> supplier = () -> List.of(
+                rule("bad", "[unclosed", true),
+                rule("format", "\\bformat\\b", true));
+        DangerousCommandPolicy policy = new DangerousCommandPolicy(supplier);
+        // 坏规则不炸；好规则照常命中
+        GuardResult result = policy.inspect(ctx("format c:"));
+        assertNotNull(result);
+        assertEquals(GuardDecision.DENY, result.decision());
+        // 只含坏规则时：良性输入也不表态（不抛）
+        assertNull(new DangerousCommandPolicy(() -> List.of(rule("bad", "[unclosed", true)))
+                .inspect(ctx("echo hi")));
+    }
+}

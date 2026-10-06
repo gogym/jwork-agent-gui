@@ -14,6 +14,9 @@ public enum StreamEventType {
     /** 工具调用结果 */
     TOOL_RESULT,
 
+    /** 工具调用结束（携带输出摘要、成败状态与耗时） */
+    TOOL_END,
+
     /** 需要用户确认（HITL） */
     CONFIRM_REQUEST,
 

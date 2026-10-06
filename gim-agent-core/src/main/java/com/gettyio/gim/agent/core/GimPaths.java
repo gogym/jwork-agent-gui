@@ -11,6 +11,7 @@ import java.nio.file.Paths;
  *   secret.key
  *   workspace/
  *   logs/
+ *   backups/
  * </pre>
  * 根目录可通过构造参数覆盖（测试/自定义）。
  */
@@ -46,6 +47,11 @@ public class GimPaths {
 
     public Path logsDir() {
         return root.resolve("logs");
+    }
+
+    /** 数据库备份目录：VACUUM INTO 快照按时间命名存放，滚动保留最近若干份 */
+    public Path backupsDir() {
+        return root.resolve("backups");
     }
 
     public Path skillsDir() {

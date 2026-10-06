@@ -4,13 +4,17 @@ import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.chat.MenuPopup;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ContentDisplay;
+import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.OverrunStyle;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
@@ -25,6 +29,7 @@ import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
 import javafx.stage.DirectoryChooser;
+import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -55,7 +60,12 @@ public class SkillsView {
     private final TextField searchField = new TextField();
     private Label titleLabel;
     private Label descLabel;
-    private Button installButton;
+    private Button importButton;
+    private ContextMenu importMenu;
+    private long importMenuHiddenAt;
+    private Label importLabel;
+    private MenuItem importFolderItem;
+    private MenuItem importFileItem;
     private Button refreshButton;
 
     public SkillsView() {
@@ -97,13 +107,33 @@ public class SkillsView {
         searchField.getStyleClass().add("search-field");
         searchField.setMinWidth(140);
         searchField.textProperty().addListener((obs, o, n) -> reload());
-        installButton = new Button();
-        installButton.getStyleClass().add("btn-primary");
-        installButton.setMinWidth(Region.USE_PREF_SIZE);
-        installButton.setOnAction(e -> handleInstall());
+        importButton = new Button();
+        importButton.getStyleClass().addAll("btn-primary", "skill-import-btn");
+        importButton.setMinWidth(Region.USE_PREF_SIZE);
+        // 文字与下拉箭头都做成自绘子节点放进 graphic：控件自身的 -fx-text-fill 会被
+        // .btn-primary/-gim-bg 与全局 .label 规则拉扯、颜色难稳定夺回；改为真实 Label 后其
+        // -fx-text-fill 可预测生效，与实心三角 caret 同用 #ffffff，颜色天然一致
+        importLabel = new Label();
+        importLabel.getStyleClass().add("skill-import-text");
+        Region caret = new Region();
+        caret.getStyleClass().add("skill-import-caret");
+        HBox importContent = new HBox(6, importLabel, caret);
+        importContent.setAlignment(Pos.CENTER);
+        importButton.setGraphic(importContent);
+        importButton.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+        // 用 Button + ContextMenu 取代 MenuButton：MenuButton 内置弹层只夹取到屏幕，会超出主窗体；
+        // 改由 MenuPopup.showBelow 把弹层夹到窗口内（与聊天工具条菜单一致）
+        importMenu = new ContextMenu();
+        importMenu.setOnHiding(e -> importMenuHiddenAt = System.currentTimeMillis());
+        importFolderItem = new MenuItem();
+        importFolderItem.setOnAction(e -> handleInstall());
+        importFileItem = new MenuItem();
+        importFileItem.setOnAction(e -> handleImportFile());
+        importMenu.getItems().addAll(importFolderItem, importFileItem);
+        importButton.setOnAction(e -> showImportMenu());
 
         // 右侧控件与描述同一行：行内中心对齐使控件中心线与描述文字中心共线，标题独占上一行
-        HBox descRow = new HBox(10, descLabel, spacer, refreshButton, searchField, installButton);
+        HBox descRow = new HBox(10, descLabel, spacer, refreshButton, searchField, importButton);
         descRow.setAlignment(Pos.CENTER_LEFT);
         VBox headText = new VBox(4, titleLabel, descRow);
         headText.setMaxWidth(Double.MAX_VALUE);
@@ -131,9 +161,23 @@ public class SkillsView {
     private void applyI18n() {
         titleLabel.setText(I18n.t("skills.title"));
         descLabel.setText(I18n.t("skills.desc"));
-        installButton.setText(I18n.t("skills.new"));
+        importLabel.setText(I18n.t("skills.import.menu"));
+        importFolderItem.setText(I18n.t("skills.new"));
+        importFileItem.setText(I18n.t("skills.importFile"));
         searchField.setPromptText(I18n.t("skills.searchPrompt"));
         refreshButton.getTooltip().setText(I18n.t("common.refresh"));
+    }
+
+    /** 弹出/收起导入菜单：在按钮下方弹出并夹到主窗体内；已开则收起，刚被系统收起的 250ms 内不重开。 */
+    private void showImportMenu() {
+        if (importMenu.isShowing()) {
+            importMenu.hide();
+            return;
+        }
+        if (MenuPopup.inHideDebounce(importMenuHiddenAt)) {
+            return;
+        }
+        MenuPopup.showBelow(importMenu, importButton);
     }
 
     /** 重新加载技能卡片（切页或语言切换时调用） */
@@ -284,6 +328,27 @@ public class SkillsView {
         }
         try {
             SkillPackage s = skillService.install(dir.toPath());
+            agentAdminService.onSkillCatalogChanged(s.getSkillCode());
+            reload();
+            info(I18n.t("skills.install.okTitle"), I18n.t("skills.install.okMsg", s.getSkillName(), s.getSkillCode()));
+        } catch (Exception e) {
+            error(I18n.t("skills.install.failTitle"), e.getMessage());
+        }
+    }
+
+    /** 从单个文件导入技能：{@code .zip}（含 SKILL.md）或单个 {@code .md}。 */
+    private void handleImportFile() {
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("skills.import.fileTitle"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(
+                I18n.t("skills.import.fileFilter"), "*.zip", "*.md"));
+        File file = chooser.showOpenDialog(owner);
+        if (file == null) {
+            return;
+        }
+        try {
+            SkillPackage s = skillService.importFromFile(file.toPath());
             agentAdminService.onSkillCatalogChanged(s.getSkillCode());
             reload();
             info(I18n.t("skills.install.okTitle"), I18n.t("skills.install.okMsg", s.getSkillName(), s.getSkillCode()));

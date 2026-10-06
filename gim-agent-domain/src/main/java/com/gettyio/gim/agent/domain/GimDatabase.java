@@ -21,8 +21,10 @@ public class GimDatabase {
     private final McpServerDao mcpServerDao;
     private final SkillPackageDao skillDao;
     private final ScheduledTaskDao taskDao;
+    private final TaskRunDao taskRunDao;
     private final AppSettingDao settingDao;
     private final ToolPermissionRuleDao permissionRuleDao;
+    private final PromptTemplateDao promptTemplateDao;
 
     public GimDatabase(ConnectionProvider connectionProvider) {
         this.connectionProvider = connectionProvider;
@@ -35,8 +37,10 @@ public class GimDatabase {
         this.mcpServerDao = new McpServerDao(runner);
         this.skillDao = new SkillPackageDao(runner);
         this.taskDao = new ScheduledTaskDao(runner);
+        this.taskRunDao = new TaskRunDao(runner);
         this.settingDao = new AppSettingDao(runner);
         this.permissionRuleDao = new ToolPermissionRuleDao(runner);
+        this.promptTemplateDao = new PromptTemplateDao(runner);
     }
 
     /** 幂等初始化表结构 */
@@ -80,11 +84,19 @@ public class GimDatabase {
         return taskDao;
     }
 
+    public TaskRunDao taskRunDao() {
+        return taskRunDao;
+    }
+
     public AppSettingDao settingDao() {
         return settingDao;
     }
 
     public ToolPermissionRuleDao permissionRuleDao() {
         return permissionRuleDao;
+    }
+
+    public PromptTemplateDao promptTemplateDao() {
+        return promptTemplateDao;
     }
 }

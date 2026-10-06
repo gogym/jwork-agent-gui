@@ -3,6 +3,7 @@ package com.gettyio.gim.agent.ui.config;
 import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ScheduledTask;
+import com.gettyio.gim.agent.domain.entity.TaskRun;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
 import com.gettyio.gim.agent.scheduler.TaskSchedulerService;
@@ -38,11 +39,14 @@ public class TaskAdminService {
      * 保存任务并按状态联动调度：READY 注册 Quartz 作业，其他状态注销。
      */
     public void save(ScheduledTask task) {
-        validateCron(task.getCronExpression());
+        validateSchedule(task);
         if (task.getStatus() == null) {
             task.setStatus(TaskStatus.READY.name());
         }
-        if (task.getOnce() == null) {
+        // 指定时刻的一次性任务强制 once（触发后置 FINISHED，避免重启反复补跑）
+        if (task.getRunAt() != null) {
+            task.setOnce(EnabledStatus.ENABLED);
+        } else if (task.getOnce() == null) {
             task.setOnce(EnabledStatus.DISABLED);
         }
         boolean exists = db.taskDao().findByCode(task.getTaskCode()).isPresent();
@@ -61,6 +65,12 @@ public class TaskAdminService {
             log.warn("注销调度失败: {}", taskCode, e);
         }
         db.taskDao().deleteByCode(taskCode);
+        db.taskRunDao().deleteByCode(taskCode);
+    }
+
+    /** 某任务的执行历史（时间倒序）。 */
+    public List<TaskRun> history(String taskCode) {
+        return db.taskRunDao().findByCode(taskCode);
     }
 
     /** 暂停/恢复 */
@@ -106,6 +116,21 @@ public class TaskAdminService {
             new CronExpression(cron.trim());
         } catch (ParseException e) {
             throw new IllegalArgumentException("非法 cron 表达式: " + cron);
+        }
+    }
+
+    /** 校验触发定义：cron 与 run_at 至少居其一；cron 非空则必须合法。二者不可同时提供。 */
+    private static void validateSchedule(ScheduledTask task) {
+        boolean hasCron = task.getCronExpression() != null && !task.getCronExpression().isBlank();
+        boolean hasRunAt = task.getRunAt() != null;
+        if (hasCron && hasRunAt) {
+            throw new IllegalArgumentException("cron 与一次性时刻不能同时设置");
+        }
+        if (!hasCron && !hasRunAt) {
+            throw new IllegalArgumentException("必须提供 cron 表达式或一次性时刻");
+        }
+        if (hasCron) {
+            validateCron(task.getCronExpression());
         }
     }
 }

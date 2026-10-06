@@ -10,7 +10,9 @@ import com.gettyio.gim.agent.core.chat.EffectiveModelResolver;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
 import com.gettyio.gim.agent.core.model.ModelProbe;
+import com.gettyio.gim.agent.core.model.ModelSpec;
 import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.dao.AgentDefinitionDao;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
@@ -30,6 +32,7 @@ import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
 import com.gettyio.gim.agent.tools.skill.SkillService;
+import com.gettyio.gim.agent.ui.export.ExportService;
 import org.quartz.Scheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -115,12 +118,24 @@ public class GimAgentConfiguration {
                                           ToolSecurityFacade toolSecurityFacade,
                                           SkillService skillService,
                                           AgentCapabilityResolver capabilities,
-                                          ScheduleTools scheduleTools) {
+                                          TaskSchedulerService schedulerService) {
+        // 智能体定义 + 消息级模型覆盖 → 模型实例（未定向则用应用默认模型，按生成参数分桶复用）；
+        // 备用模型：同提供商按优先级取下一个启用模型，接 Harness 框架级重试 + failover
+        MultiAgentGateway.ModelResolver modelResolver = new MultiAgentGateway.ModelResolver() {
+            @Override
+            public io.agentscope.core.model.Model resolve(AgentDefinition def, String providerCode, String modelCode) {
+                return modelFactory.getOrCreate(resolver.resolveFor(def, providerCode, modelCode));
+            }
+
+            @Override
+            public io.agentscope.core.model.Model resolveFallback(AgentDefinition def, String providerCode, String modelCode) {
+                ModelSpec fallback = resolver.resolveFallback(def, providerCode, modelCode);
+                return fallback == null ? null : modelFactory.getOrCreate(fallback);
+            }
+        };
         return new MultiAgentGateway(
                 db.agentDao(),
-                // 智能体定义 + 消息级模型覆盖 → 模型实例（未定向则用应用默认模型，按生成参数分桶复用）
-                (def, providerCode, modelCode) ->
-                        modelFactory.getOrCreate(resolver.resolveFor(def, providerCode, modelCode)),
+                modelResolver,
                 readAgentsMd(paths),
                 paths.workspaceDir(),
                 capabilities,
@@ -129,19 +144,28 @@ public class GimAgentConfiguration {
                     gw.setConfirmCallback(toolSecurityFacade::precheck);
                     // Skills：挂载 workspace/skills 作为 Harness 技能仓库（可见范围仍由智能体白名单决定）
                     gw.setSkillsDir(skillService.skillsRoot());
-                    // 自定义工具：自然语言设定定时任务
-                    gw.registerToolTarget(scheduleTools);
+                    // 上下文窗口上限：AppSetting 键 agent.context.maxTokens 可调，缺省沿用网关内置默认值
+                    readContextMaxTokens(db).ifPresent(gw::setMaxContextTokens);
+                    // 自定义工具：自然语言设定定时任务——每个智能体一份实例，新建任务归属当前智能体
+                    gw.registerToolTarget(new ScheduleTools(schedulerService, db.taskDao(), gw.getAgentId()));
                 });
+    }
+
+    /** 从 AppSetting {@code agent.context.maxTokens} 读取上下文窗口上限；缺失或非法（非正整数）则返回空（用默认）。 */
+    private static java.util.Optional<Integer> readContextMaxTokens(GimDatabase db) {
+        return db.settingDao().getValue("agent.context.maxTokens").flatMap(raw -> {
+            try {
+                int v = Integer.parseInt(raw.trim());
+                return v > 0 ? java.util.Optional.of(v) : java.util.Optional.empty();
+            } catch (NumberFormatException e) {
+                return java.util.Optional.empty();
+            }
+        });
     }
 
     @Bean
     public SkillService skillService(GimPaths paths, GimDatabase db) {
         return new SkillService(paths, db);
-    }
-
-    @Bean
-    public ScheduleTools scheduleTools(TaskSchedulerService schedulerService, GimDatabase db) {
-        return new ScheduleTools(schedulerService, db.taskDao());
     }
 
     @Bean
@@ -160,6 +184,11 @@ public class GimAgentConfiguration {
     @Bean
     public McpAdminService mcpAdminService(GimDatabase db, AgentAdminService agentAdminService) {
         return new McpAdminService(db, agentAdminService);
+    }
+
+    @Bean
+    public PromptTemplateAdminService promptTemplateAdminService(GimDatabase db) {
+        return new PromptTemplateAdminService(db);
     }
 
     @Bean
@@ -291,6 +320,25 @@ public class GimAgentConfiguration {
     @Bean
     public CommandLineRunner resumeTasks(TaskSchedulerService schedulerService) {
         return args -> schedulerService.resumeReadyTasks();
+    }
+
+    /** 数据库备份服务：VACUUM INTO 在线快照 + 滚动保留（backups 目录）。 */
+    @Bean
+    public DbBackupService dbBackupService(GimDatabase db, GimPaths paths) {
+        return new DbBackupService(db, paths.backupsDir());
+    }
+
+    /** 会话/全库导出服务：单会话 Markdown 与全库 JSON。 */
+    @Bean
+    public ExportService exportService(GimDatabase db) {
+        return new ExportService(db);
+    }
+
+    /** 启动时距上次备份超过 24h 自动补一次（首次无记录也执行）。 */
+    @Bean
+    @Order(50)
+    public CommandLineRunner autoBackupOnStartup(DbBackupService backupService) {
+        return args -> backupService.backupIfDue();
     }
 
     /**

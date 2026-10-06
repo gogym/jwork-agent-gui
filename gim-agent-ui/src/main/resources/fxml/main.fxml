@@ -149,11 +149,17 @@
                                                     <Label styleClass="icon" text="&#xE723;"/>
                                                 </graphic>
                                             </Button>
+                                            <Button fx:id="templateButton" styleClass="attach-button" onAction="#showTemplateMenu">
+                                                <graphic>
+                                                    <Label styleClass="icon" text="&#xE73A;"/>
+                                                </graphic>
+                                            </Button>
                                             <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
                                             <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
+                                            <Label fx:id="usageBar" styleClass="usage-bar" managed="false" visible="false"/>
                                             <Region HBox.hgrow="ALWAYS"/>
                                             <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
-                                            <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSend">
+                                            <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSendOrStop">
                                                 <graphic>
                                                     <Label styleClass="send-icon" text="&#xE724;"/>
                                                 </graphic>

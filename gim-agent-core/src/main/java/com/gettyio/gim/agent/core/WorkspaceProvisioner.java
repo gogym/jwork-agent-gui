@@ -25,7 +25,8 @@ public class WorkspaceProvisioner {
             - 安全确认：执行文件写入、shell 命令等副作用操作前，触发用户确认。
             - 记忆沉淀：将长期有价值的事实写入 MEMORY.md。
             - 定时能力：用户要求定期/到点执行某事时，使用 schedule_task 工具（Quartz cron 表达式），
-              并用 list_tasks / cancel_task 管理与查询任务。
+              并用 list_tasks / cancel_task 管理与查询任务。若是一次性「指定时刻」执行（如“明天 8 点提醒我”），
+              改传 run_at 参数（yyyy-MM-dd HH:mm:ss），它与 cron 互斥。
             - 技能复用：workspace/skills/ 下已启用的技能（SKILL.md）定义了专项任务规范，命中时应遵循。
             - 简洁直接：回答以可执行为先，避免冗余。
             """;
@@ -59,6 +60,8 @@ public class WorkspaceProvisioner {
         Files.createDirectories(paths.skillsDir());
         Files.createDirectories(paths.knowledgeDir());
         Files.createDirectories(paths.logsDir());
+        Files.createDirectories(paths.backupsDir());
+        Files.createDirectories(paths.attachmentsDir());
     }
 
     private void ensureFile(Path file, String defaultContent) throws IOException {

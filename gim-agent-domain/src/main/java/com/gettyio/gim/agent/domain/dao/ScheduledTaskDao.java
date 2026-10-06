@@ -15,7 +15,7 @@ import java.util.Optional;
 public class ScheduledTaskDao {
 
     private static final String COLUMNS =
-            "id, task_code, task_name, agent_code, prompt, cron_expression, status, once, last_run_at, next_run_at, created_at, updated_at";
+            "id, task_code, task_name, agent_code, prompt, cron_expression, run_at, status, once, last_run_at, next_run_at, created_at, updated_at";
 
     private final SqlRunner runner;
 
@@ -31,6 +31,7 @@ public class ScheduledTaskDao {
         t.setAgentCode(rs.getString("agent_code"));
         t.setPrompt(rs.getString("prompt"));
         t.setCronExpression(rs.getString("cron_expression"));
+        t.setRunAt(SqlRunner.getDateTime(rs, "run_at"));
         t.setStatus(rs.getString("status"));
         t.setOnce(SqlRunner.getInt(rs, "once"));
         t.setLastRunAt(SqlRunner.getDateTime(rs, "last_run_at"));
@@ -45,10 +46,10 @@ public class ScheduledTaskDao {
         t.setCreatedAt(now);
         t.setUpdatedAt(now);
         long id = runner.insert(
-                "INSERT INTO tasks (task_code, task_name, agent_code, prompt, cron_expression, status, once, last_run_at, next_run_at, created_at, updated_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO tasks (task_code, task_name, agent_code, prompt, cron_expression, run_at, status, once, last_run_at, next_run_at, created_at, updated_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
                 t.getTaskCode(), t.getTaskName(), t.getAgentCode(), t.getPrompt(), t.getCronExpression(),
-                t.getStatus(), t.getOnce(), t.getLastRunAt(), t.getNextRunAt(), now, now);
+                t.getRunAt(), t.getStatus(), t.getOnce(), t.getLastRunAt(), t.getNextRunAt(), now, now);
         t.setId(id);
         return id;
     }
@@ -56,8 +57,8 @@ public class ScheduledTaskDao {
     public int update(ScheduledTask t) {
         t.setUpdatedAt(LocalDateTime.now());
         return runner.update(
-                "UPDATE tasks SET task_name=?, agent_code=?, prompt=?, cron_expression=?, status=?, once=?, next_run_at=?, updated_at=? WHERE task_code=?",
-                t.getTaskName(), t.getAgentCode(), t.getPrompt(), t.getCronExpression(), t.getStatus(),
+                "UPDATE tasks SET task_name=?, agent_code=?, prompt=?, cron_expression=?, run_at=?, status=?, once=?, next_run_at=?, updated_at=? WHERE task_code=?",
+                t.getTaskName(), t.getAgentCode(), t.getPrompt(), t.getCronExpression(), t.getRunAt(), t.getStatus(),
                 t.getOnce(), t.getNextRunAt(), t.getUpdatedAt(), t.getTaskCode());
     }
 

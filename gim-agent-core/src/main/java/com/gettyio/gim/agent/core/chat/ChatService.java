@@ -10,6 +10,7 @@ import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -17,9 +18,12 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 
 /**
  * 对话服务：在流式网关两侧补齐 SQLite 落盘（会话 + 消息），实现重启不丢历史。
@@ -32,6 +36,9 @@ public class ChatService {
 
     /** 会话标题长度上限：自动取名与手动重命名共用一个口径（UI 也拿它限输入框） */
     public static final int TITLE_MAX_LEN = 30;
+
+    /** 单个文档附件的字节上限（10MB）：超过不落盘不抽取。 */
+    private static final long MAX_DOC_BYTES = 10L * 1024 * 1024;
 
     private final AgentGateway gateway;
     private final GimDatabase db;
@@ -63,18 +70,27 @@ public class ChatService {
                 .permissionMode(io.agentscope.core.permission.PermissionMode.EXPLORE)
                 .build();
         StringBuilder buf = new StringBuilder();
-        java.util.concurrent.atomic.AtomicReference<TokenUsage> usage =
-                new java.util.concurrent.atomic.AtomicReference<>(TokenUsage.ZERO);
-        gateway.stream(req)
-                .doOnNext(event -> {
-                    if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
-                        buf.append(event.getText());
-                    } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
-                        usage.set(event.getUsage());
-                    }
-                })
-                .blockLast();
-        persistAssistant(sessionId, agentCode, effectiveModelCode(req), buf.toString(), usage.get());
+        AtomicReference<TokenUsage> usage = new AtomicReference<>(TokenUsage.ZERO);
+        List<ToolCallRecordCodec.ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
+        try {
+            gateway.stream(req)
+                    .doOnNext(event -> {
+                        if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
+                            buf.append(event.getText());
+                        } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
+                            usage.set(event.getUsage());
+                        } else if (event.getType() == StreamEventType.TOOL_END) {
+                            toolCalls.add(toRecord(event));
+                        }
+                    })
+                    .blockLast();
+        } catch (RuntimeException e) {
+            // 自主会话出错也要保住已生成的半截应答，落盘后继续上抛给调度侧记失败
+            persistAssistant(sessionId, agentCode, effectiveModelCode(req), buf.toString(), usage.get(), true,
+                    toolCalls);
+            throw e;
+        }
+        persistAssistant(sessionId, agentCode, effectiveModelCode(req), buf.toString(), usage.get(), false, toolCalls);
         return buf.toString();
     }
 
@@ -83,25 +99,93 @@ public class ChatService {
      * <p>{@link ChatRequest} 携带消息级模型覆盖与图片附件；无附件时行为与纯文本对话一致。</p>
      */
     public Flux<StreamEvent> chat(ChatRequest req) {
+        // defer + boundedElastic：把文档落盘与正文抽取（pdf/poi，可能耗时）从 FX 线程挪到订阅线程，避免界面卡死
+        return Flux.defer(() -> {
+            String sessionId = req.getSessionId();
+            String agentCode = req.getAgentCode();
+            ensureSession(sessionId, agentCode, req.getText());
+            String effectiveModel = effectiveModelCode(req);
+            DocPrep prep = prepareDocs(sessionId, req.getFiles());
+            persistUser(req, prep.stored(), effectiveModel);
+            return streamAssistant(prep.augment(req), sessionId, agentCode, effectiveModel);
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 重新生成：删除会话最后一条助手消息，就同一用户请求重新流式应答（不再重复落盘用户消息）。
+     * <p>调用方用最后一条用户消息的原文重建 {@link ChatRequest} 传入；若会话尚无助手消息，
+     * 等价于直接发起一轮应答。</p>
+     */
+    public Flux<StreamEvent> regenerate(ChatRequest req) {
         String sessionId = req.getSessionId();
         String agentCode = req.getAgentCode();
-        ensureSession(sessionId, agentCode, req.getText());
-        String effectiveModel = effectiveModelCode(req);
-        persistUser(req, effectiveModel);
+        Long lastAssistantId = db.conversationDao().findLastAssistantId(sessionId);
+        if (lastAssistantId != null) {
+            db.conversationDao().deleteById(lastAssistantId);
+            db.sessionDao().incrementMessageCount(sessionId, -1);
+        }
+        return streamAssistant(req, sessionId, agentCode, effectiveModelCode(req));
+    }
 
+    /**
+     * 编辑重发：删除指定用户消息及其之后的全部消息（截断语义），再以新请求重新发起一轮对话。
+     *
+     * @param userConversationId 被编辑的那条用户消息主键
+     */
+    public Flux<StreamEvent> editAndResend(ChatRequest req, long userConversationId) {
+        String sessionId = req.getSessionId();
+        int removed = db.conversationDao().deleteFromId(sessionId, userConversationId);
+        if (removed > 0) {
+            db.sessionDao().incrementMessageCount(sessionId, -removed);
+        }
+        return chat(req);
+    }
+
+    /** 删除单条消息，并同步回退会话的消息计数（best-effort）。 */
+    public void deleteMessage(String sessionId, long conversationId) {
+        int removed = db.conversationDao().deleteById(conversationId);
+        if (removed > 0) {
+            db.sessionDao().incrementMessageCount(sessionId, -removed);
+        }
+        log.info("删除消息: session={} id={}", sessionId, conversationId);
+    }
+
+    /** 对已落盘用户消息的会话发起流式应答并落盘助手消息；{@code chat}/{@code regenerate} 共用的流式主体。 */
+    private Flux<StreamEvent> streamAssistant(ChatRequest req, String sessionId, String agentCode, String effectiveModel) {
         StringBuilder assistantBuf = new StringBuilder();
-        java.util.concurrent.atomic.AtomicReference<TokenUsage> usageRef =
-                new java.util.concurrent.atomic.AtomicReference<>(TokenUsage.ZERO);
+        AtomicReference<TokenUsage> usageRef = new AtomicReference<>(TokenUsage.ZERO);
+        // 本轮工具调用详情（TOOL_END 事件）按发生顺序累积，收尾时写入 tool_calls 列供历史折叠重放
+        List<ToolCallRecordCodec.ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
+        // 三路终态（完成/出错/取消）都会尝试落盘，settled 保证只落一次；
+        // 出错与取消（用户停止）都带 interrupted 标记，半截应答不再丢失
+        AtomicBoolean settled = new AtomicBoolean();
         return gateway.stream(req)
                 .doOnNext(event -> {
                     if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                         assistantBuf.append(event.getText());
                     } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
                         usageRef.set(event.getUsage());
+                    } else if (event.getType() == StreamEventType.TOOL_END) {
+                        toolCalls.add(toRecord(event));
                     }
                 })
                 .doOnComplete(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), usageRef.get()));
+                        assistantBuf.toString(), usageRef.get(), false, settled, toolCalls))
+                .doOnError(e -> persistAssistant(sessionId, agentCode, effectiveModel,
+                        assistantBuf.toString(), usageRef.get(), true, settled, toolCalls))
+                .doOnCancel(() -> persistAssistant(sessionId, agentCode, effectiveModel,
+                        assistantBuf.toString(), usageRef.get(), true, settled, toolCalls));
+    }
+
+    /** 把一条 {@link StreamEventType#TOOL_END} 事件转为落盘视图。 */
+    private static ToolCallRecordCodec.ToolCallRecord toRecord(StreamEvent event) {
+        return new ToolCallRecordCodec.ToolCallRecord(event.getToolName(), event.getToolInput(),
+                event.getToolOutput(), event.isToolOk(), event.getToolDurationMillis());
+    }
+
+    /** 中断指定会话在途的生成：网关侧打断 Agent 循环，UI 侧取消订阅后走 doOnCancel 落盘半截内容。 */
+    public void stop(String agentCode, String sessionId) {
+        gateway.stop(agentCode, sessionId);
     }
 
     /** 解析本轮实际使用的模型编码；解析器缺失或解析失败时回退消息级覆盖值。 */
@@ -146,19 +230,92 @@ public class ChatService {
         db.sessionDao().incrementMessageCount(sessionId, 1);
     }
 
-    /** 落盘用户消息：正文入 content，生效模型入 model_code，图片附件落盘后清单入 metadata。 */
-    private void persistUser(ChatRequest req, String effectiveModel) {
-        List<StoredAttachment> stored = storeImages(req.getSessionId(), req.getImages());
+    /** 落盘用户消息：正文入 content（不含抽取的文档块），生效模型入 model_code，图片+文档附件清单入 metadata。 */
+    private void persistUser(ChatRequest req, List<StoredAttachment> files, String effectiveModel) {
+        List<StoredAttachment> stored = new ArrayList<>(storeImages(req.getSessionId(), req.getImages()));
+        if (files != null) {
+            stored.addAll(files);
+        }
         ChatConversation c = new ChatConversation();
         c.setSessionId(req.getSessionId());
         c.setAgentCode(req.getAgentCode());
         c.setRole(ConversationRole.USER.getCode());
         c.setContent(req.getText() == null ? "" : req.getText());
         c.setModelCode(effectiveModel != null ? effectiveModel : req.getModelCode());
-        c.setMetadata(AttachmentCodec.write(stored));
+        c.setMetadata(MessageMetadataCodec.write(stored, false));
         c.setCreatedAt(LocalDateTime.now());
         db.conversationDao().insert(c);
         db.sessionDao().incrementMessageCount(req.getSessionId(), 1);
+    }
+
+    /** 一轮文档附件的预处理结果：落盘后的引用清单，以及拼给模型的抽取文本块。 */
+    private record DocPrep(List<StoredAttachment> stored, String block) {
+        /** 把抽取块追加到用户原文后，得到真正发给模型的请求；无文档则原样返回。 */
+        ChatRequest augment(ChatRequest req) {
+            if (block == null || block.isEmpty()) {
+                return req;
+            }
+            String base = req.getText() == null ? "" : req.getText();
+            String merged = base.isEmpty() ? block : base + "\n\n" + block;
+            return req.toBuilder().text(merged).build();
+        }
+    }
+
+    /** 落盘文档原件到 {@code attachments/<sessionId>/} 并抽取正文，返回引用清单与模型输入块。 */
+    private DocPrep prepareDocs(String sessionId, List<FileAttachment> files) {
+        List<StoredAttachment> stored = new ArrayList<>();
+        if (files == null || files.isEmpty()) {
+            return new DocPrep(stored, "");
+        }
+        StringBuilder block = new StringBuilder();
+        for (FileAttachment f : files) {
+            if (f == null || f.base64Data() == null || f.base64Data().isBlank()) {
+                continue;
+            }
+            if (f.sizeBytes() > MAX_DOC_BYTES) {
+                log.warn("文档附件超过 10MB 上限，跳过: {}", f.fileName());
+                continue;
+            }
+            byte[] bytes;
+            try {
+                bytes = Base64.getDecoder().decode(f.base64Data());
+            } catch (IllegalArgumentException e) {
+                log.warn("文档附件 Base64 解码失败，跳过: {}", f.fileName());
+                continue;
+            }
+            String relPath = null;
+            try {
+                String fileName = UUID.randomUUID() + docExtension(f);
+                Path dir = gimPaths.attachmentsDir().resolve(sessionId);
+                Files.createDirectories(dir);
+                Files.write(dir.resolve(fileName), bytes);
+                relPath = sessionId + "/" + fileName;
+            } catch (IOException | RuntimeException e) {
+                log.warn("文档附件落盘失败: {}", f.fileName(), e);
+            }
+            stored.add(new StoredAttachment(f.fileName(), f.mediaType(), relPath,
+                    StoredAttachment.KIND_FILE, f.sizeBytes()));
+            String text = FileTextExtractor.extract(f.fileName(), f.mediaType(), bytes);
+            block.append("【附件文档：").append(f.fileName()).append("】\n");
+            block.append(text == null || text.isBlank() ? "（未能抽取文本）" : text).append("\n\n");
+        }
+        String trimmed = block.toString().trim();
+        return new DocPrep(stored, trimmed);
+    }
+
+    /** 文档原件落盘用的扩展名：优先取文件名后缀，兜底 .bin。 */
+    private static String docExtension(FileAttachment f) {
+        String name = f.fileName();
+        if (name != null) {
+            int dot = name.lastIndexOf('.');
+            if (dot >= 0 && dot < name.length() - 1) {
+                String ext = name.substring(dot);
+                if (ext.length() <= 8) {
+                    return ext;
+                }
+            }
+        }
+        return ".bin";
     }
 
     /** 把图片附件字节写入 {@code attachments/<sessionId>/<uuid>.<ext>}，返回可持久化的引用清单。 */
@@ -205,16 +362,32 @@ public class ChatService {
     }
 
     private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText,
-                                  TokenUsage usage) {
-        if (assistantText == null || assistantText.isEmpty()) {
+                                  TokenUsage usage, boolean interrupted, List<ToolCallRecordCodec.ToolCallRecord> toolCalls) {
+        persistAssistant(sessionId, agentCode, modelCode, assistantText, usage, interrupted, new AtomicBoolean(), toolCalls);
+    }
+
+    private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText,
+                                  TokenUsage usage, boolean interrupted, AtomicBoolean settled,
+                                  List<ToolCallRecordCodec.ToolCallRecord> toolCalls) {
+        if (settled != null && !settled.compareAndSet(false, true)) {
+            return;
+        }
+        List<ToolCallRecordCodec.ToolCallRecord> toolSnapshot =
+                toolCalls == null ? List.of() : new ArrayList<>(toolCalls);
+        if ((assistantText == null || assistantText.isEmpty()) && toolSnapshot.isEmpty()) {
+            // 一个字都没生成就被中断且无工具调用：不落空行，会话里不出现空气泡
             return;
         }
         ChatConversation c = new ChatConversation();
         c.setSessionId(sessionId);
         c.setAgentCode(agentCode);
         c.setRole(ConversationRole.ASSISTANT.getCode());
-        c.setContent(assistantText);
+        c.setContent(assistantText == null ? "" : assistantText);
         c.setModelCode(modelCode);
+        // 仅当本轮确有工具调用时才写 tool_calls 列，否则留 null
+        if (!toolSnapshot.isEmpty()) {
+            c.setToolCalls(ToolCallRecordCodec.encode(toolSnapshot));
+        }
         // 仅当本轮确有模型用量回报时才写列，否则留 null（区分「0」与「未采集」）
         if (usage != null && !usage.isEmpty()) {
             c.setTokensInput(usage.inputTokens());
@@ -224,6 +397,7 @@ public class ChatService {
             c.setLlmElapsedMillis(usage.elapsedMillis());
         }
         c.setCreatedAt(LocalDateTime.now());
+        c.setMetadata(interrupted ? MessageMetadataCodec.write(List.of(), true) : null);
         db.conversationDao().insert(c);
         db.sessionDao().incrementMessageCount(sessionId, 1);
     }
@@ -239,6 +413,27 @@ public class ChatService {
     /** 读取历史消息（用于会话切换后重放） */
     public java.util.List<ChatConversation> history(String sessionId) {
         return db.conversationDao().findBySession(sessionId);
+    }
+
+    /** 消息全文检索（排除系统消息）：供搜索面板的「消息内容」分组。 */
+    public java.util.List<com.gettyio.gim.agent.domain.entity.MessageHit> searchContent(String keyword, int limit) {
+        return db.conversationDao().searchContent(keyword, limit);
+    }
+
+    /**
+     * 取指定模型每千 token 的单价 {@code {输入, 输出}}；模型不存在或未标注价格时返回 {@code null}，
+     * 调用层据此只显示 token 不显示金额。
+     */
+    public double[] modelCostPer1k(String modelCode) {
+        if (modelCode == null || modelCode.isBlank()) {
+            return null;
+        }
+        return db.modelConfigDao().findByCode(modelCode)
+                .filter(m -> m.getCostPer1kInput() != null || m.getCostPer1kOutput() != null)
+                .map(m -> new double[]{
+                        m.getCostPer1kInput() == null ? 0d : m.getCostPer1kInput(),
+                        m.getCostPer1kOutput() == null ? 0d : m.getCostPer1kOutput()})
+                .orElse(null);
     }
 
     /** 会话列表（按最近更新排序） */

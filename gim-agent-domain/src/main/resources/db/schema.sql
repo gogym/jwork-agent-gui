@@ -136,6 +136,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     agent_code     TEXT,
     prompt         TEXT,
     cron_expression TEXT,
+    run_at         TEXT,
     status         TEXT DEFAULT 'READY',
     once           INTEGER DEFAULT 0,
     last_run_at    TEXT,
@@ -143,6 +144,19 @@ CREATE TABLE IF NOT EXISTS tasks (
     created_at     TEXT,
     updated_at     TEXT
 );
+
+-- 任务执行历史：每次触发（成功或失败）写一条，每任务滚动保留最近若干条
+CREATE TABLE IF NOT EXISTS task_runs (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_code    TEXT NOT NULL,
+    started_at   TEXT,
+    finished_at  TEXT,
+    success      INTEGER,
+    summary      TEXT,
+    error        TEXT,
+    session_id   TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_task_runs_code ON task_runs (task_code);
 
 CREATE TABLE IF NOT EXISTS settings (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

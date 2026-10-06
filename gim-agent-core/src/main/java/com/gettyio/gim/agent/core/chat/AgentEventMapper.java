@@ -5,8 +5,6 @@ import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.RequireUserConfirmEvent;
 import io.agentscope.core.event.TextBlockDeltaEvent;
 import io.agentscope.core.event.ThinkingBlockDeltaEvent;
-import io.agentscope.core.event.ToolCallStartEvent;
-import io.agentscope.core.event.ToolResultTextDeltaEvent;
 
 /**
  * 把 AgentScope 的 {@link AgentEvent} 归一化为桌面 {@link StreamEvent}。
@@ -27,12 +25,8 @@ public final class AgentEventMapper {
         if (event instanceof ThinkingBlockDeltaEvent e) {
             return StreamEvent.thinkingDelta(sessionId, e.getDelta());
         }
-        if (event instanceof ToolCallStartEvent e) {
-            return StreamEvent.toolStart(sessionId, e.getToolCallName(), null);
-        }
-        if (event instanceof ToolResultTextDeltaEvent e) {
-            return StreamEvent.toolResult(sessionId, e.getToolCallName(), e.getDelta());
-        }
+        // 工具生命周期事件（ToolCallStart/Delta/End、ToolResult*）由 {@link HarnessAgentGateway} 聚合为
+        // TOOL_START / TOOL_END 下发，不经本无状态映射器，故此处不再处理工具事件。
         if (event instanceof RequireUserConfirmEvent e) {
             // M2：仅下发确认信号，完整 HITL 决策链在 M3 接入
             String summary = e.getToolCalls() == null ? "" : e.getToolCalls().toString();

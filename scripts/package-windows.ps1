@@ -11,7 +11,6 @@ param(
 
 $ErrorActionPreference = "Stop"
 $AppName = "Gim Agent"
-$AppVersion = "1.0.0"
 $MainClass = "com.gettyio.gim.agent.ui.Launcher"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -24,11 +23,19 @@ $OutDir = Join-Path $RepoRoot "build\installer"
 Write-Host "== 1/4 Maven 打包 (-Ppackage) ==" -ForegroundColor Cyan
 Push-Location $RepoRoot
 try {
-    & mvn -q -Ppackage -DskipTests clean package -pl gim-agent-ui -am
+    & mvn -q -Ppackage clean package -pl gim-agent-ui -am
     if ($LASTEXITCODE -ne 0) { throw "Maven 构建失败" }
 } finally {
     Pop-Location
 }
+
+# 版本号单一来源：从构建产物中 Maven 过滤后的 version.properties 读取，去掉 -SNAPSHOT 供 jpackage 使用
+$VersionFile = Join-Path $TargetDir "classes\version.properties"
+if (-not (Test-Path $VersionFile)) { throw "未找到过滤后的 version.properties: $VersionFile" }
+$RawVersion = (Get-Content $VersionFile | Where-Object { $_ -match '^app\.version=' } | Select-Object -First 1) -replace '^app\.version=', ''
+$AppVersion = ($RawVersion -replace '-SNAPSHOT$', '').Trim()
+if (-not $AppVersion) { throw "无法从 version.properties 解析版本号" }
+Write-Host ("应用版本: " + $AppVersion)
 
 Write-Host "== 2/4 组装扁平 classpath 暂存目录 ==" -ForegroundColor Cyan
 if (Test-Path $StageDir) { Remove-Item $StageDir -Recurse -Force }

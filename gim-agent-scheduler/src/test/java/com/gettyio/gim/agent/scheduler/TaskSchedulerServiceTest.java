@@ -1,0 +1,141 @@
+package com.gettyio.gim.agent.scheduler;
+
+import com.gettyio.gim.agent.domain.dao.ScheduledTaskDao;
+import com.gettyio.gim.agent.domain.entity.ScheduledTask;
+import com.gettyio.gim.agent.domain.enums.TaskStatus;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.quartz.CronTrigger;
+import org.quartz.Scheduler;
+import org.quartz.SchedulerException;
+import org.quartz.SimpleTrigger;
+import org.quartz.Trigger;
+import org.quartz.TriggerKey;
+import org.quartz.impl.StdSchedulerFactory;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Properties;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+/**
+ * {@link TaskSchedulerService} 单测：cron/run_at 触发器选型与 misfire 语义、缺失触发定义报错、取消与恢复。
+ * <p>用 RAMJobStore 内存调度器，不依赖 DB；触发时点均置未来，测试只检视调度配置不等待触发。</p>
+ */
+class TaskSchedulerServiceTest {
+
+    private static final String JOB_GROUP = "gim-agent-tasks";
+
+    private Scheduler scheduler;
+    private ScheduledTaskDao taskDao;
+    private TaskSchedulerService service;
+
+    @BeforeEach
+    void setUp() throws Exception {
+        Properties props = new Properties();
+        props.setProperty("org.quartz.scheduler.instanceName", "TestScheduler-" + System.nanoTime());
+        props.setProperty("org.quartz.scheduler.instanceId", "NON_CLUSTERED");
+        props.setProperty("org.quartz.threadPool.class", "org.quartz.simpl.SimpleThreadPool");
+        props.setProperty("org.quartz.threadPool.threadCount", "1");
+        props.setProperty("org.quartz.jobStore.class", "org.quartz.simpl.RAMJobStore");
+        scheduler = new StdSchedulerFactory(props).getScheduler();
+        scheduler.start();
+        taskDao = mock(ScheduledTaskDao.class);
+        service = new TaskSchedulerService(scheduler, taskDao);
+    }
+
+    @AfterEach
+    void tearDown() throws Exception {
+        scheduler.shutdown(true);
+    }
+
+    private static ScheduledTask task(String code) {
+        ScheduledTask t = new ScheduledTask();
+        t.setTaskCode(code);
+        t.setTaskName("任务-" + code);
+        t.setAgentCode("gim-agent");
+        t.setPrompt("做点什么");
+        t.setStatus(TaskStatus.READY.name());
+        t.setOnce(0);
+        return t;
+    }
+
+    private Trigger triggerOf(String code) throws SchedulerException {
+        return scheduler.getTrigger(new TriggerKey(code, JOB_GROUP));
+    }
+
+    @Test
+    @DisplayName("cron 任务映射为 CronTrigger 且 misfire=DoNothing（错过不补）")
+    void cronUsesDoNothing() throws Exception {
+        ScheduledTask t = task("c1");
+        t.setCronExpression("0 0 9 * * ?");
+        service.schedule(t);
+        Trigger trigger = triggerOf("c1");
+        assertInstanceOf(CronTrigger.class, trigger);
+        assertEquals(CronTrigger.MISFIRE_INSTRUCTION_DO_NOTHING, trigger.getMisfireInstruction());
+    }
+
+    @Test
+    @DisplayName("run_at 一次性任务映射为 SimpleTrigger 且 misfire=FireNow（重启补跑）")
+    void runAtUsesFireNow() throws Exception {
+        ScheduledTask t = task("r1");
+        t.setRunAt(LocalDateTime.now().plusDays(1));
+        t.setOnce(1);
+        service.schedule(t);
+        Trigger trigger = triggerOf("r1");
+        assertInstanceOf(SimpleTrigger.class, trigger);
+        assertEquals(SimpleTrigger.MISFIRE_INSTRUCTION_FIRE_NOW, trigger.getMisfireInstruction());
+    }
+
+    @Test
+    @DisplayName("run_at 优先于 cron（二者同存走一次性分支）")
+    void runAtTakesPrecedence() throws Exception {
+        ScheduledTask t = task("p1");
+        t.setCronExpression("0 0 9 * * ?");
+        t.setRunAt(LocalDateTime.now().plusDays(1));
+        service.schedule(t);
+        assertInstanceOf(SimpleTrigger.class, triggerOf("p1"));
+    }
+
+    @Test
+    @DisplayName("cron 与 run_at 均缺失时抛 SchedulerException")
+    void missingTriggerDefinitionThrows() {
+        ScheduledTask t = task("none");
+        assertThrows(SchedulerException.class, () -> service.schedule(t));
+    }
+
+    @Test
+    @DisplayName("unschedule 移除已注册作业")
+    void unscheduleRemovesJob() throws Exception {
+        ScheduledTask t = task("u1");
+        t.setCronExpression("0 0 9 * * ?");
+        service.schedule(t);
+        assertTrue(scheduler.checkExists(org.quartz.JobKey.jobKey("u1", JOB_GROUP)));
+        service.unschedule("u1");
+        assertTrue(!scheduler.checkExists(org.quartz.JobKey.jobKey("u1", JOB_GROUP)));
+    }
+
+    @Test
+    @DisplayName("resumeReadyTasks 逐个调度 READY 任务")
+    void resumeSchedulesReadyTasks() throws Exception {
+        ScheduledTask a = task("a1");
+        a.setCronExpression("0 0 8 * * ?");
+        ScheduledTask b = task("b1");
+        b.setRunAt(LocalDateTime.now().plusDays(2));
+        when(taskDao.findByStatus(eq(TaskStatus.READY.name()))).thenReturn(List.of(a, b));
+
+        service.resumeReadyTasks();
+
+        assertInstanceOf(CronTrigger.class, triggerOf("a1"));
+        assertInstanceOf(SimpleTrigger.class, triggerOf("b1"));
+    }
+}

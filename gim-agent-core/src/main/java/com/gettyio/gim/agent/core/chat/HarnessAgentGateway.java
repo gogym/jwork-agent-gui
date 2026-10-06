@@ -5,12 +5,19 @@ import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.ConfirmResult;
 import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.RequireUserConfirmEvent;
+import io.agentscope.core.event.ToolCallDeltaEvent;
+import io.agentscope.core.event.ToolCallEndEvent;
+import io.agentscope.core.event.ToolCallStartEvent;
+import io.agentscope.core.event.ToolResultEndEvent;
+import io.agentscope.core.event.ToolResultStartEvent;
+import io.agentscope.core.event.ToolResultTextDeltaEvent;
 import io.agentscope.core.message.Base64Source;
 import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.ImageBlock;
 import io.agentscope.core.message.Msg;
 import io.agentscope.core.message.MsgRole;
 import io.agentscope.core.message.TextBlock;
+import io.agentscope.core.message.ToolResultState;
 import io.agentscope.core.message.ToolUseBlock;
 import io.agentscope.core.model.Model;
 import io.agentscope.core.model.ChatUsage;
@@ -36,6 +43,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
@@ -61,11 +69,22 @@ public class HarnessAgentGateway implements AutoCloseable {
     /** 关闭运行体时等待单个 MCP 客户端摘除的上限 */
     private static final Duration MCP_RELEASE_TIMEOUT = Duration.ofSeconds(5);
 
+    /** 工具入参/输出写入事件与落盘前的截断上限（字符），避免超长结果撑爆一列 */
+    private static final int TOOL_TEXT_MAX = 2000;
+
+    /** 主模型调用失败后的框架级重试次数（配合备用模型 failover） */
+    private static final int FRAMEWORK_MAX_RETRIES = 2;
+
+    /** 上下文窗口 token 上限默认值（AppSetting 键 {@code agent.context.maxTokens} 可调）；超出时框架自动压缩 */
+    private static final int DEFAULT_MAX_CONTEXT_TOKENS = 12000;
+
     /** 不可变标识（= agentCode）：上下文存储的目录键，不随显示名改动 */
     private final String agentId;
     private final String agentName;
     private final String sysPrompt;
     private final Supplier<Model> modelSupplier;
+    /** 备用模型供体（可空）：主模型故障时由 Harness 框架带重试切换；惰性解析避免过早装配第二个模型 */
+    private volatile Supplier<Model> fallbackSupplier;
     private final Path workspace;
     private volatile ToolConfirmCallback confirmCallback;
     private volatile Path skillsDir;
@@ -87,6 +106,8 @@ public class HarnessAgentGateway implements AutoCloseable {
     private volatile McpServerRegistrationListener mcpRegistrationListener;
     /** 运行期追加的自定义工具宿主对象（含 @Tool 注解方法），在 Agent 装配后注册进其 Toolkit */
     private final List<Object> toolTargets = new CopyOnWriteArrayList<>();
+    /** 上下文窗口 token 上限（装配时下发给 Harness）；由装配方按 AppSetting 覆盖，默认 {@link #DEFAULT_MAX_CONTEXT_TOKENS} */
+    private volatile int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS;
 
     private volatile HarnessAgent agent;
 
@@ -102,6 +123,23 @@ public class HarnessAgentGateway implements AutoCloseable {
     /** 运行期注入/更新工具确认回调（可空表示无 HITL 通道，敏感工具将被拒绝） */
     public void setConfirmCallback(ToolConfirmCallback confirmCallback) {
         this.confirmCallback = confirmCallback;
+    }
+
+    /** 不可变标识（= agentCode），供宿主注册每智能体专属工具时使用（如 ScheduleTools 绑任务归属） */
+    public String getAgentId() {
+        return agentId;
+    }
+
+    /** 注入备用模型供体：装配时解析一次，有备用则启用框架级重试 + failover；null 表示不启用 */
+    public void setFallbackSupplier(Supplier<Model> fallbackSupplier) {
+        this.fallbackSupplier = fallbackSupplier;
+    }
+
+    /** 上下文窗口 token 上限（正数生效，装配前下发）；非法值忽略、保留默认。 */
+    public void setMaxContextTokens(int maxContextTokens) {
+        if (maxContextTokens > 0) {
+            this.maxContextTokens = maxContextTokens;
+        }
     }
 
     /** 指定技能目录（workspace/skills），Harness 将以 FileSystemSkillRepository 加载其中的 SKILL.md */
@@ -162,6 +200,10 @@ public class HarnessAgentGateway implements AutoCloseable {
                             .sysPrompt(sysPrompt)
                             .model(modelSupplier.get())
                             .workspace(workspace)
+                            // 待办清单：开启后框架向模型提供内置 todo 工具（其调用会以工具卡片形式回显）；
+                            // 上下文窗口上限交给框架在超过时自动压缩（compaction 保持框架默认，不显式禁用）
+                            .enableTaskList(true)
+                            .maxContextTokens(this.maxContextTokens)
                             // 初始权限上下文：真实档位由每次对话前的 setPermissionMode 设定；
                             // 副作用工具（文件写/Shell）在询问档下触发确认，交由 HITL 链路处理
                             .permissionContext(PermissionContextState.builder()
@@ -197,6 +239,18 @@ public class HarnessAgentGateway implements AutoCloseable {
                             builder = builder.mcpServerRegistrationListener(listener);
                         }
                     }
+                    Supplier<Model> fallbackSrc = this.fallbackSupplier;
+                    if (fallbackSrc != null) {
+                        try {
+                            Model fallback = fallbackSrc.get();
+                            if (fallback != null) {
+                                // 主模型调用失败先就地重试，重试耗尽切备用模型
+                                builder = builder.maxRetries(FRAMEWORK_MAX_RETRIES).fallbackModel(fallback);
+                            }
+                        } catch (RuntimeException e) {
+                            log.warn("备用模型解析失败，仅用主模型继续: agent={}", agentId, e);
+                        }
+                    }
                     local = builder.build();
                     for (Object target : toolTargets) {
                         local.getToolkit().registerTool(target);
@@ -220,6 +274,22 @@ public class HarnessAgentGateway implements AutoCloseable {
         }).map(Msg::getTextContent).subscribeOn(Schedulers.boundedElastic());
     }
 
+    /**
+     * 中断该会话在途的生成：按 sessionId 构造上下文调 Harness {@code interrupt}，打断模型/工具循环。
+     * <p>运行体尚未装配时静默（没有在途生成可打断）；事件流的取消与半截落盘由订阅方（UI）负责。</p>
+     */
+    public void stop(String sessionId) {
+        HarnessAgent local = this.agent;
+        if (local == null || sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        try {
+            local.interrupt(RuntimeContext.builder().sessionId(sessionId).build());
+        } catch (RuntimeException e) {
+            log.warn("中断生成失败: session={}", sessionId, e);
+        }
+    }
+
     /** 流式对话：按 {@link ChatRequest} 组装多模态输入、设定权限模式后产出归一化事件流 */
     public Flux<StreamEvent> stream(ChatRequest request) {
         String sessionId = request.getSessionId();
@@ -231,9 +301,11 @@ public class HarnessAgentGateway implements AutoCloseable {
         this.autoApprove = request.isAutoApprove();
         // 整条流（含 HITL 续跑的每一段）共享一个用量累加器；流结束时一次性下发累计用量
         AtomicReference<TokenUsage> usageAcc = new AtomicReference<>(TokenUsage.ZERO);
+        // 整条流共享一张工具调用跟踪表（toolCallId → 入参/输出/起始时刻），收尾时合成 TOOL_END
+        Map<String, ToolTrack> toolTracks = new ConcurrentHashMap<>();
         return Flux.defer(() -> {
                     agent().setPermissionMode(ctx, mode);
-                    return runEvents(input, ctx, sessionId, usageAcc);
+                    return runEvents(input, ctx, sessionId, usageAcc, toolTracks);
                 })
                 .concatWith(Flux.defer(() -> {
                     TokenUsage total = usageAcc.get();
@@ -266,17 +338,53 @@ public class HarnessAgentGateway implements AutoCloseable {
 
     /** 消费一次 Agent 轮次的事件流；遇到确认事件则解析决策并续跑，形成连续流 */
     private Flux<StreamEvent> runEvents(Msg input, RuntimeContext ctx, String sessionId,
-                                        AtomicReference<TokenUsage> usageAcc) {
+                                        AtomicReference<TokenUsage> usageAcc, Map<String, ToolTrack> toolTracks) {
         return Flux.defer(() -> agent().streamEvents(input, ctx))
-                .concatMap(event -> handle(event, ctx, sessionId, usageAcc));
+                .concatMap(event -> handle(event, ctx, sessionId, usageAcc, toolTracks));
     }
 
     private Flux<StreamEvent> handle(AgentEvent event, RuntimeContext ctx, String sessionId,
-                                     AtomicReference<TokenUsage> usageAcc) {
+                                     AtomicReference<TokenUsage> usageAcc, Map<String, ToolTrack> toolTracks) {
         // 每次模型调用结束都累加其用量（含工具循环里的多轮），不下发给 UI
         if (event instanceof ModelCallEndEvent mce) {
             accumulate(usageAcc, mce.getUsage());
             return Flux.empty();
+        }
+        // 工具生命周期：跟踪表按 toolCallId 聚合入参与输出，收尾合成一条 TOOL_END 下发（供落盘与折叠渲染）
+        if (event instanceof ToolCallStartEvent e) {
+            toolTracks.put(key(e.getToolCallId(), e.getToolCallName()), new ToolTrack(e.getToolCallName()));
+            return Flux.just(StreamEvent.toolStart(sessionId, e.getToolCallName(), null));
+        }
+        if (event instanceof ToolCallDeltaEvent e) {
+            ToolTrack t = toolTracks.get(key(e.getToolCallId(), e.getToolCallName()));
+            if (t != null && e.getDelta() != null) {
+                t.args.append(e.getDelta());
+            }
+            return Flux.empty();
+        }
+        if (event instanceof ToolCallEndEvent e) {
+            return Flux.empty();
+        }
+        if (event instanceof ToolResultStartEvent e) {
+            toolTracks.computeIfAbsent(key(e.getToolCallId(), e.getToolCallName()),
+                    k -> new ToolTrack(e.getToolCallName()));
+            return Flux.empty();
+        }
+        if (event instanceof ToolResultTextDeltaEvent e) {
+            ToolTrack t = toolTracks.get(key(e.getToolCallId(), e.getToolCallName()));
+            if (t != null && e.getDelta() != null) {
+                t.output.append(e.getDelta());
+            }
+            return Flux.empty();
+        }
+        if (event instanceof ToolResultEndEvent e) {
+            ToolTrack t = toolTracks.remove(key(e.getToolCallId(), e.getToolCallName()));
+            String name = e.getToolCallName() != null ? e.getToolCallName() : (t == null ? "tool" : t.name);
+            String input = t == null ? null : truncate(t.args.toString());
+            String output = t == null ? "" : truncate(t.output.toString());
+            long duration = t == null ? 0L : Math.max(0L, System.currentTimeMillis() - t.startMillis);
+            boolean ok = e.getState() == null || e.getState() == ToolResultState.SUCCESS;
+            return Flux.just(StreamEvent.toolEnd(sessionId, name, input, output, duration, ok));
         }
         if (event instanceof RequireUserConfirmEvent rc) {
             List<ToolUseBlock> calls = rc.getToolCalls() == null ? List.of() : rc.getToolCalls();
@@ -289,11 +397,35 @@ public class HarnessAgentGateway implements AutoCloseable {
                     .map(allowed -> toResults(calls, allowed))
                     .flatMapMany(results -> {
                         Msg resume = buildConfirmMsg(rc, results);
-                        return Flux.concat(Flux.just(ask), runEvents(resume, ctx, sessionId, usageAcc));
+                        return Flux.concat(Flux.just(ask), runEvents(resume, ctx, sessionId, usageAcc, toolTracks));
                     });
         }
         StreamEvent mapped = AgentEventMapper.toStreamEvent(sessionId, event);
         return mapped == null ? Flux.empty() : Flux.just(mapped);
+    }
+
+    /** 工具调用的聚合键：优先 toolCallId，缺失时退回工具名（同名并发极少，够用）。 */
+    private static String key(String toolCallId, String toolName) {
+        return toolCallId != null && !toolCallId.isBlank() ? toolCallId : String.valueOf(toolName);
+    }
+
+    private static String truncate(String s) {
+        if (s == null) {
+            return null;
+        }
+        return s.length() <= TOOL_TEXT_MAX ? s : s.substring(0, TOOL_TEXT_MAX) + "…";
+    }
+
+    /** 单次工具调用的流式聚合体：起始时刻用于算耗时，args/output 分别累积调用入参与结果文本。 */
+    private static final class ToolTrack {
+        private final String name;
+        private final long startMillis = System.currentTimeMillis();
+        private final StringBuilder args = new StringBuilder();
+        private final StringBuilder output = new StringBuilder();
+
+        private ToolTrack(String name) {
+            this.name = name;
+        }
     }
 
     /** 把一次模型调用的 {@link ChatUsage} 累进本轮总用量（一次调用计一次，耗时秒转毫秒累加）。 */

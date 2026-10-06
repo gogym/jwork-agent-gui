@@ -7,12 +7,16 @@ import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
 import com.gettyio.gim.agent.domain.enums.ApiProtocol;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * 默认模型解析：从 settings 表读取 default.provider/default.model，
  * 关联 provider+model 配置并解密 apiKey，产出 {@link ModelSpec}。
  */
 public class DefaultModelResolver {
+
+    private static final Logger log = LoggerFactory.getLogger(DefaultModelResolver.class);
 
     public static final String KEY_DEFAULT_PROVIDER = "default.provider";
     public static final String KEY_DEFAULT_MODEL = "default.model";
@@ -90,6 +94,27 @@ public class DefaultModelResolver {
             return resolveFor(agent);
         }
         return withGenParams(resolve(providerCode, modelCode), agent);
+    }
+
+    /**
+     * 主模型故障时的备用模型：与主模型同提供商，按 {@code priority} 升序取下一个启用且非主模型的模型；
+     * 生成参数沿用智能体定义与主模型一致。无候选或主模型自身解析失败时返回 {@code null}（不启用 failover）。
+     */
+    public ModelSpec resolveFallback(AgentDefinition agent, String providerCode, String modelCode) {
+        try {
+            ModelSpec primary = resolveFor(agent, providerCode, modelCode);
+            for (ModelConfig candidate : db.modelConfigDao().findEnabledByProvider(primary.providerCode())) {
+                if (!candidate.getModelCode().equals(primary.modelCode())) {
+                    return withGenParams(
+                            specForModel(primary.providerCode(), candidate.getModelCode(), candidate.getModelName()),
+                            agent);
+                }
+            }
+            return null;
+        } catch (RuntimeException e) {
+            log.warn("备用模型解析失败，不启用 failover", e);
+            return null;
+        }
     }
 
     /** 用智能体定义的生成参数覆盖 base（仅当对应参数非空），否则原样返回。 */

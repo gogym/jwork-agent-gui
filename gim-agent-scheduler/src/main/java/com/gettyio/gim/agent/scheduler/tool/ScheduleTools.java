@@ -12,13 +12,17 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.text.ParseException;
+import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
  * 面向 Agent 的定时任务工具（自然语言设任务）：暴露 schedule_task / list_tasks / cancel_task
  * 三个 {@code @Tool} 方法，由 {@link com.gettyio.gim.agent.core.chat.HarnessAgentGateway} 注册进 Toolkit。
+ * <p>每个智能体一份实例（构造时绑定其 agentCode）：工具新建的任务归属当前对话的智能体，
+ * 而非一律挂到默认智能体。</p>
  * <p>置于 scheduler 模块以便复用 {@link TaskSchedulerService} 与 {@link ScheduledTaskDao}，
  * 依赖方向仍为 scheduler → domain。</p>
  */
@@ -29,30 +33,53 @@ public class ScheduleTools {
 
     private final TaskSchedulerService schedulerService;
     private final ScheduledTaskDao taskDao;
+    /** 工具归属的智能体编码：schedule_task 新建任务绑它（= 装配运行体的 agentId） */
+    private final String agentCode;
 
-    public ScheduleTools(TaskSchedulerService schedulerService, ScheduledTaskDao taskDao) {
+    public ScheduleTools(TaskSchedulerService schedulerService, ScheduledTaskDao taskDao, String agentCode) {
         this.schedulerService = schedulerService;
         this.taskDao = taskDao;
+        this.agentCode = agentCode == null || agentCode.isBlank()
+                ? com.gettyio.gim.agent.core.chat.MultiAgentGateway.DEFAULT_AGENT_CODE : agentCode;
     }
 
     @Tool(name = "schedule_task", readOnly = false,
-            description = "创建一个定时任务：到点按 cron 表达式自动把 prompt 指令投递给 Agent 执行。"
-                    + "cron 为 Quartz 六/七字段表达式，例如每天9点 '0 0 9 * * ?'，每30分钟 '0 0/30 * * * ?'。")
+            description = "创建一个定时任务：把 prompt 指令定时投递给 Agent 执行。两种模式二选一——"
+                    + "周期任务传 cron（Quartz 六/七字段，如每天9点 '0 0 9 * * ?'，每30分钟 '0 0/30 * * * ?'）；"
+                    + "一次性到点任务传 run_at（'yyyy-MM-dd HH:mm:ss'，到点只执行一次）。")
     public String scheduleTask(
             @ToolParam(name = "task_name", description = "任务的可读名称") String taskName,
-            @ToolParam(name = "cron", description = "Quartz cron 表达式，如 '0 0 9 * * ?'") String cron,
+            @ToolParam(name = "cron", required = false, description = "Quartz cron 表达式，如 '0 0 9 * * ?'（周期任务用，与 run_at 互斥）") String cron,
             @ToolParam(name = "prompt", description = "到点投递给 Agent 的指令内容") String prompt,
-            @ToolParam(name = "once", required = false, description = "是否一次性任务，'true'/'false'，默认 false") String once) {
-        if (taskName == null || taskName.isBlank() || cron == null || cron.isBlank()
-                || prompt == null || prompt.isBlank()) {
-            return "参数不完整：task_name、cron、prompt 均不能为空。";
+            @ToolParam(name = "once", required = false, description = "是否一次性任务（配 cron 时生效），'true'/'false'，默认 false") String once,
+            @ToolParam(name = "run_at", required = false, description = "一次性执行时刻 'yyyy-MM-dd HH:mm:ss'（与 cron 互斥）") String runAt) {
+        boolean hasRunAt = runAt != null && !runAt.isBlank();
+        boolean hasCron = cron != null && !cron.isBlank();
+        if (taskName == null || taskName.isBlank() || prompt == null || prompt.isBlank()) {
+            return "参数不完整：task_name、prompt 均不能为空。";
         }
-        String expr = cron.trim();
-        if (!CronExpression.isValidExpression(expr)) {
+        if (hasRunAt && hasCron) {
+            return "cron 与 run_at 互斥，请二选一。";
+        }
+        if (!hasRunAt && !hasCron) {
+            return "请提供 cron（周期任务）或 run_at（一次性到点任务）其中之一。";
+        }
+        LocalDateTime runAtTime = null;
+        String expr = null;
+        if (hasRunAt) {
             try {
-                new CronExpression(expr);
-            } catch (ParseException e) {
-                return "非法的 cron 表达式：" + cron + "（" + e.getMessage() + "）";
+                runAtTime = LocalDateTime.parse(runAt.trim(), FMT);
+            } catch (DateTimeParseException e) {
+                return "非法的 run_at 时间（应为 yyyy-MM-dd HH:mm:ss）：" + runAt;
+            }
+        } else {
+            expr = cron.trim();
+            if (!CronExpression.isValidExpression(expr)) {
+                try {
+                    new CronExpression(expr);
+                } catch (ParseException e) {
+                    return "非法的 cron 表达式：" + cron + "（" + e.getMessage() + "）";
+                }
             }
         }
         String code = "task-" + System.currentTimeMillis()
@@ -60,11 +87,14 @@ public class ScheduleTools {
         ScheduledTask task = new ScheduledTask();
         task.setTaskCode(code);
         task.setTaskName(taskName.trim());
-        task.setAgentCode("gim-agent");
+        task.setAgentCode(agentCode);
         task.setPrompt(prompt);
         task.setCronExpression(expr);
+        task.setRunAt(runAtTime);
         task.setStatus(TaskStatus.READY.name());
-        task.setOnce("true".equalsIgnoreCase(once) ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
+        // 指定时刻的一次性任务强制 once；否则按传入 once
+        task.setOnce(runAtTime != null || "true".equalsIgnoreCase(once)
+                ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
         taskDao.insert(task);
         try {
             schedulerService.schedule(task);
@@ -73,8 +103,9 @@ public class ScheduleTools {
             log.error("工具创建定时任务调度失败: {}", code, e);
             return "创建失败：调度异常 " + e.getMessage();
         }
-        return "已创建定时任务 [" + task.getTaskName() + "] 编码=" + code + " cron=" + expr
-                + ("true".equalsIgnoreCase(once) ? "（一次性）" : "") + "。";
+        return "已创建定时任务 [" + task.getTaskName() + "] 编码=" + code
+                + (runAtTime != null ? " 执行于=" + runAtTime.format(FMT) + "（一次性）"
+                        : " cron=" + expr + ("true".equalsIgnoreCase(once) ? "（一次性）" : "")) + "。";
     }
 
     @Tool(name = "list_tasks", readOnly = true,
@@ -88,7 +119,8 @@ public class ScheduleTools {
         for (ScheduledTask t : tasks) {
             sb.append("- ").append(t.getTaskCode())
                     .append(" | ").append(t.getTaskName())
-                    .append(" | cron=").append(t.getCronExpression())
+                    .append(" | ").append(t.getRunAt() != null
+                            ? "run_at=" + t.getRunAt().format(FMT) : "cron=" + t.getCronExpression())
                     .append(" | ").append(t.getStatus());
             if (t.getNextRunAt() != null) {
                 sb.append(" | 下次=").append(t.getNextRunAt().format(FMT));

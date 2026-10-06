@@ -2,14 +2,19 @@ package com.gettyio.gim.agent.ui.notify;
 
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
+import com.gettyio.gim.agent.ui.I18n;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
+import java.awt.MenuItem;
+import java.awt.PopupMenu;
 import java.awt.SystemTray;
 import java.awt.TrayIcon;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
 
 /**
@@ -43,6 +48,37 @@ public class TrayNotifier {
 
     public boolean isAvailable() {
         return trayIcon != null;
+    }
+
+    /**
+     * 为托盘图标装配「打开主窗 / 退出」右键菜单与双击唤回。
+     * <p>由 {@code AppLifecycle} 在主窗就绪后调用；托盘不可用时静默。菜单文案按调用时语言取，
+     * 后续语言切换不重建托盘（桌面量级可接受）。</p>
+     */
+    public void addMainWindowActions(Runnable onOpen, Runnable onExit) {
+        TrayIcon icon = this.trayIcon;
+        if (icon == null) {
+            return;
+        }
+        java.awt.EventQueue.invokeLater(() -> {
+            PopupMenu menu = new PopupMenu();
+            MenuItem open = new MenuItem(I18n.t("tray.open"));
+            open.addActionListener(e -> onOpen.run());
+            MenuItem quit = new MenuItem(I18n.t("tray.exit"));
+            quit.addActionListener(e -> onExit.run());
+            menu.add(open);
+            menu.add(quit);
+            icon.setPopupMenu(menu);
+            icon.addMouseListener(new MouseAdapter() {
+                @Override
+                public void mouseClicked(MouseEvent e) {
+                    // 双击主键：唤回主窗（Windows 托盘惯例）
+                    if (e.getClickCount() == 2 && e.getButton() == MouseEvent.BUTTON1) {
+                        onOpen.run();
+                    }
+                }
+            });
+        });
     }
 
     /** 气球通知；托盘不可用时静默（调用方负责回退） */

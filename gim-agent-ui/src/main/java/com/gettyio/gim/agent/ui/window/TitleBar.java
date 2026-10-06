@@ -34,6 +34,8 @@ public final class TitleBar {
     private final BorderPane node = new BorderPane();
     private final Label maxIcon;
     private final java.util.function.Consumer<Boolean> maximizeListener;
+    /** 关闭按钮动作：默认真实关窗，可由宿主换成「最小化到托盘」等。 */
+    private Runnable closeAction;
     /** 品牌区 HBox：[logo, title, spacer]；外部可在 spacer 前插入与标题同行右侧的按钮 */
     private HBox brand;
 
@@ -48,6 +50,7 @@ public final class TitleBar {
     public TitleBar(Stage stage, java.util.function.Consumer<Boolean> maximizeListener) {
         this.stage = stage;
         this.maximizeListener = maximizeListener;
+        this.closeAction = stage::close;
         this.node.getStyleClass().add("title-bar");
         this.node.setLeft(buildBrand());
         this.maxIcon = iconLabel(GLYPH_MAXIMIZE);
@@ -57,9 +60,16 @@ public final class TitleBar {
         controls.getChildren().addAll(
                 controlButton(GLYPH_MINIMIZE, "win-min", I18n.t("window.minimize"), e -> stage.setIconified(true)),
                 controlButton(maxIcon, "win-max", I18n.t("window.maximize"), e -> toggleMaximize()),
-                controlButton(GLYPH_CLOSE, "win-close", I18n.t("window.close"), e -> stage.close()));
+                controlButton(GLYPH_CLOSE, "win-close", I18n.t("window.close"), e -> closeAction.run()));
         this.node.setRight(controls);
         installDragHandlers();
+    }
+
+    /** 替换关闭按钮动作（如托盘常驻时改为隐藏主窗）。 */
+    public void setCloseAction(Runnable closeAction) {
+        if (closeAction != null) {
+            this.closeAction = closeAction;
+        }
     }
 
     public Parent getNode() {

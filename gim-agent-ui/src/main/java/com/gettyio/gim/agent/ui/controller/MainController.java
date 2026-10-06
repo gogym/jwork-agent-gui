@@ -1,18 +1,21 @@
 package com.gettyio.gim.agent.ui.controller;
 
-import com.gettyio.gim.agent.core.chat.AttachmentCodec;
 import com.gettyio.gim.agent.core.chat.ChatRequest;
 import com.gettyio.gim.agent.core.chat.ChatService;
+import com.gettyio.gim.agent.core.chat.FileAttachment;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
+import com.gettyio.gim.agent.core.chat.MessageMetadataCodec;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.core.chat.StreamEvent;
+import com.gettyio.gim.agent.core.chat.TokenUsage;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
+import com.gettyio.gim.agent.domain.entity.PromptTemplate;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
@@ -20,6 +23,7 @@ import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UserPrefs;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
+import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
@@ -72,6 +76,8 @@ import javafx.scene.image.ImageView;
 import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.input.KeyCode;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
@@ -86,6 +92,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
+import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.scheduler.Schedulers;
 
@@ -109,7 +116,8 @@ import java.util.Map;
  * 下方会话列表展示哪一份数据（列表只列它的会话，行内不再重复标注）。</p>
  */
 @Component
-public class MainController {
+public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSidebarHost,
+        com.gettyio.gim.agent.ui.chat.MessageActionListener {
 
     private static final Logger log = LoggerFactory.getLogger(MainController.class);
 
@@ -125,28 +133,7 @@ public class MainController {
     private static final double SIDEBAR_FULL_WIDTH = 262;
     /** 侧栏伸缩动画时长（毫秒） */
     private static final double SIDEBAR_ANIM_MS = 220;
-    /** 智能体弹框的横向固定开销：弹框内边距 6×2 + 条目内边距 12×2（见 .context-menu / .menu-item） */
-    private static final double AGENT_MENU_CHROME = 36;
-    /** 卡片还没参与布局时的兜底弹框宽度：侧栏固定 250 扣掉左右内边距各 10 */
-    private static final double AGENT_MENU_FALLBACK_WIDTH = 230;
-    /** 弹框条目里的头像列：头像 26 + 头像与文字间距 8 */
-    private static final double AGENT_ITEM_AVATAR_WIDTH = 34;
-    /** 弹框条目里的图标列：Segoe 图标 15 + 图标与文字间距 8，向上取整留点余量 */
-    private static final double AGENT_ITEM_ICON_WIDTH = 26;
-    /** 单张附件图片的软上限：超过则不加入待发列表（8MB） */
-    private static final long MAX_IMAGE_BYTES = 8L * 1024 * 1024;
-    /** 文件夹附件目录树的最大展开深度 */
-    private static final int MAX_TREE_DEPTH = 3;
-    /** 文件夹附件目录树最多列出的条目数：避免超大目录撑爆上下文 */
-    private static final int MAX_TREE_ENTRIES = 300;
-    /** 「文件」附件可选的文本/代码类扩展名（对齐 Qoder：喂给模型的是文本上下文，不含 PDF/Office 二进制） */
-    private static final String[] CODE_EXTENSIONS = {
-            "*.java", "*.kt", "*.groovy", "*.scala", "*.py", "*.js", "*.jsx", "*.ts", "*.tsx", "*.vue",
-            "*.html", "*.htm", "*.css", "*.scss", "*.less", "*.c", "*.h", "*.cpp", "*.hpp", "*.cc",
-            "*.cs", "*.go", "*.rs", "*.rb", "*.php", "*.swift", "*.m", "*.mm", "*.sql", "*.sh",
-            "*.bat", "*.ps1", "*.cmd", "*.json", "*.xml", "*.yml", "*.yaml", "*.toml", "*.ini",
-            "*.properties", "*.md", "*.markdown", "*.txt", "*.csv", "*.log", "*.rst"
-    };
+    
 
     @FXML
     private ScrollPane scrollPane;
@@ -210,6 +197,9 @@ public class MainController {
     private Label welcomeSubtitle;
     @FXML
     private Label privacyHint;
+    /** 输入区底栏的本轮用量条：流式 USAGE 事件与切换会话时刷新 */
+    @FXML
+    private Label usageBar;
     @FXML
     private HBox chatHeader;
     @FXML
@@ -223,6 +213,8 @@ public class MainController {
     @FXML
     private Button attachButton;
     @FXML
+    private Button templateButton;
+    @FXML
     private Button modelButton;
     @FXML
     private Button approvalButton;
@@ -233,6 +225,18 @@ public class MainController {
     private StackPane sidebarMargin;
     /** 标题栏上侧栏开关按钮：在 initialize() 中构造，通过 AppShell.onTitleBarReady 挂入标题栏 */
     private Button sidebarToggle;
+
+    /** 协作类：消息列表渲染（气泡追加/帧合并刷新/滚动跟随），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.MessageListRenderer messageRenderer;
+
+    /** 协作类：输入框附件条（待发图片/文件引用、回形针菜单、缩略图），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.AttachmentBar attachmentBar;
+
+    /** 协作类：工具条三个下拉（齿轮/模型/审批），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.ToolbarPickers toolbar;
+
+    /** 协作类：侧栏（智能体切换卡 + 会话列表渲染/交互），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.SessionSidebar sidebar;
 
     @Autowired
     private ChatService chatService;
@@ -267,41 +271,24 @@ public class MainController {
     @Autowired
     private SecurityAdminService securityAdminService;
 
+    @Autowired
+    private PromptTemplateAdminService promptTemplateAdminService;
+
     private final ObservableList<ChatSession> sessions = FXCollections.observableArrayList();
     private String currentSessionId;
     private boolean settingsOpen;
-    /** 「会话」区域是否收起 */
-    private boolean sessionsCollapsed;
     /** 左侧菜单栏是否收起 */
     private boolean sidebarCollapsed;
     /** 侧栏伸缩动画（复用：切换时若上一次还在跑先停下，避免叠加） */
     private Timeline sidebarAnim;
     /** 顶部卡片选中的智能体：新建会话归属它，它的会话构成侧栏列表，选中即写回偏好 */
     private String selectedAgentCode = DEFAULT_AGENT;
-    /** 待发送的图片附件（与 attachChipsBox 中的图片芯片一一对应） */
-    private final List<ImageAttachment> pendingImages = new ArrayList<>();
-    /** 待发送的文件/文件夹引用（与 attachChipsBox 中的引用芯片一一对应）；发送时拼进正文，由 Agent 用文件工具按需读取 */
-    private final List<FileRef> pendingRefs = new ArrayList<>();
-    /** 当前审批档位（权限模式 + 是否自动通过）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
-    private ApprovalOption approval = approvalOptions().get(0);
-    /** 审批选择菜单：复用单一实例（与齿轮菜单同策略），避免每次 new 导致旧弹出窗阴影/落点累积漂移 */
-    private ContextMenu approvalMenu;
-    /** 审批菜单最近一次关闭的时间戳（毫秒）：用于把「再点按钮」识别为关闭手势，避免自动收起后又被立即重开 */
-    private long approvalMenuHiddenAt;
-    /** 当前选中的模型（工具条模型菜单选择）；null 或跟随默认项表示不覆盖 */
-    private ModelOption selectedModel;
-    /** 模型选择菜单：复用单一实例，同审批菜单 */
-    private ContextMenu modelMenu;
-    /** 模型菜单最近一次关闭的时间戳（毫秒）：同审批菜单的开关切换 */
-    private long modelMenuHiddenAt;
-    /** 附件选择菜单：复用单一实例（与审批/模型菜单同策略），避免每次 new 导致旧弹出窗阴影/落点累积漂移 */
-    private ContextMenu attachMenu;
-    /** 附件菜单最近一次关闭的时间戳（毫秒）：把「再点按钮」识别为关闭手势，避免自动收起后又被立即重开 */
-    private long attachMenuHiddenAt;
-    /** 齿轮设置菜单：复用单一实例（与附件/模型/审批菜单同策略），避免多次点击累积弹出 */
-    private ContextMenu themeMenu;
-    /** 齿轮菜单最近一次关闭的时间戳（毫秒）：开关切换防护 */
-    private long themeMenuHiddenAt;
+    /** 在途流式订阅：保留句柄以便用户点「停止」时取消；仅在 FX 线程读写 */
+    private Disposable activeStream;
+    /** 在途流所属会话：停止时需告知网关中断哪个会话的 Agent 循环 */
+    private String streamingSessionId;
+    /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
+    private ContextMenu templateMenu;
 
     @FXML
     private void initialize() {
@@ -309,8 +296,16 @@ public class MainController {
         applyRoundedClip();
         applySidebarClip();
         applySidebarMarginClip();
+        messageRenderer = new com.gettyio.gim.agent.ui.chat.MessageListRenderer(scrollPane, messagesContainer, this);
+        attachmentBar = new com.gettyio.gim.agent.ui.chat.AttachmentBar(
+                attachChipsBox, inputField, attachButton, gimPaths, this);
+        toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
+                themeMenuButton, modelButton, approvalButton, providerAdminService, securityAdminService, this);
+        sidebar = new com.gettyio.gim.agent.ui.chat.SessionSidebar(
+                sessionsBox, sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
+                sessionsSectionCaret, agentAdminService, chatService, this);
         // 无消息时展示居中欢迎页，有消息后自动隐藏
-        welcomePane.visibleProperty().bind(Bindings.isEmpty(messagesContainer.getChildren()));
+        welcomePane.visibleProperty().bind(Bindings.isEmpty(messageRenderer.messages()));
         welcomePane.managedProperty().bind(welcomePane.visibleProperty());
         // 多行输入框：Enter 发送、Shift+Enter 换行（事件过滤器抢在 TextArea 默认插换行之前拦截）
         inputField.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
@@ -339,10 +334,10 @@ public class MainController {
 
         // 侧栏会话列表手动渲染（VBox），点击行即切换会话
         selectedAgentCode = restoreSelectedAgent();
-        renderAgentSwitcher();
-        agentSwitcher.setOnMouseClicked(e -> showAgentMenu());
+        sidebar.renderAgentSwitcher();
+        agentSwitcher.setOnMouseClicked(e -> sidebar.showAgentMenu());
         refreshSessions();
-        List<ChatSession> scoped = sessionsOfAgent();
+        List<ChatSession> scoped = sidebar.sessionsOfAgent();
         if (scoped.isEmpty()) {
             // 该智能体还没有会话：留在欢迎页空态，发送首条消息时才建会话（不在库里堆空行）
             showBlankConversation();
@@ -350,7 +345,7 @@ public class MainController {
             switchToSession(scoped.get(0).getSessionId());
         }
         // 「会话」标题行点击：整块区域展开/收起
-        sessionsHeader.setOnMouseClicked(e -> toggleSessionsSection());
+        sessionsHeader.setOnMouseClicked(e -> sidebar.toggleSessionsSection());
 
         // 恢复侧栏收起/展开状态
         sidebarCollapsed = "true".equals(UserPrefs.get(PREF_SIDEBAR_COLLAPSED, "false"));
@@ -361,22 +356,22 @@ public class MainController {
         terminalView.setOnCloseRequest(this::hideTerminal);
 
         applyI18n();
-        buildThemeMenu();
+        toolbar.buildThemeMenu();
         // 审批初始档：读设置「安全」页持久化的全局默认（未设置回退询问）
-        approval = approvalForDefault(securityAdminService.getApprovalDefault());
+        toolbar.initApprovalFromDefault();
         // 输入框工具条：附件芯片行仅在有待发图时占位；模型与审批下拉填充可选项
         attachChipsBox.visibleProperty().bind(Bindings.isNotEmpty(attachChipsBox.getChildren()));
         attachChipsBox.managedProperty().bind(attachChipsBox.visibleProperty());
-        renderModelButton();
-        renderApprovalButton();
+        toolbar.renderModelButton();
+        toolbar.renderApprovalButton();
         // 语言切换：静态文案、智能体卡片与列表都需重刷（展示名与占位文案都是本地化的）
         I18n.onChange(lang -> {
             applyI18n();
-            buildThemeMenu();
-            renderAgentSwitcher();
-            renderSessions();
-            renderModelButton();
-            renderApprovalButton();
+            toolbar.buildThemeMenu();
+            sidebar.renderAgentSwitcher();
+            sidebar.renderSessions();
+            toolbar.renderModelButton();
+            toolbar.renderApprovalButton();
         });
     }
 
@@ -432,6 +427,12 @@ public class MainController {
         welcomeSubtitle.setText(I18n.t("welcome.subtitle"));
         privacyHint.setText(I18n.t("input.privacy"));
         inputField.setPromptText(I18n.t("input.prompt"));
+        if (templateButton != null) {
+            if (templateButton.getTooltip() == null) {
+                templateButton.setTooltip(new Tooltip());
+            }
+            templateButton.getTooltip().setText(I18n.t("chat.template.tooltip"));
+        }
         if (terminalButton != null) {
             if (terminalButton.getTooltip() == null) {
                 terminalButton.setTooltip(new Tooltip());
@@ -446,124 +447,11 @@ public class MainController {
         }
     }
 
-    /** 底部齿轮：弹出设置菜单（设置 / 外观▶ / 语言▶ / 关于），对标 Qoder 交互 */
-    private void buildThemeMenu() {
-        if (themeMenu == null) {
-            themeMenu = new ContextMenu();
-            themeMenu.setOnHiding(e -> themeMenuHiddenAt = System.currentTimeMillis());
-        } else {
-            themeMenu.getItems().clear();
-        }
-        ContextMenu menu = themeMenu;
-
-        MenuItem settings = new MenuItem(I18n.t("menu.settings"), UiTheme.icon("\uE713"));
-        settings.setAccelerator(new KeyCodeCombination(KeyCode.COMMA, KeyCombination.CONTROL_DOWN));
-        settings.setOnAction(e -> handleOpenSettings());
-
-        Menu appearance = new Menu(I18n.t("menu.appearance"), UiTheme.icon("\uE790"));
-
-        Menu modeMenu = new Menu(I18n.t("menu.mode"), UiTheme.icon("\uE706"));
-        ToggleGroup modeGroup = new ToggleGroup();
-        RadioMenuItem lightItem = new RadioMenuItem(I18n.t("menu.mode.light"));
-        RadioMenuItem darkItem = new RadioMenuItem(I18n.t("menu.mode.dark"));
-        lightItem.setToggleGroup(modeGroup);
-        darkItem.setToggleGroup(modeGroup);
-        (UiTheme.mode() == UiTheme.Mode.LIGHT ? lightItem : darkItem).setSelected(true);
-        lightItem.setOnAction(e -> UiTheme.setMode(UiTheme.Mode.LIGHT));
-        darkItem.setOnAction(e -> UiTheme.setMode(UiTheme.Mode.DARK));
-        modeMenu.getItems().addAll(lightItem, darkItem);
-
-        Menu fontMenu = new Menu(I18n.t("menu.font"), UiTheme.icon("\uE8D2"));
-        ToggleGroup fontGroup = new ToggleGroup();
-        RadioMenuItem smallItem = new RadioMenuItem(I18n.t("menu.font.small"));
-        RadioMenuItem mediumItem = new RadioMenuItem(I18n.t("menu.font.medium"));
-        RadioMenuItem largeItem = new RadioMenuItem(I18n.t("menu.font.large"));
-        smallItem.setToggleGroup(fontGroup);
-        mediumItem.setToggleGroup(fontGroup);
-        largeItem.setToggleGroup(fontGroup);
-        switch (UiTheme.fontSize()) {
-            case SMALL -> smallItem.setSelected(true);
-            case LARGE -> largeItem.setSelected(true);
-            default -> mediumItem.setSelected(true);
-        }
-        smallItem.setOnAction(e -> UiTheme.setFontSize(UiTheme.FontSize.SMALL));
-        mediumItem.setOnAction(e -> UiTheme.setFontSize(UiTheme.FontSize.MEDIUM));
-        largeItem.setOnAction(e -> UiTheme.setFontSize(UiTheme.FontSize.LARGE));
-        fontMenu.getItems().addAll(smallItem, mediumItem, largeItem);
-
-        appearance.getItems().addAll(modeMenu, fontMenu);
-
-        Menu langMenu = new Menu(I18n.t("menu.language"), UiTheme.icon("\uF2B7"));
-        ToggleGroup langGroup = new ToggleGroup();
-        for (I18n.Language lang : I18n.Language.values()) {
-            RadioMenuItem item = new RadioMenuItem(lang.nativeName());
-            item.setToggleGroup(langGroup);
-            if (lang == I18n.current()) {
-                item.setSelected(true);
-            }
-            item.setOnAction(e -> I18n.setLanguage(lang));
-            langMenu.getItems().add(item);
-        }
-
-        MenuItem about = new MenuItem(I18n.t("menu.about"), UiTheme.icon("\uE946"));
-        about.setOnAction(e -> showAbout());
-
-        menu.getItems().addAll(settings, new SeparatorMenuItem(),
-                appearance, langMenu, new SeparatorMenuItem(), about);
-        // 左键/右键统一弹出菜单，固定锚定在按钮左上角；超出屏幕时 JavaFX 自动调整
-        themeMenuButton.setOnAction(e -> showThemeMenu());
-        themeMenuButton.setOnContextMenuRequested(e -> {
-            e.consume();
-            showThemeMenu();
-        });
-
-        // 全局快捷键 Ctrl+,（菜单未展开时也生效）
-        Platform.runLater(() -> {
-            Scene scene = currentScene();
-            if (scene != null) {
-                scene.getAccelerators().put(
-                        new KeyCodeCombination(KeyCode.COMMA, KeyCombination.CONTROL_DOWN),
-                        this::handleOpenSettings);
-            }
-        });
-    }
-
-    /** 弹出齿轮设置菜单：开关切换 + 防重复点击（与附件/模型/审批菜单同策略） */
-    private void showThemeMenu() {
-        if (themeMenu == null) {
-            return;
-        }
-        if (themeMenu.isShowing()) {
-            themeMenu.hide();  // 已弹出再点按钮：收起，做成开关切换
-            return;
-        }
-        // 弹窗在本次按钮点击前已被系统自动收起：视为「关闭」手势，不要立刻重开
-        if (System.currentTimeMillis() - themeMenuHiddenAt < 250) {
-            return;
-        }
-        Bounds b = themeMenuButton.localToScreen(themeMenuButton.getBoundsInLocal());
-        if (b == null) {
-            return;
-        }
-        // 先临时弹出以量取真实尺寸，再把菜单右上角精确对齐按钮右上角（左上角视图）
-        themeMenu.show(themeMenuButton, b.getMaxX(), b.getMinY());
-        Parent skin = (Parent) themeMenu.getSkin().getNode();
-        skin.applyCss();
-        skin.layout();
-        double w = skin.getBoundsInLocal().getWidth();
-        double h = skin.getBoundsInLocal().getHeight();
-        if (w > 0) {
-            themeMenu.setX(b.getMaxX() - w);
-        }
-        if (h > 0) {
-            themeMenu.setY(b.getMinY() - h);
-        }
-    }
-
     /**
      * 获取当前场景：齿轮按钮常驻侧栏，即使切到技能/定时任务页（chatPage 已脱离场景树）仍可取到 Scene。
      */
-    private Scene currentScene() {
+    @Override
+    public Scene currentScene() {
         if (themeMenuButton != null && themeMenuButton.getScene() != null) {
             return themeMenuButton.getScene();
         }
@@ -571,14 +459,21 @@ public class MainController {
     }
 
     /** 当前主窗口：作为对话框 owner（窗口模态 + 居中定位）。 */
-    private Window currentWindow() {
+    @Override
+    public Window currentWindow() {
         Scene scene = currentScene();
         return scene == null ? null : scene.getWindow();
     }
 
-    private void showAbout() {
+    @Override
+    public void showAbout() {
         GimDialog.message(currentWindow(), I18n.t("about.title"), I18n.t("about.header"),
                 I18n.t("about.body", gimPaths.root()));
+    }
+
+    @Override
+    public void openSettings(String menuLabel) {
+        handleOpenSettings(menuLabel);
     }
 
     /**
@@ -592,7 +487,7 @@ public class MainController {
             navChat.setSelected(true);
         }
         showBlankConversation();
-        renderSessions();
+        sidebar.renderSessions();
         Platform.runLater(inputField::requestFocus);
     }
 
@@ -616,21 +511,26 @@ public class MainController {
             UiTheme.apply(scene);
             settingsOpen = false;
             // 设置页可能改过名称/描述或删掉了当前智能体，回到应用时同步一次卡片与会话列表
-            renderAgentSwitcher();
+            sidebar.renderAgentSwitcher();
             refreshSessions();
             dropForeignSession();
             // 模型列表可能在设置页被增删改，重刷工具条模型按钮
-            renderModelButton();
+            toolbar.renderModelButton();
         });
     }
 
     @FXML
     public void handleSend() {
+        // 在途生成期间不并发升一轮（Enter 与重复点击同一口径）；停止请点发送按钮的停止态
+        if (activeStream != null) {
+            return;
+        }
         String text = inputField.getText();
         boolean hasText = text != null && !text.isBlank();
-        boolean hasImages = !pendingImages.isEmpty();
-        boolean hasRefs = !pendingRefs.isEmpty();
-        if (!hasText && !hasImages && !hasRefs) {
+        boolean hasImages = attachmentBar.hasImages();
+        boolean hasRefs = attachmentBar.hasRefs();
+        boolean hasDocs = attachmentBar.hasDocs();
+        if (!hasText && !hasImages && !hasRefs && !hasDocs) {
             return;
         }
         if (currentSessionId == null) {
@@ -638,22 +538,19 @@ public class MainController {
             currentSessionId = chatService.createSession(currentAgentCode());
             refreshSessions();
         }
-        ModelOption model = selectedModel;
-        List<ImageAttachment> images = List.copyOf(pendingImages);
-        String refBlock = renderRefBlock(List.copyOf(pendingRefs));
+        List<ImageAttachment> images = attachmentBar.snapshotImages();
+        List<FileAttachment> docs = attachmentBar.snapshotDocs();
+        String refBlock = attachmentBar.renderRefBlock();
         String body = hasText ? text : "";
         if (!refBlock.isEmpty()) {
             body = body.isEmpty() ? refBlock : body + "\n\n" + refBlock;
         }
 
         inputField.clear();
-        pendingImages.clear();
-        pendingRefs.clear();
-        attachChipsBox.getChildren().clear();
-        sendButton.setDisable(true);
-        appendUserBubble(body, thumbsFromBase64(images));
-        Label assistantLabel = appendBubble("", false);
-        StringBuilder acc = new StringBuilder();
+        List<Node> fileRows = attachmentBar.buildFileRows(attachmentBar.previewDocRefs());
+        attachmentBar.clearPending();
+        // 先以无主键(0)上屏，收尾后统一从库重放补齐主键与操作能力
+        messageRenderer.appendUserBubble(body, attachmentBar.thumbsFromBase64(images), fileRows, 0);
         String sessionId = currentSessionId;
         String agentCode = agentOfSession(sessionId);
 
@@ -661,51 +558,101 @@ public class MainController {
                 .agentCode(agentCode)
                 .sessionId(sessionId)
                 .text(body)
-                .providerCode(model == null ? null : model.providerCode())
-                .modelCode(model == null ? null : model.modelCode())
+                .providerCode(toolbar.selectedProviderCode())
+                .modelCode(toolbar.selectedModelCode())
                 .images(images)
-                .permissionMode(approval.mode())
-                .autoApprove(approval.autoApprove())
+                .files(docs)
+                .permissionMode(toolbar.approvalMode())
+                .autoApprove(toolbar.approvalAutoApprove())
                 .build();
+        runStream(chatService.chat(req), sessionId);
+    }
 
-        chatService.chat(req)
+    /**
+     * 统一的流式收发：建一条空气泡，按帧增量渲染，收尾后从库重放（补齐主键与操作按钮）。
+     * <p>{@code chat}/{@code regenerate}/{@code editAndResend} 三种入口都汇到这里；请求侧的落盘
+     * （用户消息、删除旧助手）已在 {@code flux} 组装时于服务层同步完成，此处只订阅流。</p>
+     */
+    private void runStream(Flux<StreamEvent> flux, String sessionId) {
+        com.gettyio.gim.agent.ui.chat.AssistantBubble bubble = messageRenderer.appendAssistantBubble();
+        StringBuilder acc = new StringBuilder();
+        enterStreamingUi(sessionId);
+        activeStream = flux
                 .bufferTimeout(256, FRAME_WINDOW)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
-                        batch -> Platform.runLater(() -> applyBatch(batch, assistantLabel, acc)),
+                        batch -> Platform.runLater(() -> {
+                            messageRenderer.applyBatch(batch, bubble, acc);
+                            updateUsageFromBatch(batch);
+                        }),
                         err -> {
                             log.warn("流式对话失败", err);
                             Platform.runLater(() -> {
-                                assistantLabel.setText(I18n.t("chat.failed", err.getMessage()));
-                                sendButton.setDisable(false);
+                                // 半截应答已由 ChatService 的 doOnError 落盘，这里只补失败提示并整体渲染
+                                String note = I18n.t("chat.failed", err.getMessage());
+                                if (acc.length() > 0) {
+                                    acc.append("\n");
+                                }
+                                acc.append(note);
+                                bubble.renderMarkdown(acc.toString());
+                                exitStreamingUi();
                                 refreshSessions();
                             });
                         },
                         () -> Platform.runLater(() -> {
-                            sendButton.setDisable(false);
+                            exitStreamingUi();
                             refreshSessions();
+                            // 完成：从库重放，令刚落的助手/用户气泡拿到真实主键与操作能力
+                            renderSessionMessages(sessionId);
                         })
                 );
     }
 
-    /** 把一帧窗口内的事件合并刷入助手气泡 */
-    private void applyBatch(List<StreamEvent> batch, Label assistantLabel, StringBuilder acc) {
-        StringBuilder frame = new StringBuilder();
-        for (StreamEvent e : batch) {
-            if (e.getType() == StreamEventType.TEXT_DELTA && e.getText() != null) {
-                frame.append(e.getText());
-            } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null) {
-                frame.append("\n").append(I18n.t("chat.toolCall", e.getToolName()));
-            } else if (e.getType() == StreamEventType.CONFIRM_REQUEST && e.getToolName() != null) {
-                frame.append("\n").append(I18n.t("chat.toolConfirm", e.getToolName()));
-            }
+    /** 发送按钮的停止态入口：在途流存在则停止，否则正常发送（FXML 绑此方法）。 */
+    @FXML
+    public void handleSendOrStop() {
+        if (activeStream != null) {
+            handleStop();
+            return;
         }
-        if (frame.length() > 0) {
-            acc.append(frame);
-            assistantLabel.setText(acc.toString());
-            scrollPane.layout();
-            scrollPane.setVvalue(1.0);
+        handleSend();
+    }
+
+    /** 停止生成：先打断网关侧的模型/工具循环，再取消订阅（doOnCancel 落盘半截应答）。 */
+    private void handleStop() {
+        String session = streamingSessionId;
+        if (session != null) {
+            chatService.stop(agentOfSession(session), session);
         }
+        Disposable stream = activeStream;
+        exitStreamingUi();
+        if (stream != null) {
+            stream.dispose();
+        }
+    }
+
+    /** 进入流式态：发送按钮原地变「停止」（方形图标、保持可点），记录在途会话。 */
+    private void enterStreamingUi(String sessionId) {
+        streamingSessionId = sessionId;
+        Node graphic = sendButton.getGraphic();
+        if (graphic instanceof Label icon) {
+            icon.setText("\u25A0");
+            icon.getStyleClass().add("send-stop");
+        }
+        sendButton.setTooltip(new Tooltip(I18n.t("chat.stop")));
+    }
+
+    /** 退出流式态：恢复发送图标并释放在途句柄。 */
+    private void exitStreamingUi() {
+        activeStream = null;
+        streamingSessionId = null;
+        Node graphic = sendButton.getGraphic();
+        if (graphic instanceof Label icon) {
+            icon.setText("\uE724");
+            icon.getStyleClass().remove("send-stop");
+        }
+        sendButton.setTooltip(null);
+        sendButton.setDisable(false);
     }
 
     /** 会话绑定的智能体编码（列表内找不到或未记录时回退默认智能体） */
@@ -723,33 +670,224 @@ public class MainController {
 
     private void switchToSession(String sessionId) {
         currentSessionId = sessionId;
-        messagesContainer.getChildren().clear();
+        renderSessionMessages(sessionId);
+        // 高亮当前会话行
+        sidebar.renderSessions();
+        updateHeaderTitle();
+    }
+
+    /** 从库重放当前会话的消息：逐条按角色上屏，携带主键以供删除/编辑/重生成。 */
+    private void renderSessionMessages(String sessionId) {
+        messageRenderer.clear();
+        if (sessionId == null) {
+            return;
+        }
         List<ChatConversation> history = chatService.history(sessionId);
         for (ChatConversation c : history) {
             boolean self = ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole());
             String content = c.getContent() == null ? "" : c.getContent();
+            long id = c.getId() == null ? 0L : c.getId();
+            MessageMetadataCodec.MessageMetadata meta = MessageMetadataCodec.read(c.getMetadata());
             if (self) {
-                appendUserBubble(content, thumbsFromStored(AttachmentCodec.read(c.getMetadata())));
+                List<StoredAttachment> atts = meta.attachments();
+                List<StoredAttachment> imgs = atts.stream().filter(a -> !a.isFile()).toList();
+                List<StoredAttachment> files = atts.stream().filter(a -> a.isFile()).toList();
+                messageRenderer.appendUserBubble(content, attachmentBar.thumbsFromStored(imgs),
+                        attachmentBar.buildFileRows(files), id);
             } else {
-                appendBubble(content, false);
+                if (meta.interrupted() && !content.isEmpty()) {
+                    content = content + "\n" + I18n.t("chat.interrupted");
+                }
+                messageRenderer.appendAssistantMarkdown(content, id, c.getToolCalls());
             }
         }
-        // 高亮当前会话行
-        renderSessions();
-        updateHeaderTitle();
+        updateUsageFromSession(sessionId);
     }
 
-    /** 回到新任务空态：不选中任何会话，主区只留居中欢迎页 */
-    private void showBlankConversation() {
+    // ===================== 本轮用量条（输入区底栏）=====================
+
+    /** 扫描本帧窗口内的 USAGE 事件（一轮只在收尾时下发一次），刷新用量条。 */
+    private void updateUsageFromBatch(List<StreamEvent> batch) {
+        TokenUsage usage = null;
+        for (StreamEvent e : batch) {
+            if (e.getType() == StreamEventType.USAGE && e.getUsage() != null) {
+                usage = e.getUsage();
+            }
+        }
+        if (usage != null) {
+            showUsage(usage, toolbar.selectedModelCode());
+        }
+    }
+
+    /** 切换/重放会话时，取该会话最后一条带用量的助手消息刷新用量条；无则隐藏。 */
+    private void updateUsageFromSession(String sessionId) {
+        if (sessionId == null) {
+            hideUsage();
+            return;
+        }
+        List<ChatConversation> history = chatService.history(sessionId);
+        for (int i = history.size() - 1; i >= 0; i--) {
+            ChatConversation c = history.get(i);
+            if (ConversationRole.ASSISTANT.getCode().equalsIgnoreCase(c.getRole())
+                    && (c.getTokensInput() != null || c.getTokensOutput() != null)) {
+                TokenUsage u = new TokenUsage(nz(c.getTokensInput()), nz(c.getTokensOutput()),
+                        nz(c.getTokensCached()), nz(c.getLlmCalls()),
+                        c.getLlmElapsedMillis() == null ? 0L : c.getLlmElapsedMillis());
+                if (u.isEmpty()) {
+                    hideUsage();
+                } else {
+                    showUsage(u, c.getModelCode());
+                }
+                return;
+            }
+        }
+        hideUsage();
+    }
+
+    private void showUsage(TokenUsage usage, String modelCode) {
+        if (usage == null || usage.isEmpty()) {
+            hideUsage();
+            return;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append('\u2191').append(usage.inputTokens())
+                .append(" \u2193").append(usage.outputTokens());
+        if (usage.cachedTokens() > 0) {
+            sb.append(" \u21e2").append(usage.cachedTokens());
+        }
+        if (usage.calls() > 0) {
+            sb.append(" \u00b7 ").append(I18n.t("chat.usage.calls", usage.calls()));
+        }
+        double[] cost = chatService.modelCostPer1k(modelCode);
+        if (cost != null) {
+            double money = usage.inputTokens() / 1000.0 * cost[0] + usage.outputTokens() / 1000.0 * cost[1];
+            sb.append(" \u00b7 ").append(I18n.t("chat.usage.cost", String.format("%.2f", money)));
+        }
+        usageBar.setText(sb.toString());
+        usageBar.setVisible(true);
+        usageBar.setManaged(true);
+    }
+
+    private void hideUsage() {
+        if (usageBar != null) {
+            usageBar.setVisible(false);
+            usageBar.setManaged(false);
+        }
+    }
+
+    private static int nz(Integer v) {
+        return v == null ? 0 : v;
+    }
+
+    // ===================== 消息气泡操作：复制 / 重生成 / 编辑重发 / 删除 =====================
+
+    @Override
+    public void onCopy(String rawText) {
+        if (rawText == null || rawText.isEmpty()) {
+            return;
+        }
+        ClipboardContent content = new ClipboardContent();
+        content.putString(rawText);
+        Clipboard.getSystemClipboard().setContent(content);
+    }
+
+    @Override
+    public void onRegenerate() {
+        if (activeStream != null) {
+            return;
+        }
+        String sid = currentSessionId;
+        if (sid == null) {
+            return;
+        }
+        ChatConversation lastUser = lastUserMessage(sid);
+        if (lastUser == null) {
+            return;
+        }
+        String text = lastUser.getContent() == null ? "" : lastUser.getContent();
+        // regenerate 组装时已同步删掉库里的最后一条助手消息；先重放去掉旧气泡，再流式补新的
+        Flux<StreamEvent> flux = chatService.regenerate(buildRequest(sid, text));
+        renderSessionMessages(sid);
+        runStream(flux, sid);
+    }
+
+    @Override
+    public void onEditResend(long conversationId, String currentText) {
+        if (activeStream != null || conversationId <= 0) {
+            return;
+        }
+        String sid = currentSessionId;
+        if (sid == null) {
+            return;
+        }
+        java.util.Optional<String> edited = GimDialog.promptText(ownerWindow(),
+                I18n.t("chat.msg.editTitle"), I18n.t("chat.msg.editTitle"), currentText, 8000);
+        if (edited.isEmpty() || edited.get().isBlank()) {
+            return;
+        }
+        // editAndResend 组装时已截断该条及其后全部并落了新的用户消息；重放后再流式应答
+        Flux<StreamEvent> flux = chatService.editAndResend(buildRequest(sid, edited.get()), conversationId);
+        renderSessionMessages(sid);
+        runStream(flux, sid);
+    }
+
+    @Override
+    public void onDelete(long conversationId) {
+        if (activeStream != null || conversationId <= 0) {
+            return;
+        }
+        String sid = currentSessionId;
+        if (sid == null) {
+            return;
+        }
+        if (!GimDialog.confirm(ownerWindow(), I18n.t("chat.msg.delete"), I18n.t("chat.msg.deleteConfirm"))) {
+            return;
+        }
+        chatService.deleteMessage(sid, conversationId);
+        renderSessionMessages(sid);
+        refreshSessions();
+    }
+
+    /** 以工具条当前模型/审批档构造一条纯文本请求（重生成/编辑重发复用，不带图片附件）。 */
+    private ChatRequest buildRequest(String sessionId, String text) {
+        return ChatRequest.builder()
+                .agentCode(agentOfSession(sessionId))
+                .sessionId(sessionId)
+                .text(text)
+                .providerCode(toolbar.selectedProviderCode())
+                .modelCode(toolbar.selectedModelCode())
+                .permissionMode(toolbar.approvalMode())
+                .autoApprove(toolbar.approvalAutoApprove())
+                .build();
+    }
+
+    /** 会话内最后一条用户消息（重生成据此取原文）；无则返回 {@code null}。 */
+    private ChatConversation lastUserMessage(String sessionId) {
+        ChatConversation found = null;
+        for (ChatConversation c : chatService.history(sessionId)) {
+            if (ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole())) {
+                found = c;
+            }
+        }
+        return found;
+    }
+
+    /** 弹框归属窗口：取输入框所在场景的窗口。 */
+    private Window ownerWindow() {
+        return inputField != null && inputField.getScene() != null ? inputField.getScene().getWindow() : null;
+    }
+
+    @Override
+    public void showBlankConversation() {
         currentSessionId = null;
-        messagesContainer.getChildren().clear();
+        messageRenderer.clear();
         updateHeaderTitle();
     }
 
-    /** 从库重载会话，再刷新侧栏渲染 */
-    private void refreshSessions() {
+    @Override
+    public void refreshSessions() {
         sessions.setAll(chatService.listSessions());
-        renderSessions();
+        sidebar.renderSessions();
         updateHeaderTitle();
     }
 
@@ -805,40 +943,6 @@ public class MainController {
         }
     }
 
-    /**
-     * 渲染侧栏会话列表：只显示当前选中智能体的会话（顶部卡片决定这一份数据）。
-     * <p>关键词过滤已交给搜索命令面板（{@link SessionSearchDialog}），列表本身不再过滤。</p>
-     * <p>手动重建 VBox 子节点（会话数量级为几十，无需虚拟化）。</p>
-     */
-    private void renderSessions() {
-        if (sessionsBox == null) {
-            return;
-        }
-        sessionsBox.getChildren().clear();
-        List<ChatSession> scoped = sessionsOfAgent();
-        for (ChatSession s : scoped) {
-            sessionsBox.getChildren().add(buildSessionRow(s));
-        }
-        sessionsCount.setText(String.valueOf(scoped.size()));
-        if (scoped.isEmpty()) {
-            Label empty = new Label(I18n.t("sessions.empty.none"));
-            empty.getStyleClass().add("sessions-empty");
-            sessionsBox.getChildren().add(empty);
-        }
-    }
-
-    /**
-     * 当前选中智能体的会话（{@code sessions} 已由 DAO 按最近更新排序）。
-     * <p>agent_code 为空的脏数据按默认智能体处理，与 AgentAdminService.effectiveCode 一致，
-     * 不至于在哪个智能体下都看不到它。</p>
-     */
-    private List<ChatSession> sessionsOfAgent() {
-        String code = currentAgentCode();
-        return sessions.stream()
-                .filter(s -> code.equals(agentAdminService.effectiveCode(s.getAgentCode())))
-                .toList();
-    }
-
     // ===================== 侧栏顶部：智能体切换卡 =====================
 
     /** 读取偏好里的侧栏智能体；定义已被删除时回落默认智能体，避免新建会话指向空定义 */
@@ -853,141 +957,45 @@ public class MainController {
      * 不兜住这个回退，新建会话就可能指向一个没有定义的编码。</p>
      * <p>这里只做解析、不重画卡片：卡片渲染本身要读这个编码，互相调用会递归。</p>
      */
-    private String currentAgentCode() {
+    @Override
+    public String currentAgentCode() {
         if (selectedAgentCode == null || agentAdminService.find(selectedAgentCode).isEmpty()) {
             selectedAgentCode = DEFAULT_AGENT;
         }
         return selectedAgentCode;
     }
-
-    /** 顶部卡片：选中智能体的头像/名称/描述；定义已被删除时 currentAgentCode 已回退到默认智能体 */
-    private void renderAgentSwitcher() {
-        if (agentSwitcher == null) {
-            return;
+    
+    @Override
+    public List<ChatSession> sessions() {
+        return sessions;
+    }
+    
+    @Override
+    public String currentSessionId() {
+        return currentSessionId;
+    }
+    
+    /** 打开某会话：选中对话页并切换到该会话（供侧栏行点击/搜索面板回调）。 */
+    @Override
+    public void openSessionById(String sessionId) {
+        if (navChat != null) {
+            navChat.setSelected(true);
         }
-        AgentDefinition def = agentAdminService.find(currentAgentCode()).orElse(null);
-        String name = def == null ? DEFAULT_AGENT : agentLabel(def);
-        agentAvatar.setText(avatarText(name));
-        agentNameLabel.setText(name);
-        agentDescLabel.setText(agentDesc(def));
-    }
-
-    /**
-     * 卡片点击：弹出智能体菜单（切换到某个智能体 / 配置当前 / 新建）。
-     * <p>菜单只负责选人与进出表单，真正的会话过滤发生在 renderSessions。</p>
-     */
-    private void showAgentMenu() {
-        ContextMenu menu = new ContextMenu();
-        // 弹框宽度钉成卡片宽度。宽度写在菜单的 style 上：ContextMenuSkin 把菜单的
-        // styleProperty 绑到弹框根节点，根节点是 Region，会采纳 -fx-*-width；
-        // 而 setPrefWidth/setMaxWidth 走的是 PopupControl 的同名属性，弹框尺寸计算不读它
-        double menuWidth = agentSwitcher.getWidth() > 0
-                ? agentSwitcher.getWidth()
-                : AGENT_MENU_FALLBACK_WIDTH;
-        menu.setStyle(String.format(Locale.ROOT,
-                "-fx-min-width: %.0fpx; -fx-pref-width: %.0fpx; -fx-max-width: %.0fpx;",
-                menuWidth, menuWidth, menuWidth));
-        double contentWidth = menuWidth - AGENT_MENU_CHROME;
-
-        String current = currentAgentCode();
-        for (AgentDefinition a : agentAdminService.list()) {
-            menu.getItems().add(agentMenuItem(a, a.getAgentCode().equals(current), contentWidth));
-        }
-        menu.getItems().add(new SeparatorMenuItem());
-        agentAdminService.find(current).ifPresent(def -> {
-            MenuItem configure = commandMenuItem(I18n.t("sidebar.agent.configure"), "\uE70F", contentWidth);
-            configure.setOnAction(e -> AgentDialog.edit(currentWindow(), agentAdminService, def)
-                    .ifPresent(saved -> adoptAgent(saved.getAgentCode())));
-            menu.getItems().add(configure);
-        });
-        MenuItem create = commandMenuItem(I18n.t("sidebar.agent.new"), "\uE710", contentWidth);
-        create.setOnAction(e -> AgentDialog.edit(currentWindow(), agentAdminService, null)
-                .ifPresent(saved -> adoptAgent(saved.getAgentCode())));
-        menu.getItems().add(create);
-        menu.show(agentSwitcher, Side.BOTTOM, 0, 0);
-    }
-
-    /**
-     * 菜单条目：小头像 + 名称/描述两行。
-     * <p>当前项靠主色加粗区分，不打勾：MenuItem 只有一个 graphic 槽位，勾选图标会顶掉头像。</p>
-     */
-    private MenuItem agentMenuItem(AgentDefinition a, boolean current, double contentWidth) {
-        Label avatar = new Label(avatarText(agentLabel(a)));
-        avatar.getStyleClass().add("agent-item-avatar");
-        double textWidth = contentWidth - AGENT_ITEM_AVATAR_WIDTH;
-        HBox graphic = itemContent(contentWidth, avatar, new VBox(1,
-                cappedLabel(agentLabel(a), textWidth, "agent-item-name"),
-                cappedLabel(agentDesc(a), textWidth, "agent-item-desc")));
-        graphic.setAccessibleText(agentLabel(a));
-        if (current) {
-            graphic.getStyleClass().add("agent-item-current");
-        }
-        MenuItem item = new MenuItem();
-        item.setGraphic(graphic);
-        item.setOnAction(e -> selectAgent(a.getAgentCode()));
-        return item;
-    }
-
-    /** 菜单底部的命令条目：图标 + 文案，与智能体条目共用同一套列宽 */
-    private MenuItem commandMenuItem(String text, String glyph, double contentWidth) {
-        HBox graphic = itemContent(contentWidth, UiTheme.icon(glyph),
-                cappedLabel(text, contentWidth - AGENT_ITEM_ICON_WIDTH, "agent-item-name"));
-        graphic.setAccessibleText(text);
-        MenuItem item = new MenuItem();
-        item.setGraphic(graphic);
-        return item;
-    }
-
-    /**
-     * 条目内容容器，宽度钉死。
-     * <p>JavaFX 按列算条目宽度：图形列与文字列是相加关系，各自取全菜单最大值。
-     * 所以文字一律画进图形里、条目自身不留文本，否则两列叠加会把弹框撑宽。</p>
-     */
-    private static HBox itemContent(double width, Node... children) {
-        HBox box = new HBox(8, children);
-        box.setAlignment(Pos.CENTER_LEFT);
-        box.setMinWidth(width);
-        box.setPrefWidth(width);
-        box.setMaxWidth(width);
-        return box;
-    }
-
-    /** 限宽 + 省略号：超长的名称/描述就地截断，不把弹框顶开 */
-    private static Label cappedLabel(String text, double maxWidth, String styleClass) {
-        Label label = new Label(text);
-        label.getStyleClass().add(styleClass);
-        label.setMaxWidth(maxWidth);
-        label.setEllipsisString("\u2026");
-        return label;
-    }
-
-    /** 描述为空时给一句兜底文案，不让卡片出现空行 */
-    private String agentDesc(AgentDefinition def) {
-        if (def == null || def.getDescription() == null || def.getDescription().isBlank()) {
-            return I18n.t("sidebar.agent.noDesc");
-        }
-        return def.getDescription();
-    }
-
-    /** 头像字：取名称首字符（中文即首字），空名称回退默认智能体编码的首字符 */
-    private static String avatarText(String name) {
-        if (name == null || name.isBlank()) {
-            return DEFAULT_AGENT.substring(0, 1).toUpperCase(Locale.ROOT);
-        }
-        return name.trim().substring(0, 1).toUpperCase(Locale.ROOT);
+        switchToSession(sessionId);
     }
 
     /**
      * 切换智能体：写回偏好，重画卡片，会话列表换成它的会话。
      * <p>不趁手去换页面：在拓展/定时任务页改选智能体不应该把用户拉回对话页。</p>
      */
-    private void selectAgent(String agentCode) {
+    @Override
+    public void selectAgent(String agentCode) {
         if (agentCode == null || agentCode.equals(selectedAgentCode)) {
             return;
         }
         selectedAgentCode = agentCode;
         UserPrefs.put(PREF_SIDEBAR_AGENT, agentCode);
-        renderAgentSwitcher();
+        sidebar.renderAgentSwitcher();
         refreshSessions();
         dropForeignSession();
     }
@@ -997,7 +1005,7 @@ public class MainController {
         if (currentSessionId == null) {
             return;
         }
-        boolean belongs = sessionsOfAgent().stream()
+        boolean belongs = sidebar.sessionsOfAgent().stream()
                 .anyMatch(s -> currentSessionId.equals(s.getSessionId()));
         if (!belongs) {
             showBlankConversation();
@@ -1005,20 +1013,13 @@ public class MainController {
     }
 
     /** 新建/编辑后就接管该智能体：重画卡片与会话列表，不弄丢还开着的会话 */
-    private void adoptAgent(String agentCode) {
+    @Override
+    public void adoptAgent(String agentCode) {
         selectedAgentCode = agentCode;
         UserPrefs.put(PREF_SIDEBAR_AGENT, agentCode);
-        renderAgentSwitcher();
+        sidebar.renderAgentSwitcher();
         refreshSessions();
         dropForeignSession();
-    }
-
-    /** 「会话」整块区域收起/展开（仅控列表；搜索已改为命令面板，不受折叠影响） */
-    private void toggleSessionsSection() {
-        sessionsCollapsed = !sessionsCollapsed;
-        sessionsBox.setVisible(!sessionsCollapsed);
-        sessionsBox.setManaged(!sessionsCollapsed);
-        sessionsSectionCaret.setRotate(sessionsCollapsed ? -90 : 0);
     }
 
     /** 左侧菜单栏展开/收起：点击工具栏按钮切换，带宽度过渡动画，状态持久化到偏好 */
@@ -1096,107 +1097,30 @@ public class MainController {
         return icon;
     }
 
-    /** 搜索按钮：弹出命令面板，在当前智能体的会话里按标题 / 会话 ID 检索，选中即打开。 */
+    /** 搜索按钮：弹出命令面板，在当前智能体的会话标题与消息正文里检索，选中即打开（消息行还会滚到该条）。 */
     @FXML
     public void handleOpenSearch() {
-        SessionSearchDialog.show(currentWindow(), sessionsOfAgent(), this::openSession);
-    }
-
-    /**
-     * 会话行：标题 + 「⋯」更多按钮（悬停显示）。
-     * <p>列表已按顶部选中的智能体过滤，行内不再重复标一个智能体标签。</p>
-     */
-    private HBox buildSessionRow(ChatSession s) {
-        Label dot = new Label("\u2022");
-        dot.getStyleClass().add("ws-session-dot");
-        Label title = new Label(s.getTitle());
-        title.getStyleClass().add("ws-session-name");
-        title.setMaxWidth(Double.MAX_VALUE);
-        title.setEllipsisString("\u2026");
-        HBox.setHgrow(title, Priority.ALWAYS);
-
-        Button menuBtn = new Button();
-        menuBtn.setGraphic(UiTheme.icon("\uE712"));
-        menuBtn.getStyleClass().addAll("ws-mini-btn", "ws-session-menu");
-        ContextMenu menu = sessionContextMenu(s);
-        menuBtn.setOnAction(e -> menu.show(menuBtn, Side.RIGHT, 0, 0));
-
-        HBox row = new HBox(6, dot, title, menuBtn);
-        row.getStyleClass().add("ws-session-row");
-        if (s.getSessionId().equals(currentSessionId)) {
-            row.getStyleClass().add("ws-session-row-selected");
+        List<ChatSession> scoped = sidebar.sessionsOfAgent();
+        java.util.Set<String> allowed = new java.util.HashSet<>();
+        for (ChatSession s : scoped) {
+            allowed.add(s.getSessionId());
         }
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setOnMouseClicked(e -> openSession(s));
-        return row;
+        SessionSearchDialog.show(currentWindow(), scoped,
+                keyword -> chatService.searchContent(keyword, 200).stream()
+                        .filter(h -> allowed.contains(h.sessionId()))
+                        .limit(50)
+                        .toList(),
+                s -> openSessionById(s.getSessionId()),
+                this::openMessageHit);
     }
 
-    /** 智能体卡片/菜单显示名：无名时回退编码 */
-    private static String agentLabel(AgentDefinition a) {
-        return a.getAgentName() == null || a.getAgentName().isBlank() ? a.getAgentCode() : a.getAgentName();
-    }
-
-    private void openSession(ChatSession s) {
-        if (navChat != null) {
-            navChat.setSelected(true);
+    /** 打开命中的消息：先切到其所属会话，再在重放完成后滚动并短暂高亮该条。 */
+    private void openMessageHit(com.gettyio.gim.agent.domain.entity.MessageHit hit) {
+        if (hit == null) {
+            return;
         }
-        switchToSession(s.getSessionId());
-    }
-
-    /** 会话行「⋯」菜单：重命名 + 删除（换智能体在顶部卡片上做，会话不再跟着智能体转移） */
-    private ContextMenu sessionContextMenu(ChatSession s) {
-        ContextMenu menu = new ContextMenu();
-        MenuItem rename = new MenuItem(I18n.t("session.rename.menu"), UiTheme.icon("\uE70F"));
-        rename.setOnAction(e -> renameSession(s));
-        MenuItem del = new MenuItem(I18n.t("common.delete"), UiTheme.icon("\uE74D"));
-        del.setOnAction(e -> confirmDeleteSession(s));
-        menu.getItems().addAll(rename, del);
-        return menu;
-    }
-
-    /** 重命名会话：弹框预填当前标题；名字没改就不写库，也不重画列表 */
-    private void renameSession(ChatSession s) {
-        GimDialog.promptText(currentWindow(), I18n.t("session.rename.title"),
-                        I18n.t("session.rename.label"), s.getTitle(), ChatService.TITLE_MAX_LEN)
-                .filter(t -> !t.equals(s.getTitle()))
-                .ifPresent(t -> {
-                    chatService.renameSession(s.getSessionId(), t);
-                    refreshSessions();
-                });
-    }
-
-    private void confirmDeleteSession(ChatSession s) {
-        if (GimDialog.confirm(currentWindow(), I18n.t("common.delete"),
-                I18n.t("session.deleteConfirm", s.getTitle()))) {
-            chatService.deleteSession(s.getSessionId());
-            if (s.getSessionId().equals(currentSessionId)) {
-                showBlankConversation();
-            }
-            refreshSessions();
-            if (currentSessionId == null) {
-                List<ChatSession> scoped = sessionsOfAgent();
-                if (!scoped.isEmpty()) {
-                    switchToSession(scoped.get(0).getSessionId());
-                }
-            }
-        }
-    }
-
-    private Label appendBubble(String content, boolean self) {
-        Label label = new Label(content);
-        label.setWrapText(true);
-        label.getStyleClass().add(self ? "bubble-user" : "bubble-assistant");
-        label.setMaxWidth(680);
-
-        HBox row = new HBox(label);
-        row.getStyleClass().add("bubble-row");
-        if (self) {
-            row.setAlignment(Pos.TOP_RIGHT);
-        }
-        messagesContainer.getChildren().add(row);
-        scrollPane.layout();
-        scrollPane.setVvalue(1.0);
-        return label;
+        openSessionById(hit.sessionId());
+        Platform.runLater(() -> messageRenderer.revealAndHighlight(hit.conversationId()));
     }
 
     // ===================== 输入框工具条：附件 / 模型 / 审批 =====================
@@ -1209,604 +1133,51 @@ public class MainController {
      */
     @FXML
     public void handleAttach() {
-        if (attachMenu == null) {
-            attachMenu = new ContextMenu();
-            attachMenu.setOnHiding(e -> attachMenuHiddenAt = System.currentTimeMillis());
-        }
-        if (attachMenu.isShowing()) {
-            attachMenu.hide();   // 已弹出再点按钮：收起，做成开关切换
-            return;
-        }
-        // 弹窗在本次按钮点击前已被系统自动收起（isShowing 已为 false）：视为「关闭」手势，不要立刻重开
-        if (System.currentTimeMillis() - attachMenuHiddenAt < 250) {
-            return;
-        }
-        // 每次重灌条目：保证文案随语言即时刷新
-        attachMenu.getItems().setAll(
-                attachMenuItem(I18n.t("attach.menu.file"), "\uE8A5", this::chooseFiles),
-                attachMenuItem(I18n.t("attach.menu.folder"), "\uE8B7", this::chooseFolder));
-        showMenuAboveWithinWindow(attachMenu, attachButton);
+        attachmentBar.handleAttach();
     }
 
-    /** 附件菜单条目：图标 + 文案，点击执行对应选择动作。 */
-    private static MenuItem attachMenuItem(String text, String glyph, Runnable action) {
-        MenuItem item = new MenuItem(text, UiTheme.icon(glyph));
-        item.setOnAction(e -> action.run());
-        return item;
-    }
-
-    /**
-     * 多选文件：默认「所有文件」（图片与其它文件都能选），另附「图片」「代码/文本」过滤项。
-     * <p>按扩展名分流：图片走 {@link #addPendingImage}（Base64→多模态），其它文件走 {@link FileRef}
-     * 路径引用（发送时拼进正文，由 Agent 用文件工具读取）。</p>
-     */
-    private void chooseFiles() {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle(I18n.t("attach.menu.file"));
-        chooser.getExtensionFilters().addAll(
-                new FileChooser.ExtensionFilter(I18n.t("attach.filter.all"), "*.*", "*"),
-                new FileChooser.ExtensionFilter(I18n.t("attach.filter"), "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp"),
-                new FileChooser.ExtensionFilter(I18n.t("attach.filter.code"), CODE_EXTENSIONS));
-        List<File> files = chooser.showOpenMultipleDialog(currentWindow());
-        if (files == null || files.isEmpty()) {
-            return;
-        }
-        for (File f : files) {
-            if (isImage(f.getName())) {
-                addPendingImage(f);
-            } else {
-                addPendingRef(new FileRef("file", f.getName(), f.getAbsolutePath(), null));
-            }
-        }
-        inputField.requestFocus();
-    }
-
-    /** 按扩展名判定是否为图片（与 {@link #mimeOf} 支持的格式一致）。 */
-    private static boolean isImage(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
-                || n.endsWith(".gif") || n.endsWith(".bmp") || n.endsWith(".webp");
-    }
-
-    /** 选择单个文件夹：采集目录树文本 + 根路径引用加入待发。 */
-    private void chooseFolder() {
-        DirectoryChooser chooser = new DirectoryChooser();
-        chooser.setTitle(I18n.t("attach.menu.folder"));
-        File dir = chooser.showDialog(currentWindow());
-        if (dir == null) {
-            return;
-        }
-        addPendingRef(new FileRef("folder", dir.getName(), dir.getAbsolutePath(), buildTree(dir.toPath())));
-        inputField.requestFocus();
-    }
-
-    /** 加入一个文件/文件夹引用并渲染对应芯片。 */
-    private void addPendingRef(FileRef ref) {
-        pendingRefs.add(ref);
-        attachChipsBox.getChildren().add(buildRefChip(ref));
-    }
-
-    /** 引用芯片：类型图标 + 名称（截断，悬停看全路径）+ 右上角移除标记。 */
-    private HBox buildRefChip(FileRef ref) {
-        Label icon = UiTheme.icon("folder".equals(ref.kind()) ? "\uE8B7" : "\uE8A5");
-        icon.getStyleClass().add("approval-icon");
-        Label name = new Label(ref.name());
-        name.getStyleClass().add("attach-ref-name");
-        name.setMaxWidth(160);
-        name.setEllipsisString("\u2026");
-        name.setTooltip(new Tooltip(ref.path()));
-        Label remove = new Label("\u00D7");
-        remove.getStyleClass().add("attach-remove");
-        HBox chip = new HBox(4, icon, name, remove);
-        chip.getStyleClass().add("attach-chip");
-        chip.setAlignment(Pos.CENTER);
-        remove.setOnMouseClicked(e -> {
-            pendingRefs.remove(ref);
-            attachChipsBox.getChildren().remove(chip);
-        });
-        return chip;
-    }
-
-    /**
-     * 生成发给模型的引用块文本：逐条列出文件绝对路径 / 文件夹根路径与目录树，并提示 Agent 用文件工具读取。
-     * <p>不内联文件内容，只给路径——对齐「路径引用 + 工具读取」设计，也能撑住大文件与整个目录。</p>
-     */
-    private String renderRefBlock(List<FileRef> refs) {
-        if (refs == null || refs.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append(I18n.t("attach.ref.header")).append('\n');
-        for (FileRef r : refs) {
-            if ("folder".equals(r.kind())) {
-                sb.append(I18n.t("attach.ref.folder")).append(": ").append(r.path()).append('\n');
-                if (r.tree() != null && !r.tree().isBlank()) {
-                    sb.append(I18n.t("attach.ref.tree")).append(":\n").append(r.tree()).append('\n');
-                }
-            } else {
-                sb.append(I18n.t("attach.ref.file")).append(": ").append(r.path()).append('\n');
-            }
-        }
-        sb.append(I18n.t("attach.ref.hint"));
-        return sb.toString();
-    }
-
-    /** 受限深度/条目数地枚举目录树，返回缩进文本（根目录自身不列出）。 */
-    private String buildTree(Path root) {
-        StringBuilder sb = new StringBuilder();
-        try (var stream = Files.walk(root, MAX_TREE_DEPTH)) {
-            stream.filter(p -> !p.equals(root))
-                    .sorted()
-                    .limit(MAX_TREE_ENTRIES)
-                    .forEach(p -> {
-                        int depth = root.relativize(p).getNameCount() - 1;
-                        if (depth < 0) {
-                            depth = 0;
-                        }
-                        String indent = "  ".repeat(depth);
-                        String name = p.getFileName().toString() + (Files.isDirectory(p) ? "/" : "");
-                        sb.append(indent).append(name).append('\n');
-                    });
-        } catch (IOException | RuntimeException e) {
-            log.warn("枚举目录树失败: {}", root, e);
-        }
-        return sb.toString().trim();
-    }
-
-    private void addPendingImage(File file) {
-        if (file.length() > MAX_IMAGE_BYTES) {
-            GimDialog.message(currentWindow(), I18n.t("input.attach"), I18n.t("input.attach"),
-                    I18n.t("attach.tooLarge", file.getName()));
-            return;
-        }
-        try {
-            byte[] bytes = Files.readAllBytes(file.toPath());
-            ImageAttachment att = new ImageAttachment(file.getName(), mimeOf(file.getName()),
-                    Base64.getEncoder().encodeToString(bytes));
-            pendingImages.add(att);
-            attachChipsBox.getChildren().add(buildChip(att, bytes));
-        } catch (IOException e) {
-            log.warn("读取图片失败: {}", file, e);
-        }
-    }
-
-    /** 待发附件芯片：小缩略图 + 右上角移除标记；点标记即从待发列表与芯片行同时移除。 */
-    private HBox buildChip(ImageAttachment att, byte[] bytes) {
-        ImageView iv = thumbView(bytes);
-        iv.setFitWidth(48);
-        iv.setFitHeight(48);
-        Label remove = new Label("\u00D7");
-        remove.getStyleClass().add("attach-remove");
-        HBox chip = new HBox(2, iv, remove);
-        chip.getStyleClass().add("attach-chip");
-        chip.setAlignment(Pos.CENTER);
-        remove.setOnMouseClicked(e -> {
-            pendingImages.remove(att);
-            attachChipsBox.getChildren().remove(chip);
-        });
-        return chip;
-    }
-
-    private static String mimeOf(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        if (n.endsWith(".png")) {
-            return "image/png";
-        }
-        if (n.endsWith(".gif")) {
-            return "image/gif";
-        }
-        if (n.endsWith(".bmp")) {
-            return "image/bmp";
-        }
-        if (n.endsWith(".webp")) {
-            return "image/webp";
-        }
-        return "image/jpeg";
-    }
-
-    /** 模型菜单可选项：首项「跟随默认」（不覆盖），其余为已启用且连通测试可用的模型；文案随语言解析。 */
-    private List<ModelOption> modelOptions() {
-        List<ModelOption> out = new ArrayList<>();
-        out.add(new ModelOption(null, null, I18n.t("model.followDefault"),
-                "\uEC92", I18n.t("model.followDefault.desc"), false));
-        Map<String, String> providerNames = new LinkedHashMap<>();
-        for (ModelProviderConfig p : providerAdminService.listProviders()) {
-            providerNames.put(p.getProviderCode(), p.getProviderName());
-        }
-        for (ModelConfig m : providerAdminService.listModels()) {
-            if (!EnabledStatus.isEnabled(m.getEnabled())) {
-                continue;
-            }
-            // 只列可用模型：未测试/不可用的先去设置里测通连接再来选，避免选了打不通的模型
-            if (!ProviderAdminService.MODEL_STATUS_VALID.equalsIgnoreCase(m.getStatus())) {
-                continue;
-            }
-            if (m.getProviderCode() == null || m.getProviderCode().isBlank()) {
-                continue;
-            }
-            String label = m.getModelName() == null || m.getModelName().isBlank()
-                    ? m.getModelCode() : m.getModelName();
-            String provider = providerNames.get(m.getProviderCode());
-            String desc = provider == null || provider.isBlank() ? m.getProviderCode() : provider;
-            out.add(new ModelOption(m.getProviderCode(), m.getModelCode(), label, "\uE99A", desc,
-                    Integer.valueOf(1).equals(m.getSupportsVision())));
-        }
-        return out;
-    }
-
-    /** 模型按钮闭合态：图标 + 模型名 + 小箭头。 */
-    private void renderModelButton() {
-        if (modelButton == null) {
-            return;
-        }
-        List<ModelOption> options = modelOptions();
-        String keepCode = selectedModel == null ? null : selectedModel.modelCode();
-        selectedModel = options.stream()
-                .filter(o -> keepCode == null ? o.followDefault() : keepCode.equals(o.modelCode()))
-                .findFirst().orElse(options.get(0));
-        Label icon = UiTheme.icon(selectedModel.icon());
-        icon.getStyleClass().add("approval-icon");
-        Label title = new Label(selectedModel.label());
-        title.getStyleClass().add("approval-title-compact");
-        title.setMaxWidth(180);
-        title.setEllipsisString("\u2026");
-        Label caret = UiTheme.icon("\uE70D");
-        caret.getStyleClass().add("approval-caret");
-        HBox box = selectedModel.vision()
-                ? new HBox(6, icon, title, visionMark(), caret)
-                : new HBox(6, icon, title, caret);
-        box.setAlignment(Pos.CENTER_LEFT);
-        modelButton.setGraphic(box);
-        modelButton.setText("");
-    }
-
-    /** 点模型按钮：向上弹出模型选择卡（图标 + 名称/提供商两行，当前项右侧带勾，底部「模型管理」入口）。
-     * 复用单实例 + 开关切换，与审批菜单同款。 */
+    /** 点模型按钮：委托工具条模型菜单（实现见 {@code ToolbarPickers}）。 */
     @FXML
     public void showModelMenu() {
-        if (modelMenu == null) {
-            modelMenu = new ContextMenu();
-            modelMenu.getStyleClass().add("rich-menu");
-            modelMenu.setOnHiding(e -> modelMenuHiddenAt = System.currentTimeMillis());
-        }
-        if (modelMenu.isShowing()) {
-            modelMenu.hide();
-            return;
-        }
-        if (System.currentTimeMillis() - modelMenuHiddenAt < 250) {
-            return;
-        }
-        List<ModelOption> options = modelOptions();
-        modelMenu.getItems().setAll(
-                options.stream().map(opt -> modelMenuItem(opt, opt.equals(selectedModel))).toList());
-        modelMenu.getItems().add(new SeparatorMenuItem());
-        // 「模型管理」也画进 graphic（MenuItem 不设 text），避免 text 列拉高 maxLabelWidth 把上方富行的勾挤离右缘
-        Label manageIcon = UiTheme.icon("\uE713");
-        manageIcon.getStyleClass().add("approval-icon");
-        Label manageText = new Label(I18n.t("model.manage"));
-        HBox manageBox = new HBox(10, manageIcon, manageText);
-        manageBox.setAlignment(Pos.CENTER_LEFT);
-        manageBox.setMinWidth(200);
-        manageBox.setPrefWidth(200);
-        manageBox.setMaxWidth(200);
-        MenuItem manage = new MenuItem();
-        manage.setGraphic(manageBox);
-        manage.getStyleClass().add("model-manage");
-        manage.setOnAction(e -> handleOpenSettings(I18n.t("settings.menu.models")));
-        modelMenu.getItems().add(manage);
-        showMenuAboveWithinWindow(modelMenu, modelButton);
+        toolbar.showModelMenu();
     }
 
-    /** 模型菜单项：图标 + 名称/提供商两行，支持多模态的名称右侧加图片小标，当前选中右侧带勾。 */
-    private MenuItem modelMenuItem(ModelOption opt, boolean checked) {
-        Label icon = UiTheme.icon(opt.icon());
-        icon.getStyleClass().add("approval-icon");
-        Label title = new Label(opt.label());
-        title.getStyleClass().add("approval-title");
-        Label desc = new Label(opt.desc());
-        desc.getStyleClass().add("approval-desc");
-        // 说明保持单行（不换行）；超长时由 StackPane 布局压缩截断，不挤压右侧勾选
-        return twoLineMenuItem(icon, title, opt.vision() ? visionMark() : null, desc, checked, 200, () -> {
-            selectedModel = opt;
-            renderModelButton();
-        });
-    }
-
-    /** 多模态小图标：E8B9 图片字形（蓝色），紧跟模型名称右侧，悬停提示「支持」。 */
-    private Label visionMark() {
-        Label mark = UiTheme.icon("\uE8B9");
-        mark.getStyleClass().add("model-vision");
-        mark.setMinWidth(Region.USE_PREF_SIZE);
-        mark.setTooltip(new Tooltip(I18n.t("settings.model.vision.supported")));
-        return mark;
-    }
-
-    /** 审批三档：询问(ACCEPT_EDITS)/自动通过(ACCEPT_EDITS+autoApprove)/只读(EXPLORE)；文案随语言解析。 */
-    private List<ApprovalOption> approvalOptions() {
-        return List.of(
-                new ApprovalOption(PermissionMode.ACCEPT_EDITS, false, I18n.t("approval.ask"),
-                        "\uEA18", I18n.t("approval.ask.desc"), false),
-                new ApprovalOption(PermissionMode.ACCEPT_EDITS, true, I18n.t("approval.auto"),
-                        "\uE946", I18n.t("approval.auto.desc"), false),
-                new ApprovalOption(PermissionMode.EXPLORE, false, I18n.t("approval.readonly"),
-                        "\uE7BA", I18n.t("approval.readonly.desc"), false));
-    }
-
-    /** 按持久化的默认档字符串取对应选项；未知值回退首项（询问）。 */
-    private ApprovalOption approvalForDefault(String mode) {
-        List<ApprovalOption> options = approvalOptions();
-        int index = switch (mode == null ? "" : mode) {
-            case SecurityAdminService.APPROVAL_AUTO -> 1;
-            case SecurityAdminService.APPROVAL_READONLY -> 2;
-            default -> 0;
-        };
-        return options.get(Math.min(index, options.size() - 1));
-    }
-
-    /** 当前选择对应的选项对象（档位切换后旧对象不在新列表里，按字段匹配）。 */
-    private ApprovalOption currentApproval(ApprovalOption fallback) {
-        return approvalOptions().stream()
-                .filter(o -> o.equalsOption(approval))
-                .findFirst()
-                .orElse(fallback);
-    }
-
-    /** 审批按钮闭合态：图标 + 标题 + 小箭头；危险档图标与标题标红。 */
-    private void renderApprovalButton() {
-        if (approvalButton == null) {
-            return;
-        }
-        ApprovalOption opt = currentApproval(approvalOptions().get(0));
-        Label icon = UiTheme.icon(opt.icon());
-        icon.getStyleClass().add("approval-icon");
-        Label title = new Label(opt.label());
-        title.getStyleClass().add("approval-title-compact");
-        if (opt.danger()) {
-            icon.getStyleClass().add("approval-icon-danger");
-            title.getStyleClass().add("approval-title-danger");
-        }
-        Label caret = UiTheme.icon("\uE70D");
-        caret.getStyleClass().add("approval-caret");
-        HBox box = new HBox(6, icon, title, caret);
-        box.setAlignment(Pos.CENTER_LEFT);
-        approvalButton.setGraphic(box);
-        approvalButton.setText("");
-    }
-
-    /** 点审批按钮：向上弹出右键菜单式的选择卡（图标 + 标题/说明，当前档右侧带勾）。
-     * 复用单一 {@link #approvalMenu} 实例并在已弹出时直接返回，防止反复点击累积多个弹出窗（阴影叠加、位置逐次上移）。 */
+    /** 点审批按钮：委托工具条审批菜单（实现见 {@code ToolbarPickers}）。 */
     @FXML
     public void showApprovalMenu() {
-        if (approvalMenu == null) {
-            approvalMenu = new ContextMenu();
-            approvalMenu.getStyleClass().add("rich-menu");
-            // 无论自动还是主动 hide，都记下关闭时刻
-            approvalMenu.setOnHiding(e -> approvalMenuHiddenAt = System.currentTimeMillis());
-        }
-        if (approvalMenu.isShowing()) {
-            approvalMenu.hide();   // 已弹出再点按钮：收起，做成开关切换
-            return;
-        }
-        // 弹窗在本次按钮点击前已被系统自动收起（isShowing 已为 false）：视为「关闭」手势，不要立刻重开
-        if (System.currentTimeMillis() - approvalMenuHiddenAt < 250) {
-            return;
-        }
-        // 每次重灌选项：保证「当前档打勾」与语言随点随新
-        approvalMenu.getItems().setAll(
-                approvalOptions().stream()
-                        .map(opt -> approvalMenuItem(opt, opt.equalsOption(approval)))
-                        .toList());
-        showMenuAboveWithinWindow(approvalMenu, approvalButton);
+        toolbar.showApprovalMenu();
     }
 
     /**
-     * 让菜单在锚点上方弹出，并夹取到主窗口可视范围内：先按 {@link Side#TOP} 弹出量取真实尺寸，
-     * 再重定位——水平不越右/左边界，上方空间不够则翻到下方。与 {@link #showThemeMenu} 同思路。
+     * 点模板按钮：弹出启用中的提示词模板，选中把内容插入输入框光标处（不发送、不覆盖已有文本）。
+     * <p>无启用模板时仅显示一条禁用提示项。</p>
      */
-    private void showMenuAboveWithinWindow(ContextMenu menu, Node anchor) {
-        menu.show(anchor, Side.TOP, 0, 0);
-        Bounds b = anchor.localToScreen(anchor.getBoundsInLocal());
-        if (b == null) {
-            return;
+    @FXML
+    public void showTemplateMenu() {
+        if (templateMenu == null) {
+            templateMenu = new ContextMenu();
+        } else {
+            templateMenu.getItems().clear();
         }
-        Parent skin = (Parent) menu.getSkin().getNode();
-        skin.applyCss();
-        skin.layout();
-        double w = skin.getBoundsInLocal().getWidth();
-        double h = skin.getBoundsInLocal().getHeight();
-        double margin = 8;
-        double x = b.getMinX();
-        double y = b.getMinY() - h; // 贴合按钮顶边：复用实例消除累积漂移后，基准 0 即贴合（与 showThemeMenu 一致）
-        Window win = anchor.getScene() == null ? null : anchor.getScene().getWindow();
-        if (win != null) {
-            double winLeft = win.getX() + margin;
-            double winRight = win.getX() + win.getWidth() - margin;
-            double winTop = win.getY() + margin;
-            if (x + w > winRight) {
-                x = Math.max(winLeft, winRight - w);
-            }
-            if (x < winLeft) {
-                x = winLeft;
-            }
-            if (y < winTop) {
-                y = b.getMaxY() + 4;
+        List<PromptTemplate> templates = promptTemplateAdminService.listEnabled();
+        if (templates.isEmpty()) {
+            MenuItem empty = new MenuItem(I18n.t("chat.template.empty"));
+            empty.setDisable(true);
+            templateMenu.getItems().add(empty);
+        } else {
+            for (PromptTemplate t : templates) {
+                String name = t.getTemplateName() == null || t.getTemplateName().isBlank()
+                        ? t.getTemplateCode() : t.getTemplateName();
+                MenuItem item = new MenuItem(name, UiTheme.icon("\uE73A"));
+                String content = t.getContent() == null ? "" : t.getContent();
+                item.setOnAction(e -> {
+                    inputField.insertText(inputField.getCaretPosition(), content);
+                    inputField.requestFocus();
+                    inputField.positionCaret(inputField.getCaretPosition() + content.length());
+                });
+                templateMenu.getItems().add(item);
             }
         }
-        menu.setX(x);
-        menu.setY(y);
-    }
-
-    /** 两行富菜单项通用布局（无标题尾随节点）。 */
-    private MenuItem twoLineMenuItem(Label icon, Label title, Label desc, boolean checked, double width,
-                                     Runnable onPick) {
-        return twoLineMenuItem(icon, title, null, desc, checked, width, onPick);
-    }
-
-    /** 两行富菜单项通用布局：图标 + 标题/说明占满左侧，勾选独立叠层固定右对齐，与文字不共享宽度。
-     * {@code titleExtra} 非空时紧跟标题右侧同行（如多模态小标），超长时先截标题、尾随不缩。 */
-    private MenuItem twoLineMenuItem(Label icon, Label title, Node titleExtra, Label desc, boolean checked, double width,
-                                     Runnable onPick) {
-        // 标题/说明钉最大宽度并启用省略号：超长先截断，不把行撑宽、不顶勾
-        title.setMaxWidth(width - 74);
-        title.setEllipsisString("\u2026");
-        desc.setMaxWidth(width - 74);
-        desc.setEllipsisString("\u2026");
-        Node firstLine = title;
-        if (titleExtra != null) {
-            // 尾随图标不参与压缩：允许标题压到 0 宽先截断，保证小标始终紧跟名称且不顶勾
-            title.setMinWidth(0);
-            HBox titleRow = new HBox(6, title, titleExtra);
-            titleRow.setAlignment(Pos.CENTER_LEFT);
-            titleRow.setMaxWidth(width - 74);
-            firstLine = titleRow;
-        }
-        VBox col = new VBox(2, firstLine, desc);
-        col.setAlignment(Pos.CENTER_LEFT);
-        col.setPadding(new Insets(0, 26, 0, 0)); // 右侧预留勾选位
-        Label check = new Label("\u2713");
-        check.getStyleClass().add("approval-check");
-        check.setVisible(checked);
-        check.setManaged(checked);
-        StackPane textZone = new StackPane(col, check);
-        StackPane.setAlignment(col, Pos.CENTER_LEFT);    // 文字钉左，撑满后不被居中右移
-        StackPane.setAlignment(check, Pos.CENTER_RIGHT); // 勾选贴行右缘
-        HBox.setHgrow(textZone, Priority.ALWAYS);        // textZone 撑满整行，把勾推到右缘（行已钉宽，不会被长内容撑开）
-        HBox row = new HBox(10, icon, textZone);
-        row.setAlignment(Pos.CENTER_LEFT);
-        // min=pref=max 钉死宽度：所有行等宽，勾才能统一贴到菜单右缘（仅设 prefWidth 会被长内容撑开）
-        row.setMinWidth(width);
-        row.setPrefWidth(width);
-        row.setMaxWidth(width);
-        row.getStyleClass().add("approval-menu");
-        MenuItem item = new MenuItem();
-        item.setGraphic(row);
-        item.setOnAction(e -> onPick.run());
-        return item;
-    }
-
-    /** 审批菜单项：图标 + 标题/说明两行，勾选固定右侧独立对齐；危险项标红。 */
-    private MenuItem approvalMenuItem(ApprovalOption opt, boolean checked) {
-        Label icon = UiTheme.icon(opt.icon());
-        icon.getStyleClass().add("approval-icon");
-        Label title = new Label(opt.label());
-        title.getStyleClass().add("approval-title");
-        Label desc = new Label(opt.desc());
-        desc.getStyleClass().add("approval-desc");
-        // 说明保持单行（不换行）；勾选由 twoLineMenuItem 固定在右侧，文字超长先截断不顶勾
-        if (opt.danger()) {
-            icon.getStyleClass().add("approval-icon-danger");
-            title.getStyleClass().add("approval-title-danger");
-        }
-        return twoLineMenuItem(icon, title, desc, checked, 360, () -> {
-            approval = opt;
-            renderApprovalButton();
-        });
-    }
-
-    /** 用户气泡：文本 + 图片缩略图（若有）；无文本时只渲染图。 */
-    private void appendUserBubble(String text, List<ImageView> thumbs) {
-        VBox col = new VBox(6);
-        if (text != null && !text.isBlank()) {
-            Label label = new Label(text);
-            label.setWrapText(true);
-            label.getStyleClass().add("bubble-user");
-            label.setMaxWidth(680);
-            col.getChildren().add(label);
-        }
-        if (thumbs != null && !thumbs.isEmpty()) {
-            HBox imageRow = new HBox(6);
-            imageRow.getStyleClass().add("bubble-images");
-            imageRow.getChildren().addAll(thumbs);
-            col.getChildren().add(imageRow);
-        }
-        HBox row = new HBox(col);
-        row.getStyleClass().add("bubble-row");
-        row.setAlignment(Pos.TOP_RIGHT);
-        messagesContainer.getChildren().add(row);
-        scrollPane.layout();
-        scrollPane.setVvalue(1.0);
-    }
-
-    private List<ImageView> thumbsFromBase64(List<ImageAttachment> images) {
-        List<ImageView> out = new ArrayList<>();
-        for (ImageAttachment img : images) {
-            if (img == null || img.base64Data() == null) {
-                continue;
-            }
-            try {
-                out.add(thumbView(Base64.getDecoder().decode(img.base64Data())));
-            } catch (IllegalArgumentException e) {
-                log.warn("附件 Base64 解码失败，跳过缩略图: {}", img.fileName());
-            }
-        }
-        return out;
-    }
-
-    private List<ImageView> thumbsFromStored(List<StoredAttachment> atts) {
-        List<ImageView> out = new ArrayList<>();
-        for (StoredAttachment a : atts) {
-            ImageView v = thumbFromPath(a.path());
-            if (v != null) {
-                out.add(v);
-            }
-        }
-        return out;
-    }
-
-    private static ImageView thumbView(byte[] bytes) {
-        ImageView iv = new ImageView(new Image(new ByteArrayInputStream(bytes)));
-        iv.setFitWidth(140);
-        iv.setFitHeight(140);
-        iv.setPreserveRatio(true);
-        iv.getStyleClass().add("attach-thumb");
-        return iv;
-    }
-
-    private ImageView thumbFromPath(String rel) {
-        if (rel == null || rel.isBlank()) {
-            return null;
-        }
-        try {
-            Path p = gimPaths.attachmentsDir().resolve(rel);
-            if (!Files.exists(p)) {
-                return null;
-            }
-            return thumbView(Files.readAllBytes(p));
-        } catch (IOException | RuntimeException e) {
-            log.warn("读取附件缩略图失败: {}", rel, e);
-            return null;
-        }
-    }
-
-    /** 待发文件/文件夹引用：发送时拼成正文引用块由 Agent 用文件工具读取，UI 侧渲染为图标+名称芯片。 */
-    private record FileRef(String kind, String name, String path, String tree) {
-    }
-
-    /** 模型菜单条目：providerCode/modelCode 同时为空表示「跟随默认」（不覆盖）；携带图标、提供商说明与多模态标记供菜单富渲染。 */
-    private record ModelOption(String providerCode, String modelCode, String label, String icon, String desc,
-                               boolean vision) {
-        boolean followDefault() {
-            return providerCode == null;
-        }
-
-        @Override
-        public String toString() {
-            return label;
-        }
-    }
-
-    /** 审批下拉条目：映射到 {@link PermissionMode}，携带图标、说明与危险标记（供菜单项富渲染）。 */
-    private record ApprovalOption(PermissionMode mode, boolean autoApprove, String label, String icon, String desc,
-                                  boolean danger) {
-
-        /** 档位同一性：权限模式 + 自动通过标志（询问/自动同为 ACCEPT_EDITS，靠 autoApprove 区分）。 */
-        boolean equalsOption(ApprovalOption other) {
-            return other != null && mode == other.mode && autoApprove == other.autoApprove;
-        }
-
-        @Override
-        public String toString() {
-            return label;
-        }
+        templateMenu.show(templateButton, javafx.geometry.Side.TOP, 0, 0);
     }
 }

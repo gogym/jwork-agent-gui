@@ -69,6 +69,13 @@
     -gim-section: #96968f;
     -gim-subtitle: #80807a;
     -gim-mono-fg: #a0a09a;
+    /* 代码块 / 行内码 / 引用：深色覆盖值 */
+    -gim-code-bg: #26262a;
+    -gim-code-fg: #dcdcd6;
+    -gim-code-border: #3a3a3c;
+    -gim-inline-code-bg: #34343a;
+    -gim-quote-bar: #4a4a48;
+    -gim-quote-fg: #bdbdb7;
     -gim-desc: #bdbdb7;
     -gim-cell-hover: #303030;
     -gim-selection-nonfocus: #383836;

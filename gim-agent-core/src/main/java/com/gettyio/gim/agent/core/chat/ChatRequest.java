@@ -13,7 +13,7 @@ import java.util.List;
  * 智能体自带模型或应用默认；{@code images} 为空即纯文本对话，行为与改造前一致。</p>
  */
 @Getter
-@Builder
+@Builder(toBuilder = true)
 public class ChatRequest {
 
     private final String agentCode;
@@ -26,6 +26,9 @@ public class ChatRequest {
     /** 图片附件；无附件时为空列表。 */
     @Singular
     private final List<ImageAttachment> images;
+    /** 文档附件（pdf/docx/xlsx/txt/md/csv）；发送时抽取正文拼入模型输入，原件落盘。 */
+    @Singular
+    private final List<FileAttachment> files;
     /** 本轮工具调用的权限模式；为空按 {@link PermissionMode#ACCEPT_EDITS} 处理（只读自动、写需确认）。 */
     @Builder.Default
     private final PermissionMode permissionMode = PermissionMode.ACCEPT_EDITS;

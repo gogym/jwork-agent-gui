@@ -31,6 +31,9 @@
         <sqlite-jdbc.version>3.50.1.0</sqlite-jdbc.version>
         <atlantafx.version>2.0.1</atlantafx.version>
         <jeditermfx.version>1.1.0</jeditermfx.version>
+        <commonmark.version>0.24.0</commonmark.version>
+        <pdfbox.version>3.0.3</pdfbox.version>
+        <poi.version>5.3.0</poi.version>
         <jna.version>5.16.0</jna.version>
         <lombok.version>1.18.34</lombok.version>
         <slf4j.version>2.0.16</slf4j.version>
@@ -93,6 +96,27 @@
                 <version>${atlantafx.version}</version>
             </dependency>
             <dependency>
+                <groupId>org.commonmark</groupId>
+                <artifactId>commonmark</artifactId>
+                <version>${commonmark.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.commonmark</groupId>
+                <artifactId>commonmark-ext-gfm-tables</artifactId>
+                <version>${commonmark.version}</version>
+            </dependency>
+            <!-- 文档附件正文抽取：PDF 用 pdfbox，docx/xlsx 用 poi-ooxml -->
+            <dependency>
+                <groupId>org.apache.pdfbox</groupId>
+                <artifactId>pdfbox</artifactId>
+                <version>${pdfbox.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi-ooxml</artifactId>
+                <version>${poi.version}</version>
+            </dependency>
+            <dependency>
                 <groupId>com.techsenger.jeditermfx</groupId>
                 <artifactId>jeditermfx-core</artifactId>
                 <version>${jeditermfx.version}</version>
@@ -138,6 +162,16 @@
             </dependency>
         </dependencies>
     </dependencyManagement>
+
+    <repositories>
+        <!-- 项目默认镜像（aliyun）未收录 commonmark 等部分坐标，补充 Maven Central 直接可达 -->
+        <repository>
+            <id>central-direct</id>
+            <url>https://repo1.maven.org/maven2</url>
+            <releases><enabled>true</enabled></releases>
+            <snapshots><enabled>false</enabled></snapshots>
+        </repository>
+    </repositories>
 
     <dependencies>
         <dependency>

@@ -64,6 +64,14 @@ public class ChatSessionDao {
         return runner.query("SELECT " + COLUMNS + " FROM sessions ORDER BY updated_at DESC", ChatSessionDao::map);
     }
 
+    /** 全库最近活跃时间（sessions.updated_at 与 conversations.created_at 取最大），供导出文件命名。 */
+    public Optional<LocalDateTime> latestActivityAt() {
+        return runner.queryOne("SELECT MAX(x) AS latest FROM ("
+                        + "SELECT MAX(updated_at) AS x FROM sessions UNION ALL SELECT MAX(created_at) FROM conversations)",
+                rs -> SqlRunner.getDateTime(rs, "latest"))
+                .filter(java.util.Objects::nonNull);
+    }
+
     public int updateTitle(String sessionId, String title) {
         return runner.update("UPDATE sessions SET title=?, updated_at=? WHERE session_id=?",
                 title, LocalDateTime.now(), sessionId);

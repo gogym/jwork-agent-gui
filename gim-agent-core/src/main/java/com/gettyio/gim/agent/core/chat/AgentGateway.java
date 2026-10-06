@@ -30,4 +30,11 @@ public interface AgentGateway {
                 .text(userText)
                 .build());
     }
+
+    /**
+     * 中断指定会话在途的生成（尽力而为：无对应运行时则静默）。
+     * <p>调用方需另行取消订阅；本方法只负责打断 Agent 侧的模型/工具循环。</p>
+     */
+    default void stop(String agentCode, String sessionId) {
+    }
 }

@@ -32,6 +32,12 @@
             <artifactId>spring-boot-starter</artifactId>
         </dependency>
 
+        <!-- 导出全库 JSON 时序列化 LocalDateTime（版本由 spring-boot BOM 管理） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
         <dependency>
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-controls</artifactId>
@@ -59,9 +65,37 @@
                 </exclusion>
             </exclusions>
         </dependency>
+
+        <!-- Markdown 渲染：commonmark 核心解析 + 表格扩展 -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+        </dependency>
     </dependencies>
 
    <build>
+        <resources>
+            <!-- 默认资源不过滤（含 fxml/css/i18n/图标等，避免二进制被破坏） -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>version.properties</exclude>
+                </excludes>
+            </resource>
+            <!-- 仅 version.properties 走过滤，注入 ${project.version} 作为版本单一来源 -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>version.properties</include>
+                </includes>
+            </resource>
+        </resources>
         <plugins>
             <plugin>
                 <groupId>org.openjfx</groupId>

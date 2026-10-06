@@ -52,6 +52,12 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
     private final AgentCapabilityResolver capabilities;
 
     private final Map<String, HarnessAgentGateway> runtimes = new ConcurrentHashMap<>();
+    /**
+     * 装配与失效共用同一把锁：慢装配（磁盘 I/O + 模型解析）不再跑在 ConcurrentHashMap.computeIfAbsent
+     * 里（那会锁住整张表的其他键）；而失效remove+close与装配严格串行，杜绝「装配完成时定义已被失效，
+     * 旧实例连同已 close 的运行体回填缓存」这一竞争。
+     */
+    private final Object buildLock = new Object();
 
     public MultiAgentGateway(AgentDefinitionDao agentDao,
                              ModelResolver modelResolver,
@@ -85,26 +91,57 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
     /** 智能体定义被编辑或删除后丢弃其全部模型变体运行时，下次调用按新定义重新装配 */
     public void invalidate(String agentCode) {
         String prefix = normalize(agentCode) + RUNTIME_KEY_SEP;
-        for (String key : List.copyOf(runtimes.keySet())) {
-            if (key.startsWith(prefix)) {
-                HarnessAgentGateway gateway = runtimes.remove(key);
-                if (gateway != null) {
-                    closeQuietly(gateway);
-                    log.info("智能体运行时已失效，下次调用按新定义重装: {}", key);
+        synchronized (buildLock) {
+            for (String key : List.copyOf(runtimes.keySet())) {
+                if (key.startsWith(prefix)) {
+                    HarnessAgentGateway gateway = runtimes.remove(key);
+                    if (gateway != null) {
+                        closeQuietly(gateway);
+                        log.info("智能体运行时已失效，下次调用按新定义重装: {}", key);
+                    }
                 }
             }
         }
     }
 
     public void invalidateAll() {
-        runtimes.values().forEach(MultiAgentGateway::closeQuietly);
-        runtimes.clear();
+        synchronized (buildLock) {
+            runtimes.values().forEach(MultiAgentGateway::closeQuietly);
+            runtimes.clear();
+        }
         log.info("全部智能体运行时已失效");
+    }
+
+    @Override
+    public void stop(String agentCode, String sessionId) {
+        // 未装配则无在途生成可打断；按前缀命中该智能体的全部模型变体运行体逐个中断
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        String prefix = normalize(agentCode) + RUNTIME_KEY_SEP;
+        for (Map.Entry<String, HarnessAgentGateway> entry : runtimes.entrySet()) {
+            if (entry.getKey().startsWith(prefix)) {
+                entry.getValue().stop(sessionId);
+            }
+        }
     }
 
     private HarnessAgentGateway gatewayFor(ChatRequest request) {
         String key = runtimeKey(request.getAgentCode(), request.getProviderCode(), request.getModelCode());
-        return runtimes.computeIfAbsent(key, k -> build(request));
+        HarnessAgentGateway hit = runtimes.get(key);
+        if (hit != null) {
+            return hit;
+        }
+        synchronized (buildLock) {
+            // 双检：等锁期间可能已被同键装配或被失效后由另一调用装配完成
+            hit = runtimes.get(key);
+            if (hit != null) {
+                return hit;
+            }
+            HarnessAgentGateway built = build(request);
+            runtimes.put(key, built);
+            return built;
+        }
     }
 
     private static String normalize(String agentCode) {
@@ -144,6 +181,8 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         // 第一个参数是上下文目录键（不可变编码），第二个才是可改的显示名
         HarnessAgentGateway gateway = new HarnessAgentGateway(agentCode, name, prompt,
                 () -> modelResolver.resolve(effective, providerCode, modelCode), workspace);
+        // 备用模型惰性解析：装配时才找替代，解析不出则保持单模型（不抛错不阻断对话）
+        gateway.setFallbackSupplier(() -> modelResolver.resolveFallback(effective, providerCode, modelCode));
         gateway.setProjectDir(project);
         assembler.accept(gateway);
         // 能力在通用挂载之后下发：白名单可以覆盖共享技能目录等全局默认
@@ -212,5 +251,13 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
     @FunctionalInterface
     public interface ModelResolver {
         Model resolve(AgentDefinition definition, String providerCode, String modelCode);
+
+        /**
+         * 主模型故障时的备用模型：同链解析主模型后取下一个可用替代；无替代返回 {@code null}（不启用 failover）。
+         * <p>装配方不覆盖即单模型运行，行为与未引入弹性前一致。</p>
+         */
+        default Model resolveFallback(AgentDefinition definition, String providerCode, String modelCode) {
+            return null;
+        }
     }
 }

@@ -9,7 +9,7 @@ import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
-import javafx.scene.control.CheckBox;
+import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
@@ -150,7 +150,7 @@ public class TasksView {
         HBox top = new HBox(10, name, badge);
         top.setAlignment(Pos.CENTER_LEFT);
 
-        Label cron = new Label(t.getCronExpression());
+        Label cron = new Label(scheduleText(t));
         cron.getStyleClass().add("mono");
 
         Label prompt = new Label(truncate(t.getPrompt(), 90));
@@ -171,6 +171,7 @@ public class TasksView {
             }));
         }
         actions.getChildren().add(linkButton(I18n.t("tasks.action.runNow"), () -> taskAdminService.runNow(t)));
+        actions.getChildren().add(linkButton(I18n.t("tasks.action.history"), () -> openHistory(t)));
         actions.getChildren().add(linkButton(I18n.t("tasks.action.edit"), () -> openForm(t)));
         Button del = linkButton(I18n.t("tasks.action.delete"), () -> confirmDelete(t));
         del.getStyleClass().add("link-btn-danger");
@@ -196,6 +197,18 @@ public class TasksView {
 
     private String nextRunText(ScheduledTask t) {
         SimpleDateFormat fmt = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+        // 一次性指定时刻任务：展示设定的执行时刻
+        if (t.getRunAt() != null) {
+            if (TaskStatus.READY.name().equalsIgnoreCase(t.getStatus())) {
+                return I18n.t("tasks.nextRun", fmt.format(java.util.Date.from(
+                        t.getRunAt().atZone(java.time.ZoneId.systemDefault()).toInstant())));
+            }
+            if (t.getLastRunAt() != null) {
+                return I18n.t("tasks.lastRun", t.getLastRunAt().format(java.time.format.DateTimeFormatter
+                        .ofPattern("yyyy-MM-dd HH:mm:ss")));
+            }
+            return "";
+        }
         if (TaskStatus.READY.name().equalsIgnoreCase(t.getStatus()) && t.getCronExpression() != null) {
             try {
                 Date next = new CronExpression(t.getCronExpression().trim())
@@ -212,6 +225,15 @@ public class TasksView {
                     .ofPattern("yyyy-MM-dd HH:mm:ss")));
         }
         return "";
+    }
+
+    /** 卡片调度行文本：一次性任务显 run_at，否则显 cron。 */
+    private String scheduleText(ScheduledTask t) {
+        if (t.getRunAt() != null) {
+            return I18n.t("tasks.form.once") + " · "
+                    + t.getRunAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        }
+        return t.getCronExpression() == null ? "-" : t.getCronExpression();
     }
 
     private Node emptyState() {
@@ -239,23 +261,38 @@ public class TasksView {
 
         TextField nameField = new TextField(editing == null ? "" : editing.getTaskName());
         nameField.setPromptText(I18n.t("tasks.form.namePrompt"));
-        TextField cronField = new TextField(editing == null ? "" : editing.getCronExpression());
+        TextField cronField = new TextField(editing == null || editing.getRunAt() != null ? "" : editing.getCronExpression());
         cronField.setPromptText(I18n.t("tasks.form.cronPrompt"));
+        TextField runAtField = new TextField(editing == null || editing.getRunAt() == null ? ""
+                : editing.getRunAt().format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
+        runAtField.setPromptText(I18n.t("tasks.form.runAtPrompt"));
         TextArea promptArea = new TextArea(editing == null ? "" : editing.getPrompt());
         promptArea.setPrefRowCount(4);
         promptArea.setPromptText(I18n.t("tasks.form.promptHint"));
-        CheckBox onceCheck = new CheckBox(I18n.t("tasks.form.once"));
-        onceCheck.setSelected(editing != null && EnabledStatus.isEnabled(editing.getOnce()));
+
+        // 调度方式：周期(cron) / 一次性时刻(run_at)。编辑时根据已有 run_at 预选。
+        ComboBox<String> modeCombo = new ComboBox<>();
+        modeCombo.getItems().addAll(I18n.t("tasks.form.mode.cron"), I18n.t("tasks.form.mode.once"));
+        boolean editingOnce = editing != null && editing.getRunAt() != null;
+        modeCombo.getSelectionModel().select(editingOnce ? 1 : 0);
+        Runnable syncMode = () -> {
+            boolean once = modeCombo.getSelectionModel().getSelectedIndex() == 1;
+            cronField.setDisable(once);
+            runAtField.setDisable(!once);
+        };
+        modeCombo.setOnAction(e -> syncMode.run());
+        syncMode.run();
 
         GridPane form = new GridPane();
         form.getStyleClass().add("form-card");
         form.setHgap(10);
         form.setVgap(10);
         form.addRow(0, new Label(I18n.t("tasks.form.name")), nameField);
-        form.addRow(1, new Label(I18n.t("tasks.form.cron")), cronField);
-        form.addRow(2, new Label(I18n.t("tasks.form.prompt")), promptArea);
-        form.addRow(3, new Label(""), onceCheck);
-        form.setPrefWidth(420);
+        form.addRow(1, new Label(I18n.t("tasks.form.mode")), modeCombo);
+        form.addRow(2, new Label(I18n.t("tasks.form.cron")), cronField);
+        form.addRow(3, new Label(I18n.t("tasks.form.runAt")), runAtField);
+        form.addRow(4, new Label(I18n.t("tasks.form.prompt")), promptArea);
+        form.setPrefWidth(440);
 
         Label err = new Label();
         err.setStyle("-fx-text-fill: #b3403f; -fx-font-size: 12px;");
@@ -264,9 +301,24 @@ public class TasksView {
         Button save = new Button(I18n.t("common.save"));
         save.getStyleClass().add("btn-primary");
         save.setOnAction(e -> {
-            if (cronField.getText().isBlank() || promptArea.getText().isBlank()) {
+            boolean once = modeCombo.getSelectionModel().getSelectedIndex() == 1;
+            if (promptArea.getText().isBlank()) {
                 err.setText(I18n.t("tasks.form.err.empty"));
                 return;
+            }
+            if (!once && cronField.getText().isBlank()) {
+                err.setText(I18n.t("tasks.form.err.empty"));
+                return;
+            }
+            java.time.LocalDateTime runAt = null;
+            if (once) {
+                try {
+                    runAt = java.time.LocalDateTime.parse(runAtField.getText().trim(),
+                            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                } catch (java.time.format.DateTimeParseException ex) {
+                    err.setText(I18n.t("tasks.form.err.runAt"));
+                    return;
+                }
             }
             ScheduledTask t = editing != null ? editing : new ScheduledTask();
             if (editing == null) {
@@ -275,9 +327,10 @@ public class TasksView {
                 t.setAgentCode("gim-agent");
             }
             t.setTaskName(nameField.getText().isBlank() ? t.getTaskCode() : nameField.getText().trim());
-            t.setCronExpression(cronField.getText().trim());
+            t.setCronExpression(once ? null : cronField.getText().trim());
+            t.setRunAt(runAt);
             t.setPrompt(promptArea.getText());
-            t.setOnce(onceCheck.isSelected() ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
+            t.setOnce(once ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
             try {
                 taskAdminService.save(t);
                 shell.stage().close();
@@ -292,6 +345,48 @@ public class TasksView {
         btns.setAlignment(Pos.CENTER_RIGHT);
 
         shell.body().getChildren().addAll(form, err, btns);
+        shell.show();
+    }
+
+    /** 执行历史弹窗：列出该任务最近的触发记录（时间/成败/摘要）。 */
+    private void openHistory(ScheduledTask t) {
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        GimDialog.Shell shell = GimDialog.shell(owner,
+                I18n.t("tasks.history.title", t.getTaskName()));
+        java.util.List<com.gettyio.gim.agent.domain.entity.TaskRun> runs = taskAdminService.history(t.getTaskCode());
+        VBox list = new VBox(6);
+        java.time.format.DateTimeFormatter fmt = java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+        if (runs.isEmpty()) {
+            Label none = new Label(I18n.t("tasks.history.empty"));
+            none.getStyleClass().add("card-desc");
+            list.getChildren().add(none);
+        }
+        for (com.gettyio.gim.agent.domain.entity.TaskRun r : runs) {
+            Label time = new Label((r.getStartedAt() == null ? "-" : r.getStartedAt().format(fmt)));
+            time.getStyleClass().add("card-meta");
+            Label status = new Label(I18n.t(r.isSuccess() ? "tasks.history.ok" : "tasks.history.fail"));
+            status.getStyleClass().addAll("badge", r.isSuccess() ? "badge-green" : "badge-red");
+            String detail = r.isSuccess()
+                    ? (r.getSummary() == null ? "" : r.getSummary())
+                    : (r.getError() == null ? "" : r.getError());
+            Label body = new Label(truncate(detail, 200));
+            body.getStyleClass().add("card-desc");
+            body.setWrapText(true);
+            body.setMaxWidth(440);
+            HBox head = new HBox(10, time, status);
+            head.setAlignment(Pos.CENTER_LEFT);
+            VBox row = new VBox(2, head, body);
+            row.getStyleClass().add("task-card");
+            list.getChildren().add(row);
+        }
+        ScrollPane scroll = new ScrollPane(list);
+        scroll.setFitToWidth(true);
+        scroll.setPrefViewportHeight(360);
+        Button close = new Button(I18n.t("common.close"));
+        close.setOnAction(e -> shell.stage().close());
+        HBox btns = new HBox(close);
+        btns.setAlignment(Pos.CENTER_RIGHT);
+        shell.body().getChildren().addAll(scroll, btns);
         shell.show();
     }
 

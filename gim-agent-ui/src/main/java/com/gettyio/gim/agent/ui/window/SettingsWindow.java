@@ -2,10 +2,13 @@ package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.model.ModelProbe;
+import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
+import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
+import com.gettyio.gim.agent.domain.entity.PromptTemplate;
 import com.gettyio.gim.agent.domain.entity.ToolPermissionRule;
 import com.gettyio.gim.agent.domain.enums.ApiProtocol;
 import com.gettyio.gim.agent.domain.enums.AuthMethod;
@@ -19,8 +22,10 @@ import com.gettyio.gim.agent.ui.view.McpView;
 import com.gettyio.gim.agent.ui.view.SkillsView;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
+import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
+import com.gettyio.gim.agent.ui.export.ExportService;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
@@ -55,6 +60,7 @@ import javafx.scene.layout.VBox;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.text.TextAlignment;
 import javafx.stage.DirectoryChooser;
+import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -99,6 +105,21 @@ public class SettingsWindow {
     @Autowired
     private AgentAdminService agentAdminService;
 
+    @Autowired
+    private DbBackupService dbBackupService;
+
+    @Autowired
+    private ExportService exportService;
+
+    @Autowired
+    private PromptTemplateAdminService promptTemplateAdminService;
+
+    @Autowired
+    private AppLifecycle appLifecycle;
+
+    @Autowired
+    private com.gettyio.gim.agent.ui.update.UpdateChecker updateChecker;
+
     private final ListView<ModelProviderConfig> providerListView = new ListView<>();
     private final ListView<ModelConfig> modelListView = new ListView<>();
     /** 信息卡片固定宽度：不铺满整行；有内容时左对齐，空状态居中。 */
@@ -106,6 +127,7 @@ public class SettingsWindow {
     private final FlowPane providerCardsBox = cardsBox();
     private final FlowPane modelCardsBox = cardsBox();
     private final FlowPane agentCardsBox = cardsBox();
+    private final FlowPane templateCardsBox = cardsBox();
 
     /**
      * 卡片流式容器：宽度够时横向并排，不够则换行；卡片按 {@link #CARD_WIDTH} 取自身尺寸，
@@ -135,6 +157,8 @@ public class SettingsWindow {
 
     private final Label defaultModelInfoLabel = new Label("-");
     private final Label statusLabel = new Label("");
+    /** 通用页「最近备份」值标签：备份完成后就地刷新。 */
+    private final Label lastBackupValueLabel = new Label("-");
 
     /** MCP 服务页复用组件（自包含）；与拓展页各自实例化，互不干扰场景图父子关系。 */
     private McpView mcpView;
@@ -315,6 +339,7 @@ public class SettingsWindow {
 
         Label extension = addSection(I18n.t("settings.section.extension"));
         addMenu(extension, "\uE945", I18n.t("skills.title"), buildSkillsPage());
+        addMenu(extension, "\uE73A", I18n.t("settings.menu.templates"), buildTemplatesPage());
         addMenu(extension, "\uE71B", I18n.t("settings.menu.mcp"), buildMcpPage());
         addMenu(extension, "\uE72E", I18n.t("settings.menu.security"), buildSecurityPage());
 
@@ -469,7 +494,7 @@ public class SettingsWindow {
 
         List<Node> rows = new ArrayList<>();
         rows.add(settingRow(I18n.t("settings.profile.appVersion"), null,
-                valueLabel(I18n.t("settings.profile.appVersionValue"))));
+                valueLabel(updateChecker.currentVersion())));
         rows.add(settingRow(I18n.t("settings.key.dataDir"), null,
                 valueLabel(String.valueOf(gimPaths.root()))));
         rows.add(settingRow(I18n.t("settings.profile.language"), null,
@@ -477,8 +502,57 @@ public class SettingsWindow {
         rows.add(settingRow(I18n.t("settings.profile.theme"), null,
                 valueLabel(I18n.t(UiTheme.mode() == UiTheme.Mode.DARK ? "menu.mode.dark" : "menu.mode.light"))));
 
-        box.getChildren().addAll(head, groupCard(I18n.t("settings.group.about"), rows));
+        box.getChildren().addAll(head, groupCard(I18n.t("settings.group.about"), rows), updateCard());
         return box;
+    }
+
+    /** 更新卡片：当前版本、每日静默检查开关、立即检查按钮。 */
+    private VBox updateCard() {
+        Button check = iconTextButton("\uE777", I18n.t("settings.update.check"), this::handleCheckUpdate);
+
+        ToggleSwitch auto = new ToggleSwitch();
+        auto.setSelected(updateChecker.isAutoCheckEnabled());
+        auto.selectedProperty().addListener((obs, o, sel) -> {
+            updateChecker.setAutoCheckEnabled(sel);
+            statusLabel.setText(I18n.t(sel ? "settings.update.autoOn" : "settings.update.autoOff"));
+        });
+
+        List<Node> rows = new ArrayList<>();
+        rows.add(settingRow(I18n.t("settings.update.auto"), I18n.t("settings.update.auto.desc"), auto));
+        rows.add(settingRow(I18n.t("settings.update.check"), I18n.t("settings.update.check.desc"), check));
+        return groupCard(I18n.t("settings.group.update"), rows);
+    }
+
+    /** 手动检查更新：后台请求 GitHub 最新版，命中新版弹「前往下载」，否则提示已最新。 */
+    private void handleCheckUpdate() {
+        statusLabel.setText(I18n.t("settings.update.checking"));
+        Window owner = hostWindow();
+        Thread t = new Thread(() -> {
+            try {
+                Optional<com.gettyio.gim.agent.ui.update.UpdateChecker.UpdateInfo> info = updateChecker.checkLatest();
+                Platform.runLater(() -> {
+                    if (info.isPresent()) {
+                        int go = GimDialog.choose(owner, I18n.t("settings.update.found.title"), null,
+                                I18n.t("settings.update.found.body",
+                                        updateChecker.currentVersion(), info.get().version()),
+                                I18n.t("settings.update.go"), I18n.t("common.cancel"));
+                        if (go == 0) {
+                            updateChecker.openDownloadPage(info.get());
+                        }
+                        statusLabel.setText(I18n.t("settings.update.found"));
+                    } else {
+                        GimDialog.message(owner, I18n.t("settings.update.latest.title"), null,
+                                I18n.t("settings.update.latest.body", updateChecker.currentVersion()));
+                        statusLabel.setText(I18n.t("settings.update.latest"));
+                    }
+                });
+            } catch (Exception e) {
+                Platform.runLater(() -> statusLabel.setText(
+                        I18n.t("settings.update.fail", String.valueOf(e.getMessage()))));
+            }
+        }, "gim-update-check");
+        t.setDaemon(true);
+        t.start();
     }
 
     private Label valueLabel(String value) {
@@ -541,9 +615,194 @@ public class SettingsWindow {
         rows.add(infoRow(I18n.t("settings.key.skillsDir"), gimPaths.skillsDir()));
         rows.add(infoRow(I18n.t("settings.key.knowledgeDir"), gimPaths.knowledgeDir()));
         rows.add(infoRow(I18n.t("settings.key.logsDir"), gimPaths.logsDir()));
+        rows.add(infoRow(I18n.t("settings.key.backupsDir"), gimPaths.backupsDir()));
         rows.add(infoRow(I18n.t("settings.key.db"), gimPaths.dbFile()));
+        lastBackupValueLabel.getStyleClass().add("row-value");
+        rows.add(settingRow(I18n.t("settings.backup.lastAt"), null, lastBackupValueLabel));
         box.getChildren().add(groupCard(I18n.t("settings.group.paths"), rows));
+        box.getChildren().add(behaviorCard());
+        box.getChildren().add(dataMaintenanceCard());
+        refreshLastBackupRow();
         return box;
+    }
+
+    /** 启动与关闭卡片：关闭行为（退出/最小化到托盘）与开机自启（仅打包 exe 可用）。 */
+    private VBox behaviorCard() {
+        String[] opts = {I18n.t("settings.close.tray"), I18n.t("settings.close.exit")};
+        ComboBox<String> closeCombo = pillCombo(opts);
+        boolean exitAction = AppLifecycle.CLOSE_EXIT.equals(
+                appLifecycle.readCloseAction().orElse(AppLifecycle.CLOSE_TRAY));
+        closeCombo.setValue(opts[exitAction ? 1 : 0]);
+        closeCombo.setOnAction(e -> {
+            boolean exit = closeCombo.getSelectionModel().getSelectedIndex() == 1;
+            appLifecycle.setCloseAction(exit ? AppLifecycle.CLOSE_EXIT : AppLifecycle.CLOSE_TRAY);
+            statusLabel.setText(I18n.t("settings.status.savedCloseAction"));
+        });
+
+        boolean manageable = appLifecycle.canManageAutostart();
+        Node autoControl;
+        if (manageable) {
+            ToggleSwitch autostart = new ToggleSwitch();
+            autostart.setSelected(appLifecycle.isAutostartEnabled());
+            autostart.selectedProperty().addListener((obs, o, sel) -> {
+                boolean ok = appLifecycle.setAutostart(sel);
+                statusLabel.setText(I18n.t(ok ? (sel ? "settings.status.autostartOn" : "settings.status.autostartOff")
+                        : "settings.status.autostartFail"));
+                if (!ok) {
+                    autostart.setSelected(!sel);
+                }
+            });
+            autoControl = autostart;
+        } else {
+            Label na = new Label(I18n.t("settings.autostart.unavailable"));
+            na.getStyleClass().add("row-value");
+            autoControl = na;
+        }
+
+        List<Node> rows = new ArrayList<>();
+        rows.add(settingRow(I18n.t("settings.close.action"), I18n.t("settings.close.action.desc"), closeCombo));
+        rows.add(settingRow(I18n.t("settings.autostart"), I18n.t("settings.autostart.desc"), autoControl));
+        return groupCard(I18n.t("settings.group.startupClose"), rows);
+    }
+
+    /** 数据维护卡片：立即备份 / 导出会话 / 导出全库 / 打开备份目录 / 打开数据目录。 */
+    private VBox dataMaintenanceCard() {
+        Label gt = new Label(I18n.t("settings.group.maintenance"));
+        gt.getStyleClass().add("settings-group-title");
+
+        Button backup = iconTextButton("\uE7B5", I18n.t("settings.backup.now"), this::handleBackupNow);
+        Button exportSession = iconTextButton("\uE8A5", I18n.t("settings.export.session"), this::handleExportSession);
+        Button exportFull = iconTextButton("\uE8A5", I18n.t("settings.export.full"), this::handleExportFull);
+        Button openBackup = iconTextButton("\uE838", I18n.t("settings.data.openBackup"),
+                () -> revealDir(gimPaths.backupsDir()));
+        Button openRoot = iconTextButton("\uE838", I18n.t("settings.data.openRoot"),
+                () -> revealDir(gimPaths.root()));
+
+        Label hint = new Label(I18n.t("settings.backup.hint"));
+        hint.getStyleClass().add("row-desc");
+        hint.setWrapText(true);
+
+        FlowPane buttons = new FlowPane(8, 8, backup, exportSession, exportFull, openBackup, openRoot);
+        VBox card = new VBox(8, hint, buttons);
+        card.getStyleClass().add("settings-group");
+        return new VBox(6, gt, card);
+    }
+
+    private String formatLastBackup() {
+        return dbBackupService.lastBackupAt()
+                .map(i -> i.atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(
+                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
+                .orElse(I18n.t("settings.backup.none"));
+    }
+
+    /** 刷新「最近备份」行文本（通用页重建与备份完成后调用）。 */
+    private void refreshLastBackupRow() {
+        lastBackupValueLabel.setText(formatLastBackup());
+    }
+
+    /** 立即备份（后台线程执行 VACUUM，完成后刷新本页与状态栏）。 */
+    private void handleBackupNow() {
+        runInBackground(I18n.t("settings.backup.running"),
+                () -> dbBackupService.backupNow().map(p -> I18n.t("settings.backup.done", p.getFileName())),
+                this::refreshLastBackupRow);
+    }
+
+    /** 导出单个会话为 Markdown：先选会话，再选保存路径。 */
+    private void handleExportSession() {
+        List<ChatSession> sessions = exportServiceAllSessions();
+        if (sessions.isEmpty()) {
+            statusLabel.setText(I18n.t("settings.export.noSession"));
+            return;
+        }
+        String[] labels = sessions.stream()
+                .map(s -> {
+                    String t = s.getTitle() == null || s.getTitle().isBlank() ? s.getSessionId() : s.getTitle();
+                    int n = s.getMessageCount() == null ? 0 : s.getMessageCount();
+                    return t + "  （" + n + "）";
+                })
+                .toArray(String[]::new);
+        int idx = GimDialog.choose(hostWindow(), I18n.t("settings.export.session"), null,
+                I18n.t("settings.export.pickSession"), labels);
+        if (idx < 0 || idx >= sessions.size()) {
+            return;
+        }
+        ChatSession chosen = sessions.get(idx);
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("settings.export.session"));
+        chooser.setInitialFileName(exportService.suggestedFileName(
+                chosen.getTitle() == null || chosen.getTitle().isBlank() ? chosen.getSessionId() : chosen.getTitle(),
+                ".md"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Markdown", "*.md"));
+        File file = chooser.showSaveDialog(hostWindow());
+        if (file == null) {
+            return;
+        }
+        String sessionId = chosen.getSessionId();
+        Path target = file.toPath();
+        runInBackground(I18n.t("settings.export.running"),
+                () -> Optional.of(I18n.t("settings.export.done",
+                        exportService.exportSessionMarkdown(sessionId, target).getFileName())),
+                null);
+    }
+
+    /** 导出全库为 JSON。 */
+    private void handleExportFull() {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(I18n.t("settings.export.full"));
+        chooser.setInitialFileName(exportService.suggestedFileName("gim-agent-export", ".json"));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("JSON", "*.json"));
+        File file = chooser.showSaveDialog(hostWindow());
+        if (file == null) {
+            return;
+        }
+        Path target = file.toPath();
+        runInBackground(I18n.t("settings.export.running"),
+                () -> Optional.of(I18n.t("settings.export.done",
+                        exportService.exportFullJson(target).getFileName())),
+                null);
+    }
+
+    /** 从库中取全部会话（导出选择用）。 */
+    private List<ChatSession> exportServiceAllSessions() {
+        return exportService.findSessions();
+    }
+
+    /** 用系统文件管理器打开目录；不支持时回落状态栏提示。 */
+    private void revealDir(Path dir) {
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(dir.toFile());
+            } else {
+                statusLabel.setText(I18n.t("settings.data.openFail", "Desktop unsupported"));
+            }
+        } catch (Exception e) {
+            statusLabel.setText(I18n.t("settings.data.openFail", e.getMessage()));
+        }
+    }
+
+    /**
+     * 后台线程执行耗时操作：先在状态栏显示 {@code runningText}，完成后用结果消息覆盖，
+     * 失败时显示错误；{@code onSuccess} 可空，非空时在 FX 线程回调（如刷新页面）。
+     */
+    private void runInBackground(String runningText, java.util.function.Supplier<Optional<String>> work, Runnable onSuccess) {
+        statusLabel.setText(runningText);
+        Thread t = new Thread(() -> {
+            String result;
+            try {
+                result = work.get().orElse(runningText);
+            } catch (RuntimeException e) {
+                result = I18n.t("settings.data.fail", String.valueOf(e.getMessage()));
+            }
+            final String msg = result;
+            Platform.runLater(() -> {
+                statusLabel.setText(msg);
+                if (onSuccess != null) {
+                    onSuccess.run();
+                }
+            });
+        }, "gim-data-task");
+        t.setDaemon(true);
+        t.start();
     }
 
     private HBox infoRow(String key, Object value) {
@@ -1367,6 +1626,189 @@ public class SettingsWindow {
         return mcpView.getNode();
     }
 
+    // ---- 提示词模板页 ----
+
+    private VBox buildTemplatesPage() {
+        VBox box = new VBox();
+        box.getStyleClass().add("settings-page");
+        box.setMaxWidth(Double.MAX_VALUE);
+        box.setMaxHeight(Double.MAX_VALUE);
+
+        VBox headText = new VBox(4);
+        Label title = new Label(I18n.t("settings.menu.templates"));
+        title.getStyleClass().add("page-title");
+        Label subtitle = new Label(I18n.t("settings.templates.subtitle"));
+        subtitle.getStyleClass().add("page-subtitle");
+        subtitle.setWrapText(true);
+        headText.getChildren().addAll(title, subtitle);
+
+        Button addBtn = new Button(I18n.t("settings.template.add"));
+        addBtn.getStyleClass().add("btn-primary");
+        Label addIcon = new Label("\uE710");
+        addIcon.getStyleClass().add("icon");
+        addBtn.setGraphic(addIcon);
+        addBtn.setOnAction(e -> openTemplateDialog(null));
+
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox header = new HBox(headText, spacer, addBtn);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        templateCardsBox.getStyleClass().add("provider-cards");
+        VBox.setVgrow(templateCardsBox, Priority.ALWAYS);
+        box.getChildren().addAll(header, templateCardsBox);
+        return box;
+    }
+
+    /** 依据库中数据重绘模板信息卡片。 */
+    private void renderTemplateCards() {
+        templateCardsBox.getChildren().clear();
+        List<PromptTemplate> templates = promptTemplateAdminService.list();
+        if (templates.isEmpty()) {
+            templateCardsBox.setAlignment(Pos.CENTER);
+            templateCardsBox.getChildren().add(templateEmptyState());
+            return;
+        }
+        templateCardsBox.setAlignment(Pos.TOP_LEFT);
+        for (PromptTemplate t : templates) {
+            templateCardsBox.getChildren().add(templateCard(t));
+        }
+    }
+
+    private VBox templateEmptyState() {
+        VBox box = new VBox();
+        box.getStyleClass().add("empty-state");
+        box.setMaxWidth(Double.MAX_VALUE);
+        box.setFillWidth(false);
+        Label icon = new Label("\uE73A");
+        icon.getStyleClass().add("empty-icon");
+        Label t = new Label(I18n.t("settings.template.empty"));
+        t.getStyleClass().add("empty-title");
+        t.setTextAlignment(TextAlignment.CENTER);
+        Label d = new Label(I18n.t("settings.template.emptyDesc"));
+        d.getStyleClass().add("empty-desc");
+        d.setWrapText(true);
+        d.setTextAlignment(TextAlignment.CENTER);
+        d.setMaxWidth(460);
+        box.getChildren().addAll(icon, t, d);
+        return box;
+    }
+
+    private VBox templateCard(PromptTemplate t) {
+        boolean enabled = EnabledStatus.isEnabled(t.getEnabled());
+        Label name = new Label(t.getTemplateName() == null || t.getTemplateName().isBlank()
+                ? t.getTemplateCode() : t.getTemplateName());
+        name.getStyleClass().add("provider-card-title");
+        Label badge = new Label(I18n.t(enabled ? "settings.template.enabled" : "settings.template.disabled"));
+        badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
+
+        ToggleSwitch toggle = new ToggleSwitch();
+        toggle.setSelected(enabled);
+        toggle.setMinWidth(Region.USE_PREF_SIZE);
+        toggle.selectedProperty().addListener((obs, o, sel) -> {
+            promptTemplateAdminService.setEnabled(t.getTemplateCode(), sel);
+            statusLabel.setText(I18n.t(sel ? "settings.status.enabledTemplate" : "settings.status.disabledTemplate",
+                    name.getText()));
+            renderTemplateCards();
+        });
+
+        Button edit = iconTextButton("\uE70F", I18n.t("common.edit"), () -> openTemplateDialog(t));
+        edit.getStyleClass().add("link-btn");
+        Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteTemplate(t));
+        del.getStyleClass().addAll("link-btn", "link-btn-danger");
+        // 卡片首行：名称可压缩 + 徽标 + 操作区（启停开关 + 编辑 + 删除）钉住首选宽度
+        name.setMinWidth(0);
+        name.setTextOverrun(OverrunStyle.ELLIPSIS);
+        name.setTooltip(new Tooltip(name.getText()));
+        badge.setMinWidth(Region.USE_PREF_SIZE);
+        HBox titleRow = new HBox(10, name, badge);
+        titleRow.setAlignment(Pos.CENTER_LEFT);
+        titleRow.setMaxWidth(Double.MAX_VALUE);
+        Region headSpacer = new Region();
+        HBox.setHgrow(headSpacer, Priority.ALWAYS);
+        HBox head = new HBox();
+        head.setAlignment(Pos.CENTER_LEFT);
+        head.getChildren().addAll(titleRow, headSpacer, toggle, edit, del);
+        for (Node action : List.of(toggle, edit, del)) {
+            if (action instanceof Region r) {
+                r.setMinWidth(Region.USE_PREF_SIZE);
+            }
+        }
+
+        VBox card = new VBox(8, head,
+                kvLine(I18n.t("settings.template.desc"), t.getDescription()),
+                kvLine(I18n.t("settings.template.content"), preview(t.getContent())));
+        card.getStyleClass().add("provider-card");
+        card.setPrefWidth(CARD_WIDTH);
+        card.setMaxWidth(CARD_WIDTH);
+        return card;
+    }
+
+    /** 弹模板表单：名称 / 描述 / 内容；保存写库后刷列表。{@code editing} 为 null 表示新增。 */
+    private void openTemplateDialog(PromptTemplate editing) {
+        GimDialog.Shell shell = GimDialog.shell(hostWindow(),
+                I18n.t(editing == null ? "settings.template.addTitle" : "settings.template.editTitle"));
+
+        TextField nameField = new TextField(editing == null ? "" : editing.getTemplateName());
+        nameField.setPromptText(I18n.t("settings.template.namePrompt"));
+        nameField.setMaxWidth(Double.MAX_VALUE);
+        TextField descField = new TextField(editing == null ? "" : editing.getDescription());
+        descField.setPromptText(I18n.t("settings.template.descPrompt"));
+        descField.setMaxWidth(Double.MAX_VALUE);
+        TextArea contentArea = new TextArea(editing == null ? "" : editing.getContent());
+        contentArea.setPromptText(I18n.t("settings.template.contentPrompt"));
+        contentArea.setPrefRowCount(8);
+        contentArea.setWrapText(true);
+        contentArea.setMaxWidth(Double.MAX_VALUE);
+
+        VBox form = new VBox(10);
+        form.setPrefWidth(460);
+        form.getChildren().addAll(
+                labeledField(I18n.t("settings.template.name"), nameField),
+                labeledField(I18n.t("settings.template.desc"), descField),
+                labeledField(I18n.t("settings.template.content"), contentArea));
+
+        Button cancel = new Button(I18n.t("common.cancel"));
+        cancel.setOnAction(e -> shell.stage().close());
+        Button save = new Button(I18n.t("common.save"));
+        save.getStyleClass().add("btn-primary");
+        save.setOnAction(e -> {
+            String name = nameField.getText() == null ? "" : nameField.getText().trim();
+            String content = contentArea.getText() == null ? "" : contentArea.getText().trim();
+            if (name.isEmpty() || content.isEmpty()) {
+                statusLabel.setText(I18n.t("settings.status.templateRequired"));
+                return;
+            }
+            PromptTemplate t = editing == null ? new PromptTemplate() : editing;
+            t.setTemplateName(name);
+            t.setDescription(descField.getText() == null ? null : descField.getText().trim());
+            t.setContent(content);
+            if (editing == null) {
+                t.setEnabled(1);
+            }
+            promptTemplateAdminService.save(t);
+            statusLabel.setText(I18n.t("settings.status.savedTemplate", name));
+            renderTemplateCards();
+            shell.stage().close();
+        });
+        HBox btns = new HBox(8, cancel, save);
+        btns.getStyleClass().add("dialog-actions");
+        btns.setAlignment(Pos.CENTER_RIGHT);
+
+        shell.body().getChildren().addAll(form, btns);
+        shell.showAndWait();
+    }
+
+    private void handleDeleteTemplate(PromptTemplate t) {
+        if (!GimDialog.confirm(hostWindow(), I18n.t("settings.menu.templates"),
+                I18n.t("settings.template.deleteConfirm", t.getTemplateName()))) {
+            return;
+        }
+        promptTemplateAdminService.delete(t.getTemplateCode());
+        statusLabel.setText(I18n.t("settings.status.deletedTemplate", t.getTemplateName()));
+        renderTemplateCards();
+    }
+
     // ---- 安全页（工具防护 / 文件防护 / 授权管理 三 Tab） ----
 
     private VBox buildSecurityPage() {
@@ -1961,6 +2403,7 @@ public class SettingsWindow {
         renderProviderCards();
         renderModelCards();
         renderAgentCards();
+        renderTemplateCards();
         providerCodeField.setDisable(false);
         modelCodeField.setDisable(false);
         refreshDefaultModelInfo();
