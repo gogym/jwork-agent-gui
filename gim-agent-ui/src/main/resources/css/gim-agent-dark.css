@@ -63,6 +63,12 @@
     -gim-badge-red-bg: #442c2b;
     -gim-badge-red-fg: #e09a97;
 
+    /* 常驻提醒条的琥珀语义色（深色覆盖） */
+    -gim-warn-bg: #3a2f1c;
+    -gim-warn-border: #4d3f24;
+    -gim-warn-icon: #e0a24a;
+    -gim-warn-fg: #e6c990;
+
     -gim-empty-icon: #4a4a48;
     -gim-check-border: #555553;
     -gim-arrow: #a8a8a2;

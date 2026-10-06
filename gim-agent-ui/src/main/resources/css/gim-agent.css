@@ -66,6 +66,12 @@
     -gim-badge-red-bg: #f9e5e4;
     -gim-badge-red-fg: #b3403f;
 
+    /* 常驻提醒条（如「尚未配置模型」）的琥珀语义色 */
+    -gim-warn-bg: #fdf3e0;
+    -gim-warn-border: #f0dcae;
+    -gim-warn-icon: #cf8a2a;
+    -gim-warn-fg: #7a5320;
+
     -gim-empty-icon: #cfcfc8;
     -gim-check-border: #c9c9c4;
     -gim-arrow: #6b6b64;
@@ -529,6 +535,38 @@
     -fx-font-weight: bold;
     -fx-text-fill: -gim-text-3;
 }
+
+/* ---------- 尚未配置模型的常驻提醒条（chat-header 下方，全局状态驱动显隐） ---------- */
+.model-banner {
+    -fx-background-color: -gim-warn-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -gim-warn-border;
+    -fx-border-radius: 10;
+    -fx-padding: 8 14 8 12;
+    -fx-spacing: 10;
+    /* 节点占满宽，但圆角底/描边向内缩回，与上方标题、下方消息区两侧对齐 */
+    -fx-background-insets: 4 24 6 24;
+    -fx-border-insets: 4 24 6 24;
+}
+.model-banner-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 15px;
+    -fx-text-fill: -gim-warn-icon;
+}
+.model-banner-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: -gim-warn-fg;
+}
+.model-banner-action {
+    -fx-background-color: -gim-accent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -gim-bg;
+    -fx-font-size: 12px;
+    -fx-padding: 4 12 4 12;
+    -fx-cursor: hand;
+}
+.model-banner-action:hover    { -fx-background-color: -gim-accent-hover; }
+.model-banner-action:pressed  { -fx-background-color: -gim-accent-press; }
 
 /* 右上角终端开关按钮：与附件按钮同族（图标透明底、悬停转淡） */
 .terminal-button {

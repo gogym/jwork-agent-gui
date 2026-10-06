@@ -119,15 +119,26 @@
             <StackPane fx:id="mainPages" styleClass="content-panel">
             <BorderPane fx:id="chatPage">
                 <top>
-                    <HBox fx:id="chatHeader" styleClass="chat-header" alignment="CENTER_LEFT">
-                        <Label fx:id="sessionTitleLabel" styleClass="chat-header-title"
-                               maxWidth="Infinity" ellipsisString="&#x2026;" HBox.hgrow="ALWAYS"/>
-                        <Button fx:id="terminalButton" styleClass="terminal-button" onAction="#handleToggleTerminal">
-                            <graphic>
-                                <Label styleClass="icon" text="&#xE756;"/>
-                            </graphic>
-                        </Button>
-                    </HBox>
+                    <VBox>
+                        <HBox fx:id="chatHeader" styleClass="chat-header" alignment="CENTER_LEFT">
+                            <Label fx:id="sessionTitleLabel" styleClass="chat-header-title"
+                                   maxWidth="Infinity" ellipsisString="&#x2026;" HBox.hgrow="ALWAYS"/>
+                            <Button fx:id="terminalButton" styleClass="terminal-button" onAction="#handleToggleTerminal">
+                                <graphic>
+                                    <Label styleClass="icon" text="&#xE756;"/>
+                                </graphic>
+                            </Button>
+                        </HBox>
+                        <!-- 尚未配置模型时的常驻提示：只要无启用模型就一直显示，配置好后自动消失 -->
+                        <HBox fx:id="modelBanner" styleClass="model-banner" alignment="CENTER_LEFT"
+                              visible="false" managed="false">
+                            <Label styleClass="model-banner-icon" text="&#xE7BA;"/>
+                            <Label fx:id="modelBannerText" styleClass="model-banner-text"
+                                   maxWidth="Infinity" wrapText="true" HBox.hgrow="ALWAYS"/>
+                            <Button fx:id="modelBannerAction" styleClass="model-banner-action"
+                                    onAction="#handleBannerConfigureModel"/>
+                        </HBox>
+                    </VBox>
                 </top>
                 <center>
                     <SplitPane fx:id="chatSplit" orientation="VERTICAL" styleClass="chat-split">

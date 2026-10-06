@@ -212,6 +212,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private HBox chatHeader;
     @FXML
     private Label sessionTitleLabel;
+    /** 尚未配置模型时的常驻提示条（显隐由 {@link #refreshModelBanner()} 按有无启用模型驱动） */
+    @FXML
+    private HBox modelBanner;
+    @FXML
+    private Label modelBannerText;
+    @FXML
+    private Button modelBannerAction;
     @FXML
     private SplitPane chatSplit;
     @FXML
@@ -460,6 +467,26 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             }
             sidebarToggle.getTooltip().setText(I18n.t("chat.sidebar.toggle"));
         }
+        if (modelBannerText != null) {
+            modelBannerText.setText(I18n.t("chat.banner.noModel"));
+        }
+        if (modelBannerAction != null) {
+            modelBannerAction.setText(I18n.t("chat.banner.configure"));
+        }
+        refreshModelBanner();
+    }
+
+    /**
+     * 刷新「尚未配置模型」常驻提示：无任何启用模型时常驻显示，配置并启用任意模型后自动隐藏。
+     * <p>提示是全局状态驱动而非逐轮对话记录，故在启动、语言切换、设置页关闭三处重算。</p>
+     */
+    private void refreshModelBanner() {
+        if (modelBanner == null) {
+            return;
+        }
+        boolean missing = !providerAdminService.hasEnabledModel();
+        modelBanner.setVisible(missing);
+        modelBanner.setManaged(missing);
     }
 
     /**
@@ -531,7 +558,15 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             dropForeignSession();
             // 模型列表可能在设置页被增删改，重刷工具条模型按钮
             toolbar.renderModelButton();
+            // 若用户在设置页新启用了一个模型，常驻提示应随之消失
+            refreshModelBanner();
         });
+    }
+
+    /** 常驻提示上的「去配置」：直达设置「模型」页，引导用户添加并启用模型。 */
+    @FXML
+    public void handleBannerConfigureModel() {
+        handleOpenSettings(I18n.t("settings.menu.models"));
     }
 
     @FXML

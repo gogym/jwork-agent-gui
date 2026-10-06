@@ -82,6 +82,20 @@ public class ProviderAdminService {
         return db.modelConfigDao().findAll();
     }
 
+    /**
+     * 是否至少配置并启用了 1 个模型：驱动聊天页「尚未配置模型」常驻提示的显隐。
+     * <p>只认「启用」这一硬门槛——一个都没启用时无论怎样都发不出对话；一旦启用任意模型，
+     * 工具条即可选中它（或在设置里设为默认），提示随即消失。</p>
+     */
+    public boolean hasEnabledModel() {
+        for (ModelConfig m : db.modelConfigDao().findAll()) {
+            if (EnabledStatus.isEnabled(m.getEnabled())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public List<ModelConfig> listModels(String providerCode) {
         return db.modelConfigDao().findEnabledByProvider(providerCode);
     }
