@@ -1533,7 +1533,8 @@
 .ws-session-row {
     -fx-background-color: transparent;
     -fx-background-radius: 7;
-    -fx-padding: 5 6 5 8;
+    /* 左侧 16：会话行整体右移一点缩进（未分组/最近），与分组表头 caret 列相称 */
+    -fx-padding: 5 6 5 16;
     -fx-cursor: hand;
 }
 .ws-session-row:hover { -fx-background-color: -gim-cell-hover; }
@@ -1560,8 +1561,8 @@
     -fx-text-fill: -gim-section;
 }
 .session-subheader:hover .session-subheader-title { -fx-text-fill: -gim-text-2; }
-/* 组内会话行左缩进，与折叠 caret 对齐，视觉上归属于上方的组头 */
-.session-group-row { -fx-padding: 5 6 5 18; }
+/* 组内会话行左缩进，与折叠 caret 对齐，视觉上归属于上方的组头（比未分组再深一档） */
+.session-group-row { -fx-padding: 5 6 5 26; }
 /* 底部「+ 新建分组」行：文案与普通会话名同字号，弱色 */
 .session-new-group { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
 .session-new-group:hover { -fx-text-fill: -gim-text-2; }

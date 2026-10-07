@@ -102,6 +102,31 @@ public final class GimDialog {
         return result[0];
     }
 
+    /**
+     * 强制型多选项对话框：不可关闭（无标题栏关闭按钮、无 ESC、忽略关闭请求），
+     * 用户只能从给定的正向选项中选择一个，返回其索引；用于强制更新等必须响应的场景。
+     * 首个选项按主按钮样式高亮。
+     */
+    public static int chooseForced(Window owner, String title, String header, String message, String... options) {
+        int[] result = {-1};
+        Frame f = messageFrame(owner, title, header, message);
+        HBox actions = new HBox(8);
+        actions.getStyleClass().add("dialog-actions");
+        for (int i = 0; i < options.length; i++) {
+            int index = i;
+            Button b = actionButton(options[i], i == 0);
+            b.setOnAction(e -> {
+                result[0] = index;
+                f.stage.close();
+            });
+            actions.getChildren().add(b);
+        }
+        f.body.getChildren().add(actions);
+        prepare(f.stage);
+        f.stage.showAndWait();
+        return result[0];
+    }
+
     /** 自定义内容对话框壳：提供 {@link #body()} 内容容器与显示方法。 */
     public static final class Shell {
 
@@ -161,6 +186,16 @@ public final class GimDialog {
 
     /** 无边框窗口骨架：透明 Stage + 圆角壳 + 自绘标题栏（标题 + 关闭，可拖动）。 */
     private static Frame frame(Window owner, String title) {
+        return frame(owner, title, true);
+    }
+
+    /**
+     * 无边框窗口骨架。
+     *
+     * @param dismissible 是否可关闭：{@code true} 显示关闭按钮并支持 ESC；
+     *                    {@code false} 隐藏关闭按钮、禁用 ESC 并消费关闭请求（强制交互用）
+     */
+    private static Frame frame(Window owner, String title, boolean dismissible) {
         Stage stage = new Stage();
         stage.initStyle(StageStyle.TRANSPARENT);
         if (owner != null) {
@@ -179,7 +214,12 @@ public final class GimDialog {
         titleText.getStyleClass().add("title-text");
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        bar.getChildren().addAll(titleText, spacer, closeButton(stage));
+        bar.getChildren().addAll(titleText, spacer);
+        if (dismissible) {
+            bar.getChildren().add(closeButton(stage));
+        } else {
+            stage.setOnCloseRequest(e -> e.consume());
+        }
         installDrag(stage, bar);
 
         VBox body = new VBox();
@@ -202,7 +242,9 @@ public final class GimDialog {
 
         Scene scene = new Scene(root, Color.TRANSPARENT);
         UiTheme.apply(scene);
-        scene.getAccelerators().put(new KeyCodeCombination(KeyCode.ESCAPE), stage::close);
+        if (dismissible) {
+            scene.getAccelerators().put(new KeyCodeCombination(KeyCode.ESCAPE), stage::close);
+        }
         stage.setScene(scene);
         bindOwner(stage, owner);
         return new Frame(stage, body);

@@ -84,8 +84,8 @@ public class GimAgentApplication extends Application {
         stage.setScene(scene);
         stage.show();
 
-        // 更新检查：若开关开启且当日未查过，后台静默比对 GitHub 最新版（发现新版仅发托盘气泡）
-        springContext.getBean(com.gettyio.gim.agent.ui.update.UpdateChecker.class).maybeCheckOnStartup();
+        // 更新检查：若开关开启且当日未查过，后台静默比对服务器最新版（发现新版：强更弹模态，否则发托盘气泡）
+        springContext.getBean(com.gettyio.gim.agent.ui.update.UpdateChecker.class).maybeCheckOnStartup(stage);
     }
 
     @Override

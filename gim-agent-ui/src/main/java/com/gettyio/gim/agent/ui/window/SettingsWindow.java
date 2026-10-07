@@ -506,7 +506,7 @@ public class SettingsWindow {
         return box;
     }
 
-    /** 更新卡片：当前版本、每日静默检查开关、立即检查按钮。 */
+    /** 更新卡片：服务器地址、每日静默检查开关、立即检查按钮。 */
     private VBox updateCard() {
         Button check = iconTextButton("\uE777", I18n.t("settings.update.check"), this::handleCheckUpdate);
 
@@ -517,13 +517,28 @@ public class SettingsWindow {
             statusLabel.setText(I18n.t(sel ? "settings.update.autoOn" : "settings.update.autoOff"));
         });
 
+        TextField serverField = new TextField(updateChecker.getServerBaseUrl());
+        serverField.setPromptText(I18n.t("settings.update.server.prompt"));
+        serverField.setMaxWidth(360);
+        Runnable saveServer = () -> {
+            updateChecker.setServerBaseUrl(serverField.getText());
+            statusLabel.setText(I18n.t("settings.update.server.saved"));
+        };
+        serverField.setOnAction(e -> saveServer.run());
+        serverField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                saveServer.run();
+            }
+        });
+
         List<Node> rows = new ArrayList<>();
+        rows.add(settingRow(I18n.t("settings.update.server"), I18n.t("settings.update.server.desc"), serverField));
         rows.add(settingRow(I18n.t("settings.update.auto"), I18n.t("settings.update.auto.desc"), auto));
         rows.add(settingRow(I18n.t("settings.update.check"), I18n.t("settings.update.check.desc"), check));
         return groupCard(I18n.t("settings.group.update"), rows);
     }
 
-    /** 手动检查更新：后台请求 GitHub 最新版，命中新版弹「前往下载」，否则提示已最新。 */
+    /** 手动检查更新：向服务器查询新版，命中后下载并校验，再提示拉起安装。 */
     private void handleCheckUpdate() {
         statusLabel.setText(I18n.t("settings.update.checking"));
         Window owner = hostWindow();
@@ -532,14 +547,11 @@ public class SettingsWindow {
                 Optional<com.gettyio.gim.agent.ui.update.UpdateChecker.UpdateInfo> info = updateChecker.checkLatest();
                 Platform.runLater(() -> {
                     if (info.isPresent()) {
-                        int go = GimDialog.choose(owner, I18n.t("settings.update.found.title"), null,
-                                I18n.t("settings.update.found.body",
-                                        updateChecker.currentVersion(), info.get().version()),
-                                I18n.t("settings.update.go"), I18n.t("common.cancel"));
-                        if (go == 0) {
-                            updateChecker.openDownloadPage(info.get());
+                        if (info.get().forceUpdate()) {
+                            updateChecker.beginForced(owner, info.get(), statusLabel::setText);
+                        } else {
+                            confirmDownload(owner, info.get());
                         }
-                        statusLabel.setText(I18n.t("settings.update.found"));
                     } else {
                         GimDialog.message(owner, I18n.t("settings.update.latest.title"), null,
                                 I18n.t("settings.update.latest.body", updateChecker.currentVersion()));
@@ -553,6 +565,42 @@ public class SettingsWindow {
         }, "gim-update-check");
         t.setDaemon(true);
         t.start();
+    }
+
+    /** 发现新版：询问是否下载，确认后后台下载并校验，完成再询问是否安装。 */
+    private void confirmDownload(Window owner, com.gettyio.gim.agent.ui.update.UpdateChecker.UpdateInfo info) {
+        statusLabel.setText(I18n.t("settings.update.found"));
+        int go = GimDialog.choose(owner, I18n.t("settings.update.found.title"), null,
+                I18n.t("settings.update.found.body", updateChecker.currentVersion(), info.version()),
+                I18n.t("settings.update.download"), I18n.t("common.cancel"));
+        if (go != 0) {
+            return;
+        }
+        Thread t = new Thread(() -> {
+            try {
+                java.nio.file.Path file = updateChecker.download(info, ratio ->
+                        Platform.runLater(() -> statusLabel.setText(
+                                I18n.t("settings.update.downloading", (int) Math.round(ratio * 100)))));
+                Platform.runLater(() -> confirmInstall(owner, file));
+            } catch (Exception e) {
+                Platform.runLater(() -> statusLabel.setText(
+                        I18n.t("settings.update.downloadFail", String.valueOf(e.getMessage()))));
+            }
+        }, "gim-update-download");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** 下载完成：询问是否立即拉起安装。 */
+    private void confirmInstall(Window owner, java.nio.file.Path file) {
+        statusLabel.setText(I18n.t("settings.update.downloadDone"));
+        int go = GimDialog.choose(owner, I18n.t("settings.update.install.title"), null,
+                I18n.t("settings.update.install.body", file.getFileName().toString()),
+                I18n.t("settings.update.install"), I18n.t("common.cancel"));
+        if (go == 0) {
+            boolean ok = updateChecker.install(file);
+            statusLabel.setText(I18n.t(ok ? "settings.update.installStarted" : "settings.update.installFail"));
+        }
     }
 
     private Label valueLabel(String value) {
