@@ -503,6 +503,80 @@ public class ChatService {
         return sessionId;
     }
 
+    /** 置顶/取消置顶：不刷新 updated_at（排序靠 DAO 的 {@code pinned DESC}）。 */
+    public void setPinned(String sessionId, boolean pinned) {
+        db.sessionDao().updatePinned(sessionId, pinned);
+        log.info("{}会话: {}", pinned ? "置顶" : "取消置顶", sessionId);
+    }
+
+    /** 收藏/取消收藏：仅作为侧栏星标标记，不影响排序。 */
+    public void setFavorite(String sessionId, boolean favorite) {
+        db.sessionDao().updateFavorite(sessionId, favorite);
+        log.info("{}会话: {}", favorite ? "收藏" : "取消收藏", sessionId);
+    }
+
+    /**
+     * 分支（分叉）：把源会话连同其全部消息复制为一个新的独立会话，返回新 sessionId。
+     * <p>新会话记录 {@code parent_session_id} 溯源，标题加「（分支）」；消息按原序重放，
+     * 图片/文档引用仍指向源会话的附件目录（原件未清理时缩略图照常可见）。侧栏只到会话粒度，
+     * 故分支点即源会话的最新状态。</p>
+     */
+    public String branchSession(String sessionId) {
+        ChatSession src = db.sessionDao().findBySessionId(sessionId).orElse(null);
+        if (src == null) {
+            return sessionId;
+        }
+        String newId = UUID.randomUUID().toString();
+        ChatSession copy = new ChatSession();
+        copy.setSessionId(newId);
+        copy.setAgentCode(src.getAgentCode());
+        copy.setGroupId(src.getGroupId());
+        copy.setTitle(deriveBranchTitle(src.getTitle()));
+        copy.setModelCode(src.getModelCode());
+        copy.setStatus(SessionStatus.ACTIVE.name());
+        copy.setMessageCount(0);
+        copy.setParentSessionId(sessionId);
+        db.sessionDao().insert(copy);
+
+        List<ChatConversation> messages = db.conversationDao().findBySession(sessionId);
+        for (ChatConversation m : messages) {
+            ChatConversation c = new ChatConversation();
+            c.setSessionId(newId);
+            c.setAgentCode(m.getAgentCode());
+            c.setRole(m.getRole());
+            c.setContent(m.getContent());
+            c.setTokensInput(m.getTokensInput());
+            c.setTokensOutput(m.getTokensOutput());
+            c.setTokensCached(m.getTokensCached());
+            c.setLlmCalls(m.getLlmCalls());
+            c.setLlmElapsedMillis(m.getLlmElapsedMillis());
+            c.setModelCode(m.getModelCode());
+            c.setToolCalls(m.getToolCalls());
+            c.setMetadata(m.getMetadata());
+            c.setCreatedAt(LocalDateTime.now());
+            db.conversationDao().insert(c);
+        }
+        if (!messages.isEmpty()) {
+            db.sessionDao().incrementMessageCount(newId, messages.size());
+        }
+        log.info("分支会话: {} -> {}（复制 {} 条消息）", sessionId, newId, messages.size());
+        return newId;
+    }
+
+    /** 分支标题：原标题去空白后追加「（分支）」，仍受 {@link #TITLE_MAX_LEN} 截断。 */
+    private static String deriveBranchTitle(String base) {
+        String t = base == null ? "" : base.trim();
+        if (t.isEmpty()) {
+            t = "新会话";
+        }
+        String suffix = "（分支）";
+        int max = TITLE_MAX_LEN - suffix.length();
+        if (t.length() > max) {
+            t = t.substring(0, max);
+        }
+        return t + suffix;
+    }
+
     // ===================== 会话分组（纯 UI 组织层，归属到智能体） =====================
 
     /**

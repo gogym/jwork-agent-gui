@@ -3,6 +3,8 @@ package com.gettyio.gim.agent.ui.controller;
 import com.gettyio.gim.agent.core.chat.ChatRequest;
 import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.core.chat.FileAttachment;
+import com.gettyio.gim.agent.core.knowledge.KnowledgeService;
+import com.gettyio.gim.agent.core.plan.PlanService;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.MessageMetadataCodec;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
@@ -208,6 +210,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 输入区底栏的本轮用量条：流式 USAGE 事件与切换会话时刷新 */
     @FXML
     private Label usageBar;
+    /** 上下文占用进度条 + 文案：发送前预估当前会话 token / 上限，临界提示将触发压缩 */
+    @FXML
+    private javafx.scene.control.ProgressBar contextGauge;
+    @FXML
+    private Label contextBar;
     @FXML
     private HBox chatHeader;
     @FXML
@@ -290,7 +297,20 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private SecurityAdminService securityAdminService;
 
     @Autowired
+    private KnowledgeService knowledgeService;
+
+    @Autowired
+    private PlanService planService;
+
+    @Autowired
     private PromptTemplateAdminService promptTemplateAdminService;
+
+    @Autowired
+    private com.gettyio.gim.agent.ui.throttle.ModelRateGovernor rateGovernor;
+
+    /** 读应用级设置（上下文 token 上限）；仅取 settingDao 的只读用途 */
+    @Autowired
+    private com.gettyio.gim.agent.domain.GimDatabase database;
 
     private final ObservableList<ChatSession> sessions = FXCollections.observableArrayList();
     private String currentSessionId;
@@ -333,6 +353,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 handleSend();
             }
         });
+        // 输入变化即时刷新上下文占用条（预估下一轮的提示词体量）
+        inputField.textProperty().addListener((obs, o, nv) -> updateContextBar());
 
         // 侧栏导航切换主区页面（对话 / 定时任务 / 技能）
         mainPages.getChildren().setAll(chatPage);
@@ -513,6 +535,25 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 I18n.t("about.body", gimPaths.root()));
     }
 
+    /** 附件条「存入知识库」：抽文本落盘到当前智能体 knowledge/ 并回报结果（与本轮发送无关）。 */
+    @Override
+    public void importAttachmentToKnowledge(FileAttachment attachment) {
+        if (attachment == null || attachment.base64Data() == null) {
+            return;
+        }
+        try {
+            byte[] bytes = java.util.Base64.getDecoder().decode(attachment.base64Data());
+            String stored = knowledgeService.importDocument(
+                    currentAgentCode(), attachment.fileName(), attachment.mediaType(), bytes, null);
+            GimDialog.message(currentWindow(), I18n.t("knowledge.title"), null,
+                    I18n.t("knowledge.attach.ok", attachment.fileName(), stored));
+        } catch (RuntimeException e) {
+            String msg = e.getMessage();
+            GimDialog.message(currentWindow(), I18n.t("knowledge.title"), null,
+                    msg == null || msg.isBlank() ? I18n.t("common.error.unknown") : msg);
+        }
+    }
+
     @Override
     public void openSettings(String menuLabel) {
         handleOpenSettings(menuLabel);
@@ -583,6 +624,19 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         if (!hasText && !hasImages && !hasRefs && !hasDocs) {
             return;
         }
+        // 发送前的两道硬拦：非视觉模型禁用图片发送、模型速率（RPM/TPM）超限节流。拦下时保留草稿不建会话
+        String gateModel = effectiveModelForSend();
+        if (hasImages && gateModel != null && !providerAdminService.modelSupportsVision(gateModel)) {
+            GimDialog.message(ownerWindow(), I18n.t("vision.blocked.title"),
+                    I18n.t("vision.blocked.title"), I18n.t("vision.blocked"));
+            return;
+        }
+        String rateBlocked = gateModel == null ? null : rateGovernor.blockedReason(gateModel);
+        if (rateBlocked != null) {
+            GimDialog.message(ownerWindow(), I18n.t("rate.limit.title"),
+                    I18n.t("rate.limit.title"), rateBlocked);
+            return;
+        }
         if (currentSessionId == null) {
             // 首条消息才建会话，归属当前选中的智能体；先让侧栏看到这一行，不等回复跑完
             currentSessionId = chatService.createSession(currentAgentCode());
@@ -614,8 +668,45 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 .files(docs)
                 .permissionMode(toolbar.approvalMode())
                 .autoApprove(toolbar.approvalAutoApprove())
+                .planMode(toolbar.planModeRequested())
                 .build();
-        runStream(chatService.chat(req), sessionId);
+        rateGovernor.recordRequest(gateModel);
+        runStream(chatService.chat(req), sessionId, req.isPlanMode());
+        updateContextBar();
+    }
+
+    /**
+     * 本轮发送实际使用的模型编码（供 vision/速率判定）：工具条手选优先，否则取应用默认模型；
+     * 两者皆空（未配置默认）时返回 {@code null}，判定层据此一律放行。
+     */
+    private String effectiveModelForSend() {
+        String sel = toolbar.selectedModelCode();
+        if (sel != null && !sel.isBlank()) {
+            return sel;
+        }
+        return providerAdminService.getDefaultModelCode().orElse(null);
+    }
+
+    /** 供启动接线/托盘唤回：聚焦主窗输入框并把光标移到文末（主窗显隐由生命周期处理）。 */
+    public void focusComposer() {
+        if (inputField != null) {
+            inputField.requestFocus();
+            inputField.positionCaret(inputField.getLength());
+        }
+    }
+
+    /**
+     * 截屏提问：冻结屏幕 → 拖框圈选区域 → 作为图片附件注入当前输入框（全局热键接线调用）。
+     * <p>取消圈选或抓取失败时静默；成功注入后回焦输入框，等待用户补充问题再发送。</p>
+     */
+    public void captureScreenshotToComposer() {
+        com.gettyio.gim.agent.ui.desktop.ScreenshotCapture.captureRegion(bytes ->
+                Platform.runLater(() -> {
+                    attachmentBar.addImage("screenshot.png", bytes);
+                    if (inputField != null) {
+                        inputField.requestFocus();
+                    }
+                }));
     }
 
     /**
@@ -624,6 +715,14 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
      * （用户消息、删除旧助手）已在 {@code flux} 组装时于服务层同步完成，此处只订阅流。</p>
      */
     private void runStream(Flux<StreamEvent> flux, String sessionId) {
+        runStream(flux, sessionId, false);
+    }
+
+    /**
+     * 统一的流式收发（带规划轮标志）：当 {@code planTurn} 为真且本轮跑完后，
+     * 若智能体工作区已生成 {@code plans/PLAN.md}，弹出可编辑面板供用户确认/修改计划。
+     */
+    private void runStream(Flux<StreamEvent> flux, String sessionId, boolean planTurn) {
         com.gettyio.gim.agent.ui.chat.AssistantBubble bubble = messageRenderer.appendAssistantBubble();
         StringBuilder acc = new StringBuilder();
         enterStreamingUi(sessionId);
@@ -654,8 +753,48 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                             refreshSessions();
                             // 完成：从库重放，令刚落的助手/用户气泡拿到真实主键与操作能力
                             renderSessionMessages(sessionId);
+                            // 规划轮跑完：展示并让用户确认/编辑计划文件
+                            if (planTurn) {
+                                reviewPlan(agentOfSession(sessionId));
+                            }
                         })
                 );
+    }
+
+    /**
+     * 展示规划轮产出的 {@code plans/PLAN.md}：只读预览不够，用户可直接改后保存；
+     * 保存写回同一文件，下一轮取消勾选规划模式即按此计划执行。
+     */
+    private void reviewPlan(String agentCode) {
+        if (planService == null || !planService.exists(agentCode)) {
+            return;
+        }
+        GimDialog.Shell shell = GimDialog.shell(ownerWindow(), I18n.t("plan.review.title"));
+        Label hint = new Label(I18n.t("plan.review.hint"));
+        hint.getStyleClass().add("dialog-message");
+        hint.setWrapText(true);
+        hint.setMaxWidth(640);
+        TextArea area = new TextArea(planService.read(agentCode));
+        area.setWrapText(true);
+        area.getStyleClass().add("memory-area");
+        area.setPrefColumnCount(72);
+        area.setPrefRowCount(20);
+        area.setMaxWidth(Double.MAX_VALUE);
+        Button cancel = new Button(I18n.t("common.cancel"));
+        cancel.setMinWidth(76);
+        cancel.setOnAction(e -> shell.stage().close());
+        Button save = new Button(I18n.t("plan.review.save"));
+        save.getStyleClass().add("btn-primary");
+        save.setMinWidth(76);
+        save.setOnAction(e -> {
+            planService.write(agentCode, area.getText());
+            shell.stage().close();
+        });
+        HBox actions = new HBox(8, cancel, save);
+        actions.getStyleClass().add("dialog-actions");
+        actions.setAlignment(Pos.CENTER_RIGHT);
+        shell.body().getChildren().addAll(hint, area, actions);
+        shell.showAndWait();
     }
 
     /** 发送按钮的停止态入口：在途流存在则停止，否则正常发送（FXML 绑此方法）。 */
@@ -752,6 +891,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             }
         }
         updateUsageFromSession(sessionId);
+        updateContextBar();
     }
 
     // ===================== 本轮用量条（输入区底栏）=====================
@@ -816,6 +956,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         usageBar.setText(sb.toString());
         usageBar.setVisible(true);
         usageBar.setManaged(true);
+        // 回报本轮真实 token 用量给速率治理（TPM 滑窗计数）
+        rateGovernor.recordTokens(modelCode, (long) usage.inputTokens() + usage.outputTokens());
     }
 
     private void hideUsage() {
@@ -823,6 +965,105 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             usageBar.setVisible(false);
             usageBar.setManaged(false);
         }
+    }
+
+    // ===================== 上下文占用条（输入区底栏）=====================
+
+    /** 上下文上限默认值（token）：未配置 {@code context.max.tokens} 时用。 */
+    private static final int DEFAULT_CONTEXT_TOKENS = 128_000;
+    /** 应用级设置键：上下文窗口上限（token），供占用条分母。 */
+    private static final String KEY_CONTEXT_MAX_TOKENS = "context.max.tokens";
+    /** 占用率达到该阈值即转警示色并提示将触发历史压缩。 */
+    private static final double CONTEXT_WARN_RATIO = 0.85;
+    /** 字符→token 粗估系数（中英混排经验值），仅在拿不到真实回报时兜底。 */
+    private static final double CHARS_PER_TOKEN = 2.5;
+
+    /**
+     * 刷新上下文占用条：以会话上一轮助手回报的 {@code tokens_input}（即真实提示词体量）为基准，
+     * 叠加待发送输入框的估算 token；拿不到回报时退而按全部历史字符粗估。接近上限时转红并提示将压缩。
+     */
+    private void updateContextBar() {
+        if (contextBar == null || contextGauge == null) {
+            return;
+        }
+        if (currentSessionId == null) {
+            hideContextBar();
+            return;
+        }
+        List<ChatConversation> history = chatService.history(currentSessionId);
+        Integer lastInput = null;
+        long chars = 0;
+        for (ChatConversation c : history) {
+            if (c.getContent() != null) {
+                chars += c.getContent().length();
+            }
+            if (ConversationRole.ASSISTANT.getCode().equalsIgnoreCase(c.getRole())
+                    && c.getTokensInput() != null && c.getTokensInput() > 0) {
+                lastInput = c.getTokensInput();
+            }
+        }
+        int pending = estimateTokens(inputField.getText());
+        int estimated = (lastInput != null && lastInput > 0)
+                ? lastInput + pending
+                : (int) Math.round(chars / CHARS_PER_TOKEN) + pending;
+        int limit = contextTokenLimit();
+        double ratio = limit > 0 ? (double) estimated / limit : 0;
+        boolean near = ratio >= CONTEXT_WARN_RATIO;
+
+        contextGauge.setProgress(Math.max(0.0, Math.min(1.0, ratio)));
+        contextBar.setText(I18n.t("context.usage", formatK(estimated), formatK(limit)));
+        contextBar.setTooltip(new Tooltip(I18n.t(near ? "context.warn" : "context.info",
+                formatK(estimated), formatK(limit))));
+        if (contextBar.getStyleClass().contains("context-bar-warn")) {
+            contextBar.getStyleClass().remove("context-bar-warn");
+        }
+        if (near) {
+            contextBar.getStyleClass().add("context-bar-warn");
+        }
+        contextBar.setVisible(true);
+        contextBar.setManaged(true);
+        contextGauge.setVisible(true);
+        contextGauge.setManaged(true);
+    }
+
+    private void hideContextBar() {
+        if (contextBar != null) {
+            contextBar.setVisible(false);
+            contextBar.setManaged(false);
+        }
+        if (contextGauge != null) {
+            contextGauge.setVisible(false);
+            contextGauge.setManaged(false);
+        }
+    }
+
+    /** 读上下文 token 上限：应用级设置优先，非法或未配置回退默认。 */
+    private int contextTokenLimit() {
+        try {
+            return database.settingDao().getValue(KEY_CONTEXT_MAX_TOKENS)
+                    .map(s -> {
+                        int v = Integer.parseInt(s.trim());
+                        return v > 0 ? v : DEFAULT_CONTEXT_TOKENS;
+                    })
+                    .orElse(DEFAULT_CONTEXT_TOKENS);
+        } catch (RuntimeException e) {
+            return DEFAULT_CONTEXT_TOKENS;
+        }
+    }
+
+    private static int estimateTokens(String text) {
+        if (text == null || text.isBlank()) {
+            return 0;
+        }
+        return (int) Math.round(text.length() / CHARS_PER_TOKEN);
+    }
+
+    /** token 数简写：≥ 1000 显示为 x.yk，否则原样。 */
+    private static String formatK(int tokens) {
+        if (tokens < 1000) {
+            return String.valueOf(tokens);
+        }
+        return String.format(java.util.Locale.ROOT, "%.1fk", tokens / 1000.0);
     }
 
     private static int nz(Integer v) {
@@ -856,9 +1097,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         String text = lastUser.getContent() == null ? "" : lastUser.getContent();
         // regenerate 组装时已同步删掉库里的最后一条助手消息；先重放去掉旧气泡，再流式补新的
-        Flux<StreamEvent> flux = chatService.regenerate(buildRequest(sid, text));
+        ChatRequest req = buildRequest(sid, text);
+        Flux<StreamEvent> flux = chatService.regenerate(req);
         renderSessionMessages(sid);
-        runStream(flux, sid);
+        runStream(flux, sid, req.isPlanMode());
     }
 
     @Override
@@ -876,9 +1118,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             return;
         }
         // editAndResend 组装时已截断该条及其后全部并落了新的用户消息；重放后再流式应答
-        Flux<StreamEvent> flux = chatService.editAndResend(buildRequest(sid, edited.get()), conversationId);
+        ChatRequest req = buildRequest(sid, edited.get());
+        Flux<StreamEvent> flux = chatService.editAndResend(req, conversationId);
         renderSessionMessages(sid);
-        runStream(flux, sid);
+        runStream(flux, sid, req.isPlanMode());
     }
 
     @Override
@@ -908,6 +1151,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 .modelCode(toolbar.selectedModelCode())
                 .permissionMode(toolbar.approvalMode())
                 .autoApprove(toolbar.approvalAutoApprove())
+                .planMode(toolbar.planModeRequested())
                 .build();
     }
 

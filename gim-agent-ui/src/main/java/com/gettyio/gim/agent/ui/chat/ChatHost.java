@@ -1,5 +1,6 @@
 package com.gettyio.gim.agent.ui.chat;
 
+import com.gettyio.gim.agent.core.chat.FileAttachment;
 import javafx.scene.Scene;
 import javafx.stage.Window;
 
@@ -21,4 +22,10 @@ public interface ChatHost {
 
     /** 弹出「关于」对话框。 */
     void showAbout();
+
+    /**
+     * 将一个待发文档附件存入当前智能体的知识库（抽文本落盘 {@code knowledge/} 并更新索引）。
+     * <p>区别于本轮临时抽取：这是“长期入库”，与当轮是否发送无关。</p>
+     */
+    void importAttachmentToKnowledge(FileAttachment attachment);
 }

@@ -35,4 +35,7 @@ public class ChatRequest {
     /** 自动通过档（配合 ACCEPT_EDITS）：确认事件照常触发拦截链评估，但 ASK 不弹窗直接放行。 */
     @Builder.Default
     private final boolean autoApprove = false;
+    /** 规划档：为 true 时本轮先以只读计划模式运行（进入/退出包在流两端），智能体只调查与写计划、不改文件。 */
+    @Builder.Default
+    private final boolean planMode = false;
 }

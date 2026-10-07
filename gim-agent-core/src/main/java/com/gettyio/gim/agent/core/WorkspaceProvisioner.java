@@ -28,6 +28,8 @@ public class WorkspaceProvisioner {
               并用 list_tasks / cancel_task 管理与查询任务。若是一次性「指定时刻」执行（如“明天 8 点提醒我”），
               改传 run_at 参数（yyyy-MM-dd HH:mm:ss），它与 cron 互斥。
             - 技能复用：workspace/skills/ 下已启用的技能（SKILL.md）定义了专项任务规范，命中时应遵循。
+            - 联网检索：需要实时信息（新闻、价格、最新版本、知识截止后的事实）时，使用 web_search 搜索，
+              必要时用 web_fetch 读取某条链接的完整正文。
             - 简洁直接：回答以可执行为先，避免冗余。
             """;
 
@@ -35,6 +37,13 @@ public class WorkspaceProvisioner {
             # 长期记忆
 
             （由 Harness 自动维护，记录用户偏好、常用事实与约定）
+            """;
+
+    private static final String DEFAULT_KNOWLEDGE_MD = """
+            # 知识库目录
+
+            （本目录存放可长期参考的资料；每导入一份资料，在此追加一行「文件名 — 一句话摘要」，
+            便于智能体按需定位与读取。）
             """;
 
     private final GimPaths paths;
@@ -48,6 +57,7 @@ public class WorkspaceProvisioner {
             createDirs();
             ensureFile(paths.agentsMd(), DEFAULT_AGENTS_MD);
             ensureFile(paths.memoryMd(), DEFAULT_MEMORY_MD);
+            ensureFile(paths.knowledgeMd(), DEFAULT_KNOWLEDGE_MD);
             log.info("工作区就绪: {}", paths.workspaceDir());
         } catch (IOException e) {
             throw new UncheckedIOException("初始化工作区失败", e);
@@ -59,6 +69,7 @@ public class WorkspaceProvisioner {
         Files.createDirectories(paths.workspaceDir());
         Files.createDirectories(paths.skillsDir());
         Files.createDirectories(paths.knowledgeDir());
+        Files.createDirectories(paths.memoryDir());
         Files.createDirectories(paths.logsDir());
         Files.createDirectories(paths.backupsDir());
         Files.createDirectories(paths.attachmentsDir());

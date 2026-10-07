@@ -26,6 +26,8 @@ import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.memory.MemoryConfig;
+import io.agentscope.harness.agent.subagent.SubagentDeclaration;
 import io.agentscope.harness.agent.filesystem.spec.LocalFilesystemSpec;
 import io.agentscope.harness.agent.tools.McpServerRegistrationListener;
 import io.agentscope.harness.agent.tools.ToolsConfig;
@@ -108,6 +110,17 @@ public class HarnessAgentGateway implements AutoCloseable {
     private final List<Object> toolTargets = new CopyOnWriteArrayList<>();
     /** 上下文窗口 token 上限（装配时下发给 Harness）；由装配方按 AppSetting 覆盖，默认 {@link #DEFAULT_MAX_CONTEXT_TOKENS} */
     private volatile int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS;
+    /** 长期记忆配置（{@code null} 沿用 Harness 内置默认）：由装配方按应用设置下发 flush 节流等。 */
+    private volatile MemoryConfig memoryConfig;
+    /** 长期记忆开关（默认开）：关闭时不下发记忆工具与记忆钩子，但保留工作区上下文注入。 */
+    private volatile boolean memoryEnabled = true;
+    /** 计划模式开关（默认开）：开启后注册 plan_enter/plan_write/plan_exit 工具与只读中间件，供规划轮使用。 */
+    private volatile boolean planModeEnabled = true;
+    /**
+     * 可委派的子智能体声明（由装配方按其它启用智能体定义下发）。
+     * 非空时装配走静态子智能体中间件，精确按库内定义注册委派对象；空/null 即不启用子智能体编排。
+     */
+    private volatile List<SubagentDeclaration> subagentDeclarations;
 
     private volatile HarnessAgent agent;
 
@@ -145,6 +158,36 @@ public class HarnessAgentGateway implements AutoCloseable {
     /** 指定技能目录（workspace/skills），Harness 将以 FileSystemSkillRepository 加载其中的 SKILL.md */
     public void setSkillsDir(Path skillsDir) {
         this.skillsDir = skillsDir;
+    }
+
+    /**
+     * 下发长期记忆配置（flush 触发策略、记忆模型等）。{@code null} 表示沿用 Harness 默认（每次调用后 flush）。
+     * 需在智能体首次装配（或失效重建）前调用才会生效。
+     */
+    public void setMemoryConfig(MemoryConfig memoryConfig) {
+        this.memoryConfig = memoryConfig;
+    }
+
+    /** 长期记忆总开关；关闭后不再注册 memory_save/search/get 工具与沉淀钩子（保留工作区上下文注入）。 */
+    public void setMemoryEnabled(boolean memoryEnabled) {
+        this.memoryEnabled = memoryEnabled;
+    }
+
+    /**
+     * 计划模式总开关：开启后装配时调 {@code enablePlanMode}（注册 plan_* 工具与只读中间件）。
+     * 需在智能体首次装配（或失效重建）前调用才生效；规划轮依赖它存在。
+     */
+    public void setPlanModeEnabled(boolean planModeEnabled) {
+        this.planModeEnabled = planModeEnabled;
+    }
+
+    /**
+     * 下发可委派的子智能体声明。非空时装配会 {@code disableDynamicSubagents()} 走静态中间件，
+     * 严格按数据库定义注册委派对象（避免动态中间件每步重扫工作区而丢弃 builder 声明）。
+     * 需在智能体首次装配（或失效重建）前调用才生效。
+     */
+    public void setSubagentDeclarations(List<SubagentDeclaration> subagentDeclarations) {
+        this.subagentDeclarations = subagentDeclarations;
     }
 
     /** 授权项目目录；必须在首次装配前设置（null 表示不开放项目目录读写，写操作全部落在工作区） */
@@ -251,6 +294,25 @@ public class HarnessAgentGateway implements AutoCloseable {
                             log.warn("备用模型解析失败，仅用主模型继续: agent={}", agentId, e);
                         }
                     }
+                    if (this.planModeEnabled) {
+                        // 注册 plan_enter/plan_write/plan_exit 工具与 PlanModeMiddleware（计划态只读）；
+                        // allowShellInPlanMode 默认不开（设计阶段不跑副作用命令）
+                        builder = builder.enablePlanMode();
+                    }
+                    MemoryConfig memCfg = this.memoryConfig;
+                    if (memCfg != null) {
+                        // 记忆沉淀策略（flush 节流 / 记忆模型）按应用设置下发；null 即沿用框架默认
+                        builder = builder.memory(memCfg);
+                    }
+                    if (!this.memoryEnabled) {
+                        // 仅关闭记忆工具与沉淀钩子；工作区上下文（AGENTS.md/MEMORY.md 注入）照常
+                        builder = builder.disableMemoryTools().disableMemoryHooks();
+                    }
+                    List<SubagentDeclaration> subs = this.subagentDeclarations;
+                    if (subs != null && !subs.isEmpty()) {
+                        // 按数据库定义静态注册可委派子智能体；关闭动态扫描避免每步重扫工作区丢弃这些声明
+                        builder = builder.subagents(subs).disableDynamicSubagents();
+                    }
                     local = builder.build();
                     for (Object target : toolTargets) {
                         local.getToolkit().registerTool(target);
@@ -299,13 +361,29 @@ public class HarnessAgentGateway implements AutoCloseable {
                 ? PermissionMode.ACCEPT_EDITS : request.getPermissionMode();
         // 自动通过档：框架仍发确认事件，但本运行体收到 ASK 时不弹窗、直接放行（黑名单照旧）
         this.autoApprove = request.isAutoApprove();
+        // 规划轮：仅当请求标 planMode 且本智能体已装配计划模式时，进入/退出只读设计态
+        boolean planTurn = request.isPlanMode() && this.planModeEnabled;
         // 整条流（含 HITL 续跑的每一段）共享一个用量累加器；流结束时一次性下发累计用量
         AtomicReference<TokenUsage> usageAcc = new AtomicReference<>(TokenUsage.ZERO);
         // 整条流共享一张工具调用跟踪表（toolCallId → 入参/输出/起始时刻），收尾时合成 TOOL_END
         Map<String, ToolTrack> toolTracks = new ConcurrentHashMap<>();
         return Flux.defer(() -> {
-                    agent().setPermissionMode(ctx, mode);
+                    HarnessAgent a = agent();
+                    a.setPermissionMode(ctx, mode);
+                    if (planTurn) {
+                        a.enterPlanMode(ctx);
+                    }
                     return runEvents(input, ctx, sessionId, usageAcc, toolTracks);
+                })
+                .doFinally(sig -> {
+                    if (planTurn) {
+                        // 本轮结束时回到 BUILD（幂等）；若模型已自行 plan_exit 则无影响
+                        try {
+                            agent().exitPlanMode(ctx);
+                        } catch (RuntimeException e) {
+                            log.warn("退出计划态失败: session={}", sessionId, e);
+                        }
+                    }
                 })
                 .concatWith(Flux.defer(() -> {
                     TokenUsage total = usageAcc.get();

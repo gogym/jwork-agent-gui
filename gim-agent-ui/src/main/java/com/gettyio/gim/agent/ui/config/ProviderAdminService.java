@@ -100,6 +100,20 @@ public class ProviderAdminService {
         return db.modelConfigDao().findEnabledByProvider(providerCode);
     }
 
+    /**
+     * 该模型能否发图片：仅当 {@code supports_vision} 明确测得为 0（不支持）时返回 {@code false}。
+     * <p>未测（null）或模型不存在时一律放行——能力位只在多模态测试确认「不支持」后才作为硬拦拦依据，
+     * 避免因未测而过紧拦拦正常发送。</p>
+     */
+    public boolean modelSupportsVision(String modelCode) {
+        if (modelCode == null || modelCode.isBlank()) {
+            return true;
+        }
+        return db.modelConfigDao().findByCode(modelCode)
+                .map(m -> !Integer.valueOf(0).equals(m.getSupportsVision()))
+                .orElse(true);
+    }
+
     public void saveModel(ModelConfig form) {
         if (form.getEnabled() == null) {
             form.setEnabled(EnabledStatus.ENABLED);

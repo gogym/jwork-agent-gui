@@ -3,6 +3,7 @@
 <?import javafx.scene.control.Button?>
 <?import javafx.scene.control.ComboBox?>
 <?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressBar?>
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.Separator?>
 <?import javafx.scene.control.SplitPane?>
@@ -175,6 +176,8 @@
                                             <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
                                             <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
                                             <Label fx:id="usageBar" styleClass="usage-bar" managed="false" visible="false"/>
+                                            <ProgressBar fx:id="contextGauge" styleClass="context-gauge" prefWidth="72.0" maxWidth="72.0" progress="0.0" managed="false" visible="false"/>
+                                            <Label fx:id="contextBar" styleClass="context-bar" managed="false" visible="false"/>
                                             <Region HBox.hgrow="ALWAYS"/>
                                             <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
                                             <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSendOrStop">

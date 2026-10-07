@@ -30,6 +30,15 @@ public class ChatSession {
     /** ACTIVE / CLOSED，见 SessionStatus */
     private String status;
 
+    /** 置顶：1=置顶，侧栏置顶会话恒排在最前 */
+    private Integer pinned = 0;
+
+    /** 收藏：1=收藏，侧栏以星标标记 */
+    private Integer favorite = 0;
+
+    /** 分支来源会话 ID（复制会话到新分叉点时记录父会话），非分支会话为 null */
+    private String parentSessionId;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

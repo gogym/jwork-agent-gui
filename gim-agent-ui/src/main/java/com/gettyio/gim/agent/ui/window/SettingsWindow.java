@@ -120,6 +120,9 @@ public class SettingsWindow {
     @Autowired
     private com.gettyio.gim.agent.ui.update.UpdateChecker updateChecker;
 
+    @Autowired
+    private com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService globalHotkeyService;
+
     private final ListView<ModelProviderConfig> providerListView = new ListView<>();
     private final ListView<ModelConfig> modelListView = new ListView<>();
     /** 信息卡片固定宽度：不铺满整行；有内容时左对齐，空状态居中。 */
@@ -690,7 +693,24 @@ public class SettingsWindow {
         List<Node> rows = new ArrayList<>();
         rows.add(settingRow(I18n.t("settings.close.action"), I18n.t("settings.close.action.desc"), closeCombo));
         rows.add(settingRow(I18n.t("settings.autostart"), I18n.t("settings.autostart.desc"), autoControl));
+        rows.add(settingRow(I18n.t("settings.hotkey"), I18n.t("settings.hotkey.desc"), hotkeyControl()));
         return groupCard(I18n.t("settings.group.startupClose"), rows);
+    }
+
+    /**
+     * 全局热键开关控件：仅 Windows 可用（与 {@link com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService#isSupported()} 同口径）；
+     * 切换即写 {@code app.hotkey.enabled} 并即时注册/反注册。不支持平台显示不可用文案。
+     */
+    private Node hotkeyControl() {
+        if (!globalHotkeyService.isSupported()) {
+            Label na = new Label(I18n.t("settings.hotkey.unavailable"));
+            na.getStyleClass().add("row-value");
+            return na;
+        }
+        ToggleSwitch hotkey = new ToggleSwitch();
+        hotkey.setSelected(globalHotkeyService.isEnabled());
+        hotkey.selectedProperty().addListener((obs, o, sel) -> globalHotkeyService.setEnabled(sel));
+        return hotkey;
     }
 
     /** 数据维护卡片：立即备份 / 导出会话 / 导出全库 / 打开备份目录 / 打开数据目录。 */
@@ -755,22 +775,35 @@ public class SettingsWindow {
             return;
         }
         ChatSession chosen = sessions.get(idx);
+        String base = chosen.getTitle() == null || chosen.getTitle().isBlank() ? chosen.getSessionId() : chosen.getTitle();
         FileChooser chooser = new FileChooser();
         chooser.setTitle(I18n.t("settings.export.session"));
-        chooser.setInitialFileName(exportService.suggestedFileName(
-                chosen.getTitle() == null || chosen.getTitle().isBlank() ? chosen.getSessionId() : chosen.getTitle(),
-                ".md"));
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter("Markdown", "*.md"));
+        chooser.setInitialFileName(exportService.suggestedFileName(base, ".md"));
+        FileChooser.ExtensionFilter md = new FileChooser.ExtensionFilter("Markdown (*.md)", "*.md");
+        FileChooser.ExtensionFilter pdf = new FileChooser.ExtensionFilter("PDF (*.pdf)", "*.pdf");
+        FileChooser.ExtensionFilter docx = new FileChooser.ExtensionFilter("DOCX (*.docx)", "*.docx");
+        chooser.getExtensionFilters().addAll(md, pdf, docx);
         File file = chooser.showSaveDialog(hostWindow());
         if (file == null) {
             return;
         }
         String sessionId = chosen.getSessionId();
-        Path target = file.toPath();
+        FileChooser.ExtensionFilter sel = chooser.getSelectedExtensionFilter();
+        Path target = withExtension(file.toPath(), sel == pdf ? ".pdf" : sel == docx ? ".docx" : ".md");
+        boolean asPdf = sel == pdf;
+        boolean asDocx = sel == docx;
         runInBackground("settings.export.session",
                 () -> Optional.of(I18n.t("settings.export.done",
-                        exportService.exportSessionMarkdown(sessionId, target).getFileName())),
+                        (asPdf ? exportService.exportSessionPdf(sessionId, target)
+                                : asDocx ? exportService.exportSessionDocx(sessionId, target)
+                                        : exportService.exportSessionMarkdown(sessionId, target)).getFileName())),
                 null);
+    }
+
+    /** 用户未按选中格式补后缀时自动补上，保证扩展名与导出内容一致。 */
+    private static Path withExtension(Path p, String ext) {
+        String name = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
+        return name.endsWith(ext) ? p : Path.of(p.toString() + ext);
     }
 
     /** 导出全库为 JSON。 */
@@ -1847,6 +1880,7 @@ public class SettingsWindow {
 
         addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.tools"), buildToolGuardTab());
         addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.file"), buildFileGuardTab());
+        addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.web"), buildWebTab());
         addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.grant"), buildGrantTab());
         if (!subGroup.getToggles().isEmpty()) {
             ((ToggleButton) subGroup.getToggles().get(0)).setSelected(true);
@@ -1921,6 +1955,41 @@ public class SettingsWindow {
         builtin.getStyleClass().add("row-desc");
         builtin.setWrapText(true);
         tab.getChildren().add(builtin);
+        return tab;
+    }
+
+    /** 联网 Tab：联网搜索提供方与 API Key（加密存储），供 web_search / web_fetch 工具实时取用。 */
+    private VBox buildWebTab() {
+        VBox tab = new VBox(16);
+        tab.getStyleClass().add("settings-subtab-page");
+        tab.setMaxWidth(Double.MAX_VALUE);
+
+        ComboBox<String> providerCombo = pillCombo("Tavily");
+        providerCombo.setValue(I18n.t("settings.security.web.provider.tavily"));
+        providerCombo.setOnAction(e -> securityAdminService.setWebSearchProvider(SecurityAdminService.WEB_PROVIDER_TAVILY));
+
+        PasswordField keyField = new PasswordField();
+        keyField.setText(securityAdminService.getWebSearchApiKeyPlain());
+        keyField.setPromptText(I18n.t("settings.security.web.key.prompt"));
+        keyField.setMaxWidth(360);
+        Runnable saveKey = () -> securityAdminService.setWebSearchApiKey(keyField.getText());
+        keyField.setOnAction(e -> saveKey.run());
+        keyField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                saveKey.run();
+            }
+        });
+
+        tab.getChildren().add(groupCard(I18n.t("settings.security.web.group"), List.of(
+                settingRow(I18n.t("settings.security.web.provider"),
+                        I18n.t("settings.security.web.provider.desc"), providerCombo),
+                settingRow(I18n.t("settings.security.web.key"),
+                        I18n.t("settings.security.web.key.desc"), keyField))));
+
+        Label hint = new Label(I18n.t("settings.security.web.hint"));
+        hint.getStyleClass().add("row-desc");
+        hint.setWrapText(true);
+        tab.getChildren().add(hint);
         return tab;
     }
 

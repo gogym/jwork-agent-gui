@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gettyio.gim.agent.core.capability.CapabilityCodec;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ToolPermissionRule;
+import com.gettyio.gim.agent.domain.security.SecretCipher;
 import com.gettyio.gim.agent.tools.guard.DangerousCommandPolicy;
 import com.gettyio.gim.agent.tools.guard.DangerousRule;
 
@@ -34,6 +35,11 @@ public class SecurityAdminService {
     private static final String KEY_DANGEROUS_RULES = "security.dangerous.rules";
     private static final String KEY_SHELL_ALLOWLIST = "security.shell.allowlist";
     private static final String KEY_PATH_ROOTS = "security.path.roots";
+    private static final String KEY_WEB_PROVIDER = "web.search.provider";
+    private static final String KEY_WEB_APIKEY = "web.search.apiKey";
+
+    /** 联网搜索提供方默认值（当前仅内置 Tavily）。 */
+    public static final String WEB_PROVIDER_TAVILY = "tavily";
 
     /** 审批档位取值（与聊天页 ApprovalOption 对应）。 */
     public static final String APPROVAL_ASK = "ask";
@@ -41,9 +47,11 @@ public class SecurityAdminService {
     public static final String APPROVAL_READONLY = "readonly";
 
     private final GimDatabase db;
+    private final SecretCipher cipher;
 
-    public SecurityAdminService(GimDatabase db) {
+    public SecurityAdminService(GimDatabase db, SecretCipher cipher) {
         this.db = db;
+        this.cipher = cipher;
     }
 
     // ===================== 审批档位默认 =====================
@@ -205,6 +213,48 @@ public class SecurityAdminService {
 
     private void savePaths(List<String> list) {
         db.settingDao().upsert(KEY_PATH_ROOTS, CapabilityCodec.writeCodes(list), "文件写入授权目录（用户新增）");
+    }
+
+    // ===================== 联网搜索（提供方 + API Key） =====================
+
+    /** 联网搜索提供方编码；未设置回退 Tavily。 */
+    public String getWebSearchProvider() {
+        return db.settingDao().getValue(KEY_WEB_PROVIDER)
+                .map(String::trim)
+                .filter(v -> !v.isEmpty())
+                .orElse(WEB_PROVIDER_TAVILY);
+    }
+
+    public void setWebSearchProvider(String provider) {
+        String value = provider == null || provider.isBlank() ? WEB_PROVIDER_TAVILY : provider.trim().toLowerCase();
+        db.settingDao().upsert(KEY_WEB_PROVIDER, value, "联网搜索提供方");
+    }
+
+    /** 读取明文 API Key（密文存储，取出即解密）；未配置或解密失败返回空串。供工具运行时实时取用。 */
+    public String getWebSearchApiKeyPlain() {
+        String stored = db.settingDao().getValue(KEY_WEB_APIKEY).orElse("").trim();
+        if (stored.isEmpty()) {
+            return "";
+        }
+        try {
+            return cipher.canHandle(stored) ? cipher.decrypt(stored) : stored;
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
+
+    /** 保存 API Key（加密入库）；空白即清除已存 Key。 */
+    public void setWebSearchApiKey(String plain) {
+        if (plain == null || plain.isBlank()) {
+            db.settingDao().upsert(KEY_WEB_APIKEY, "", "联网搜索 API Key（密文）");
+            return;
+        }
+        db.settingDao().upsert(KEY_WEB_APIKEY, cipher.encrypt(plain.trim()), "联网搜索 API Key（密文）");
+    }
+
+    /** 是否已配置可用的联网搜索 Key。 */
+    public boolean isWebSearchConfigured() {
+        return !getWebSearchApiKeyPlain().isEmpty();
     }
 
     // ===================== 「总是允许」授权规则 =====================

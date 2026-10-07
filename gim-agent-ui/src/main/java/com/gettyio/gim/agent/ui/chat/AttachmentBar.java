@@ -139,6 +139,25 @@ public class AttachmentBar {
         attachChipsBox.getChildren().clear();
     }
 
+    /**
+     * 注入一张待发图片（截图提问用）：Base64 后加入待发列表并上屏芯片，与手动贴图同一条通道。
+     * 超限或空字节则提示并忽略。
+     */
+    public void addImage(String fileName, byte[] bytes) {
+        if (bytes == null || bytes.length == 0) {
+            return;
+        }
+        if (bytes.length > MAX_IMAGE_BYTES) {
+            GimDialog.message(host.currentWindow(), I18n.t("input.attach"), I18n.t("input.attach"),
+                    I18n.t("attach.tooLarge", fileName));
+            return;
+        }
+        ImageAttachment att = new ImageAttachment(fileName, "image/png",
+                Base64.getEncoder().encodeToString(bytes));
+        pendingImages.add(att);
+        attachChipsBox.getChildren().add(buildChip(att, bytes));
+    }
+
     // ===================== 回形针菜单与选择 =====================
 
     /**
@@ -247,6 +266,11 @@ public class AttachmentBar {
             pendingDocs.remove(att);
             attachChipsBox.getChildren().remove(chip);
         });
+        // 右键：将本文档存入当前智能体知识库（长期入库，区别于本轮临时抽取）
+        MenuItem toKnowledge = new MenuItem(I18n.t("attach.menu.knowledge"));
+        toKnowledge.setOnAction(e -> host.importAttachmentToKnowledge(att));
+        ContextMenu docMenu = new ContextMenu(toKnowledge);
+        chip.setOnContextMenuRequested(e -> docMenu.show(chip, e.getScreenX(), e.getScreenY()));
         return chip;
     }
 

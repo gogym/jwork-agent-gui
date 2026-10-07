@@ -62,6 +62,16 @@ public class GimPaths {
         return workspaceDir().resolve("knowledge");
     }
 
+    /** KNOWLEDGE.md：知识树目录摘要，Harness 每轮注入其内容与 knowledge/ 文件清单。 */
+    public Path knowledgeMd() {
+        return knowledgeDir().resolve("KNOWLEDGE.md");
+    }
+
+    /** memory/ 目录：每日记忆台账（memory/*.md），与精炼的 MEMORY.md 配套。 */
+    public Path memoryDir() {
+        return workspaceDir().resolve("memory");
+    }
+
     /** 图片附件落盘根目录：按 {@code <sessionId>/<uuid>.<ext>} 归档，随会话删除而清理 */
     public Path attachmentsDir() {
         return workspaceDir().resolve("attachments");

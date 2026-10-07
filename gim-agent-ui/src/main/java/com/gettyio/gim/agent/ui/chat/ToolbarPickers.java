@@ -15,6 +15,7 @@ import javafx.scene.Node;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
+import javafx.scene.control.CheckMenuItem;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.Menu;
@@ -53,6 +54,8 @@ public class ToolbarPickers {
 
     /** 当前审批档位（权限模式 + 是否自动通过）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
     private ApprovalOption approval = approvalOptions().get(0);
+    /** 规划模式开关（独立于审批档位）：勾选后下一条消息先走只读计划轮，产出 plans/PLAN.md 供确认 */
+    private boolean planModeRequested;
     /** 当前选中的模型（工具条模型菜单选择）；null 或跟随默认项表示不覆盖 */
     private ModelOption selectedModel;
     /** 审批选择菜单：复用单一实例 */
@@ -95,6 +98,11 @@ public class ToolbarPickers {
 
     public boolean approvalAutoApprove() {
         return approval.autoApprove();
+    }
+
+    /** 规划模式是否被勾选：为真时发送流程把本轮标记为只读计划轮（进入/退出包在流两端）。 */
+    public boolean planModeRequested() {
+        return planModeRequested;
     }
 
     /** 审批初始档：读设置「安全」页持久化的全局默认（未设置回退询问）。 */
@@ -410,6 +418,26 @@ public class ToolbarPickers {
                 approvalOptions().stream()
                         .map(opt -> approvalMenuItem(opt, opt.equalsOption(approval)))
                         .toList());
+        // 规划模式：独立于三档审批的开关项，勾选后下一条消息先跑只读计划轮
+        approvalMenu.getItems().add(new SeparatorMenuItem());
+        CheckMenuItem planItem = new CheckMenuItem(I18n.t("approval.planMode"));
+        planItem.setSelected(planModeRequested);
+        Label planTitle = new Label(I18n.t("approval.planMode"));
+        planTitle.getStyleClass().add("approval-title");
+        Label planDesc = new Label(I18n.t("approval.planMode.desc"));
+        planDesc.getStyleClass().add("approval-desc");
+        planDesc.setMaxWidth(360 - 74);
+        planDesc.setEllipsisString("\u2026");
+        Label planIcon = UiTheme.icon("\uE9D2");
+        planIcon.getStyleClass().add("approval-icon");
+        VBox planCol = new VBox(2, planTitle, planDesc);
+        planCol.setAlignment(Pos.CENTER_LEFT);
+        HBox planRow = new HBox(10, planIcon, planCol);
+        planRow.setAlignment(Pos.CENTER_LEFT);
+        planItem.setGraphic(planRow);
+        planItem.setText(""); // 文案交给 graphic，避免与 CheckMenuItem 左侧勾位冲突
+        planItem.setOnAction(e -> planModeRequested = planItem.isSelected());
+        approvalMenu.getItems().add(planItem);
         MenuPopup.showAbove(approvalMenu, approvalButton);
     }
 

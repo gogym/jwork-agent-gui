@@ -7,7 +7,11 @@ import com.gettyio.gim.agent.core.capability.CapabilityCodec;
 import com.gettyio.gim.agent.core.chat.AgentGateway;
 import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.core.chat.EffectiveModelResolver;
+import com.gettyio.gim.agent.core.chat.HarnessAgentGateway;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
+import com.gettyio.gim.agent.core.knowledge.KnowledgeService;
+import com.gettyio.gim.agent.core.memory.MemoryService;
+import com.gettyio.gim.agent.core.plan.PlanService;
 import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
 import com.gettyio.gim.agent.core.model.ModelProbe;
 import com.gettyio.gim.agent.core.model.ModelSpec;
@@ -32,7 +36,9 @@ import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
 import com.gettyio.gim.agent.tools.skill.SkillService;
+import com.gettyio.gim.agent.tools.web.WebSearchTools;
 import com.gettyio.gim.agent.ui.export.ExportService;
+import io.agentscope.harness.agent.memory.MemoryConfig;
 import org.quartz.Scheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -118,7 +124,8 @@ public class GimAgentConfiguration {
                                           ToolSecurityFacade toolSecurityFacade,
                                           SkillService skillService,
                                           AgentCapabilityResolver capabilities,
-                                          TaskSchedulerService schedulerService) {
+                                          TaskSchedulerService schedulerService,
+                                          SecurityAdminService securityAdminService) {
         // 智能体定义 + 消息级模型覆盖 → 模型实例（未定向则用应用默认模型，按生成参数分桶复用）；
         // 备用模型：同提供商按优先级取下一个启用模型，接 Harness 框架级重试 + failover
         MultiAgentGateway.ModelResolver modelResolver = new MultiAgentGateway.ModelResolver() {
@@ -146,8 +153,14 @@ public class GimAgentConfiguration {
                     gw.setSkillsDir(skillService.skillsRoot());
                     // 上下文窗口上限：AppSetting 键 agent.context.maxTokens 可调，缺省沿用网关内置默认值
                     readContextMaxTokens(db).ifPresent(gw::setMaxContextTokens);
+                    // 长期记忆：开关 + flush 节流策略由 AppSetting 下发（缺省开启、每次调用后 flush）
+                    applyMemorySettings(gw, db);
+                    // 计划模式：总开关由 AppSetting 下发（缺省开启，注册 plan_* 工具与只读中间件）
+                    gw.setPlanModeEnabled(readBool(db, "agent.planMode.enabled", true));
                     // 自定义工具：自然语言设定定时任务——每个智能体一份实例，新建任务归属当前智能体
                     gw.registerToolTarget(new ScheduleTools(schedulerService, db.taskDao(), gw.getAgentId()));
+                    // 联网工具：web_search / web_fetch——Key 从加密的 settings 实时取用，改配不重启即生效
+                    gw.registerToolTarget(new WebSearchTools(securityAdminService::getWebSearchApiKeyPlain));
                 });
     }
 
@@ -161,6 +174,53 @@ public class GimAgentConfiguration {
                 return java.util.Optional.empty();
             }
         });
+    }
+
+    /** 读一个布尔型 AppSetting：{@code "false"}（忽略大小写）为关，其余/缺省为 {@code defaultValue}。 */
+    private static boolean readBool(GimDatabase db, String key, boolean defaultValue) {
+        return db.settingDao().getValue(key)
+                .map(v -> !"false".equalsIgnoreCase(v.trim()))
+                .orElse(defaultValue);
+    }
+
+    /** 依 AppSetting 下发长期记忆装配：
+     * <ul>
+     *   <li>{@code agent.memory.enabled}：{@code "false"} 即关闭（其余/缺省为开）；</li>
+     *   <li>{@code agent.memory.flushMode}：{@code always}（默认）/ {@code throttled}（≥ 10min）/ {@code never}。</li>
+     * </ul>
+     */
+    private static void applyMemorySettings(HarnessAgentGateway gw, GimDatabase db) {
+        boolean enabled = db.settingDao().getValue("agent.memory.enabled")
+                .map(v -> !"false".equalsIgnoreCase(v.trim()))
+                .orElse(true);
+        gw.setMemoryEnabled(enabled);
+        String flushMode = db.settingDao().getValue("agent.memory.flushMode")
+                .map(v -> v.trim().toLowerCase(java.util.Locale.ROOT))
+                .orElse("always");
+        MemoryConfig.FlushTrigger trigger = switch (flushMode) {
+            case "never" -> MemoryConfig.FlushTrigger.never();
+            case "throttled" -> MemoryConfig.FlushTrigger.throttled(java.time.Duration.ofMinutes(10));
+            default -> MemoryConfig.FlushTrigger.always();
+        };
+        gw.setMemoryConfig(MemoryConfig.builder().flushTrigger(trigger).build());
+    }
+
+    /** 应用级长期记忆管理：供记忆页读写各智能体工作区的 MEMORY.md 与 memory/*.md。 */
+    @Bean
+    public MemoryService memoryService(GimDatabase db, MultiAgentGateway agentGateway) {
+        return new MemoryService(db, agentGateway);
+    }
+
+    /** 应用级知识库管理（原生 knowledge 文件树）：供知识页导入/删除资料并维护 KNOWLEDGE.md 索引。 */
+    @Bean
+    public KnowledgeService knowledgeService(GimDatabase db, MultiAgentGateway agentGateway) {
+        return new KnowledgeService(db, agentGateway);
+    }
+
+    /** 计划文件读写：供规划轮结束后在 UI 预览/编辑 {@code plans/PLAN.md}。 */
+    @Bean
+    public PlanService planService(MultiAgentGateway agentGateway) {
+        return new PlanService(agentGateway);
     }
 
     @Bean
@@ -197,8 +257,8 @@ public class GimAgentConfiguration {
     }
 
     @Bean
-    public SecurityAdminService securityAdminService(GimDatabase db) {
-        return new SecurityAdminService(db);
+    public SecurityAdminService securityAdminService(GimDatabase db, SecretCipher cipher) {
+        return new SecurityAdminService(db, cipher);
     }
 
     @Bean

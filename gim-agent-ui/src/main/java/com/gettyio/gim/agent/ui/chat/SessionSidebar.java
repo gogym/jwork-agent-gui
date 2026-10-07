@@ -58,6 +58,11 @@ public class SessionSidebar {
     private static final String ICON_MORE = "\uE712";
     private static final String ICON_RENAME = "\uE70F";
     private static final String ICON_DELETE = "\uE74D";
+    /** Fluent 图标：置顶图钉 / 收藏星标（描边与实心两态）/ 分支（复制会话） */
+    private static final String ICON_PIN = "\uE718";
+    private static final String ICON_STAR = "\uE734";
+    private static final String ICON_STAR_FILL = "\uE735";
+    private static final String ICON_BRANCH = "\uEBC9";
 
     private final VBox sessionsBox;
     private final HBox sessionsHeader;
@@ -367,7 +372,15 @@ public class SessionSidebar {
         ContextMenu menu = sessionContextMenu(s, groupMenu);
         menuBtn.setOnAction(e -> menu.show(menuBtn, Side.RIGHT, 0, 0));
 
-        HBox row = new HBox(6, dot, title, menuBtn);
+        // 收藏星标常显（置顶靠列表排序体现，不再单独占位）；置于标题之前一眼可辨
+        HBox row;
+        if (isFavorite(s)) {
+            Label star = UiTheme.icon(ICON_STAR_FILL);
+            star.getStyleClass().add("session-fav-star");
+            row = new HBox(6, dot, star, title, menuBtn);
+        } else {
+            row = new HBox(6, dot, title, menuBtn);
+        }
         row.getStyleClass().add("ws-session-row");
         if (indent) {
             row.getStyleClass().add("session-group-row");
@@ -390,6 +403,27 @@ public class SessionSidebar {
         MenuItem rename = new MenuItem(I18n.t("session.rename.menu"), UiTheme.icon(ICON_RENAME));
         rename.setOnAction(e -> renameSession(s));
         menu.getItems().add(rename);
+
+        // 置顶 / 收藏（切换态）+ 分支（复制会话到新会话并打开）
+        MenuItem pin = new MenuItem(isPinned(s) ? I18n.t("session.unpin.menu") : I18n.t("session.pin.menu"),
+                UiTheme.icon(ICON_PIN));
+        pin.setOnAction(e -> {
+            chatService.setPinned(s.getSessionId(), !isPinned(s));
+            host.refreshSessions();
+        });
+        MenuItem fav = new MenuItem(isFavorite(s) ? I18n.t("session.unfavorite.menu") : I18n.t("session.favorite.menu"),
+                UiTheme.icon(isFavorite(s) ? ICON_STAR_FILL : ICON_STAR));
+        fav.setOnAction(e -> {
+            chatService.setFavorite(s.getSessionId(), !isFavorite(s));
+            host.refreshSessions();
+        });
+        MenuItem branch = new MenuItem(I18n.t("session.branch.menu"), UiTheme.icon(ICON_BRANCH));
+        branch.setOnAction(e -> {
+            String newId = chatService.branchSession(s.getSessionId());
+            host.refreshSessions();
+            host.openSessionById(newId);
+        });
+        menu.getItems().addAll(pin, fav, branch);
 
         if (groupMenu) {
             // 移动到分组：逐组一个条目（当前所在组置灰），再给「移出分组」（仅已在组内时）与「新建分组并移入」
@@ -437,6 +471,16 @@ public class SessionSidebar {
         return host.sessions().stream()
                 .filter(s -> code.equals(agentAdminService.effectiveCode(s.getAgentCode())))
                 .toList();
+    }
+
+    /** 置顶态：sessions.pinned=1。 */
+    private static boolean isPinned(ChatSession s) {
+        return Integer.valueOf(1).equals(s.getPinned());
+    }
+
+    /** 收藏态：sessions.favorite=1。 */
+    private static boolean isFavorite(ChatSession s) {
+        return Integer.valueOf(1).equals(s.getFavorite());
     }
 
     /** 重命名会话：弹框预填当前标题；名字没改就不写库，也不重画列表 */

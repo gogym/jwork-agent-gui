@@ -23,16 +23,19 @@ CREATE TABLE IF NOT EXISTS agents (
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
-    id            INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id    TEXT NOT NULL UNIQUE,
-    agent_code    TEXT,
-    group_id      TEXT,
-    title         TEXT,
-    model_code    TEXT,
-    message_count INTEGER DEFAULT 0,
-    status        TEXT DEFAULT 'ACTIVE',
-    created_at    TEXT,
-    updated_at    TEXT
+    id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id         TEXT NOT NULL UNIQUE,
+    agent_code         TEXT,
+    group_id           TEXT,
+    title              TEXT,
+    model_code         TEXT,
+    message_count      INTEGER DEFAULT 0,
+    status             TEXT DEFAULT 'ACTIVE',
+    pinned             INTEGER DEFAULT 0,
+    favorite           INTEGER DEFAULT 0,
+    parent_session_id  TEXT,
+    created_at         TEXT,
+    updated_at         TEXT
 );
 
 -- 会话分组：纯 UI 组织层，归属到某个智能体（agent_code）；会话以 sessions.group_id 关联，NULL=未分组

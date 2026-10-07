@@ -1,6 +1,7 @@
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.capability.AgentCapabilityResolver;
+import com.gettyio.gim.agent.core.subagent.SubagentSpecs;
 import com.gettyio.gim.agent.domain.dao.AgentDefinitionDao;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import io.agentscope.core.model.Model;
@@ -104,6 +105,15 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         }
     }
 
+    /**
+     * 解析指定智能体的工作区目录（与运行时装配同一套回退逻辑）：定义缺失或未填 {@code workspace_dir}
+     * 时回退共享工作区。供应用级记忆/知识管理页定位该智能体的 {@code MEMORY.md} 与 {@code knowledge/}。
+     */
+    public Path workspaceForAgent(String agentCode) {
+        AgentDefinition def = agentDao.findByCode(normalize(agentCode)).orElse(null);
+        return def == null ? fallbackWorkspace : workspaceFor(def);
+    }
+
     public void invalidateAll() {
         synchronized (buildLock) {
             runtimes.values().forEach(MultiAgentGateway::closeQuietly);
@@ -187,6 +197,8 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         assembler.accept(gateway);
         // 能力在通用挂载之后下发：白名单可以覆盖共享技能目录等全局默认
         capabilities.applyTo(gateway, effective);
+        // 子智能体编排：把除自身外的其它启用智能体映射为可委派声明，主控经 agent_spawn 派任子任务
+        gateway.setSubagentDeclarations(SubagentSpecs.mapOtherEnabled(agentDao.findEnabled(), agentCode));
         return gateway;
     }
 
