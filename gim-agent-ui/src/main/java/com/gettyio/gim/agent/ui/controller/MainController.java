@@ -681,12 +681,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
     }
 
-    /** 进入流式态：发送按钮原地变「停止」（方形图标、保持可点），记录在途会话。 */
+    /** 进入流式态：发送按钮原地变「停止」（Segoe Stop 图标、保持可点），记录在途会话。 */
     private void enterStreamingUi(String sessionId) {
         streamingSessionId = sessionId;
         Node graphic = sendButton.getGraphic();
         if (graphic instanceof Label icon) {
-            icon.setText("\u25A0");
+            icon.setText("\uE71A");
             icon.getStyleClass().add("send-stop");
         }
         sendButton.setTooltip(new Tooltip(I18n.t("chat.stop")));

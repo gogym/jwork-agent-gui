@@ -4,6 +4,7 @@ import com.gettyio.gim.agent.core.chat.StreamEvent;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.ui.I18n;
 import javafx.animation.PauseTransition;
+import javafx.application.Platform;
 import javafx.collections.ObservableList;
 import javafx.scene.Node;
 import javafx.scene.control.ScrollPane;
@@ -158,7 +159,14 @@ public class MessageListRenderer {
     }
 
     private void scrollToBottom() {
+        scrollPane.applyCss();
         scrollPane.layout();
         scrollPane.setVvalue(1.0);
+        // 兜底：气泡换行高度与滚动条极值常要到下一个 pulse 才结算，
+        // 同帧 setVvalue(1.0) 会被旧极值截断而停在半截，故延一帧再拉到底。
+        Platform.runLater(() -> {
+            scrollPane.layout();
+            scrollPane.setVvalue(1.0);
+        });
     }
 }

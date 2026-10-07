@@ -61,7 +61,7 @@ final class MessageActions {
         bar.getChildren().addAll(copy, editButton, regenerateButton);
     }
 
-    /** 操作条节点（供气泡以叠层方式挂到右上角）。 */
+    /** 操作条节点（供气泡以叠层方式挂到左下角）。 */
     Node node() {
         return bar;
     }

@@ -374,6 +374,11 @@
     -fx-text-fill: -gim-text;
     -fx-line-spacing: 2;
 }
+/* 「思考中」占位：弱化颜色 + 斜体，配合不透明度脉动动画传达“正在处理” */
+.bubble-thinking {
+    -fx-text-fill: -gim-text-4;
+    -fx-font-style: italic;
+}
 .md-p {
     -fx-line-spacing: 2;
     -fx-text-fill: -gim-text;
@@ -690,6 +695,13 @@
     -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
     -fx-font-size: 14px;
     -fx-text-fill: -gim-bg;
+}
+/* 流式停止态：图标换成 Segoe Stop 字形(E71A)，与发送箭头同源故天然居中对齐；
+   同基线下略放大字号让实心方块更醒目（源序晚于 .send-icon，覆盖其字号） */
+.send-stop {
+    -fx-font-size: 16px;
+    -fx-text-alignment: center;
+    -fx-alignment: center;
 }
 
 /* ---------- 输入框工具条：附件 / 模型 / 审批 ---------- */

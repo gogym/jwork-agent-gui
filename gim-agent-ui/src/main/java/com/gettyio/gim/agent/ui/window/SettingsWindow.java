@@ -156,7 +156,6 @@ public class SettingsWindow {
     private final ToggleSwitch modelEnabledCheck = new ToggleSwitch();
 
     private final Label defaultModelInfoLabel = new Label("-");
-    private final Label statusLabel = new Label("");
     /** 通用页「最近备份」值标签：备份完成后就地刷新。 */
     private final Label lastBackupValueLabel = new Label("-");
 
@@ -239,11 +238,9 @@ public class SettingsWindow {
     }
 
     private void rebuildInPlace() {
-        String keep = statusLabel.getText();
         shell.setContent(buildRoot());
         UiTheme.apply(hostScene);
         reloadAll();
-        statusLabel.setText(keep);
         selectFirstMenu();
     }
 
@@ -274,12 +271,8 @@ public class SettingsWindow {
                 () -> scroller.getViewportBounds().getHeight(),
                 scroller.viewportBoundsProperty()));
 
-        statusLabel.getStyleClass().add("status-label");
-        statusLabel.setPadding(new Insets(6, 14, 8, 14));
-        // 状态栏只置于右侧内容区下方，避免横贯左菜单底部导致菜单无法触底（左下露白）
         BorderPane centerPane = new BorderPane();
         centerPane.setCenter(scroller);
-        centerPane.setBottom(statusLabel);
 
         // 右侧内容区对齐聊天页：白底圆角面板（.content-panel）浮于画布（.content-area）之上，
         // 右/下留 12px 空隙（.content-margin），圆角靠矩形裁剪（半径同 CSS 14）。
@@ -512,18 +505,12 @@ public class SettingsWindow {
 
         ToggleSwitch auto = new ToggleSwitch();
         auto.setSelected(updateChecker.isAutoCheckEnabled());
-        auto.selectedProperty().addListener((obs, o, sel) -> {
-            updateChecker.setAutoCheckEnabled(sel);
-            statusLabel.setText(I18n.t(sel ? "settings.update.autoOn" : "settings.update.autoOff"));
-        });
+        auto.selectedProperty().addListener((obs, o, sel) -> updateChecker.setAutoCheckEnabled(sel));
 
         TextField serverField = new TextField(updateChecker.getServerBaseUrl());
         serverField.setPromptText(I18n.t("settings.update.server.prompt"));
         serverField.setMaxWidth(360);
-        Runnable saveServer = () -> {
-            updateChecker.setServerBaseUrl(serverField.getText());
-            statusLabel.setText(I18n.t("settings.update.server.saved"));
-        };
+        Runnable saveServer = () -> updateChecker.setServerBaseUrl(serverField.getText());
         serverField.setOnAction(e -> saveServer.run());
         serverField.focusedProperty().addListener((obs, was, now) -> {
             if (!now) {
@@ -540,7 +527,6 @@ public class SettingsWindow {
 
     /** 手动检查更新：向服务器查询新版，命中后下载并校验，再提示拉起安装。 */
     private void handleCheckUpdate() {
-        statusLabel.setText(I18n.t("settings.update.checking"));
         Window owner = hostWindow();
         Thread t = new Thread(() -> {
             try {
@@ -548,18 +534,17 @@ public class SettingsWindow {
                 Platform.runLater(() -> {
                     if (info.isPresent()) {
                         if (info.get().forceUpdate()) {
-                            updateChecker.beginForced(owner, info.get(), statusLabel::setText);
+                            updateChecker.beginForced(owner, info.get(), null);
                         } else {
                             confirmDownload(owner, info.get());
                         }
                     } else {
                         GimDialog.message(owner, I18n.t("settings.update.latest.title"), null,
                                 I18n.t("settings.update.latest.body", updateChecker.currentVersion()));
-                        statusLabel.setText(I18n.t("settings.update.latest"));
                     }
                 });
             } catch (Exception e) {
-                Platform.runLater(() -> statusLabel.setText(
+                Platform.runLater(() -> notify("settings.update.check",
                         I18n.t("settings.update.fail", String.valueOf(e.getMessage()))));
             }
         }, "gim-update-check");
@@ -569,7 +554,6 @@ public class SettingsWindow {
 
     /** 发现新版：询问是否下载，确认后后台下载并校验，完成再询问是否安装。 */
     private void confirmDownload(Window owner, com.gettyio.gim.agent.ui.update.UpdateChecker.UpdateInfo info) {
-        statusLabel.setText(I18n.t("settings.update.found"));
         int go = GimDialog.choose(owner, I18n.t("settings.update.found.title"), null,
                 I18n.t("settings.update.found.body", updateChecker.currentVersion(), info.version()),
                 I18n.t("settings.update.download"), I18n.t("common.cancel"));
@@ -578,12 +562,10 @@ public class SettingsWindow {
         }
         Thread t = new Thread(() -> {
             try {
-                java.nio.file.Path file = updateChecker.download(info, ratio ->
-                        Platform.runLater(() -> statusLabel.setText(
-                                I18n.t("settings.update.downloading", (int) Math.round(ratio * 100)))));
+                java.nio.file.Path file = updateChecker.download(info, ratio -> { });
                 Platform.runLater(() -> confirmInstall(owner, file));
             } catch (Exception e) {
-                Platform.runLater(() -> statusLabel.setText(
+                Platform.runLater(() -> notify("settings.update.check",
                         I18n.t("settings.update.downloadFail", String.valueOf(e.getMessage()))));
             }
         }, "gim-update-download");
@@ -593,13 +575,14 @@ public class SettingsWindow {
 
     /** 下载完成：询问是否立即拉起安装。 */
     private void confirmInstall(Window owner, java.nio.file.Path file) {
-        statusLabel.setText(I18n.t("settings.update.downloadDone"));
         int go = GimDialog.choose(owner, I18n.t("settings.update.install.title"), null,
                 I18n.t("settings.update.install.body", file.getFileName().toString()),
                 I18n.t("settings.update.install"), I18n.t("common.cancel"));
         if (go == 0) {
             boolean ok = updateChecker.install(file);
-            statusLabel.setText(I18n.t(ok ? "settings.update.installStarted" : "settings.update.installFail"));
+            if (!ok) {
+                notify("settings.update.check", I18n.t("settings.update.installFail"));
+            }
         }
     }
 
@@ -684,7 +667,6 @@ public class SettingsWindow {
         closeCombo.setOnAction(e -> {
             boolean exit = closeCombo.getSelectionModel().getSelectedIndex() == 1;
             appLifecycle.setCloseAction(exit ? AppLifecycle.CLOSE_EXIT : AppLifecycle.CLOSE_TRAY);
-            statusLabel.setText(I18n.t("settings.status.savedCloseAction"));
         });
 
         boolean manageable = appLifecycle.canManageAutostart();
@@ -693,11 +675,9 @@ public class SettingsWindow {
             ToggleSwitch autostart = new ToggleSwitch();
             autostart.setSelected(appLifecycle.isAutostartEnabled());
             autostart.selectedProperty().addListener((obs, o, sel) -> {
-                boolean ok = appLifecycle.setAutostart(sel);
-                statusLabel.setText(I18n.t(ok ? (sel ? "settings.status.autostartOn" : "settings.status.autostartOff")
-                        : "settings.status.autostartFail"));
-                if (!ok) {
+                if (!appLifecycle.setAutostart(sel)) {
                     autostart.setSelected(!sel);
+                    notify("settings.autostart", I18n.t("settings.status.autostartFail"));
                 }
             });
             autoControl = autostart;
@@ -748,9 +728,9 @@ public class SettingsWindow {
         lastBackupValueLabel.setText(formatLastBackup());
     }
 
-    /** 立即备份（后台线程执行 VACUUM，完成后刷新本页与状态栏）。 */
+    /** 立即备份（后台线程执行 VACUUM，完成后刷新本页并弹框告知）。 */
     private void handleBackupNow() {
-        runInBackground(I18n.t("settings.backup.running"),
+        runInBackground("settings.backup.now",
                 () -> dbBackupService.backupNow().map(p -> I18n.t("settings.backup.done", p.getFileName())),
                 this::refreshLastBackupRow);
     }
@@ -759,7 +739,7 @@ public class SettingsWindow {
     private void handleExportSession() {
         List<ChatSession> sessions = exportServiceAllSessions();
         if (sessions.isEmpty()) {
-            statusLabel.setText(I18n.t("settings.export.noSession"));
+            notify("settings.export.session", I18n.t("settings.export.noSession"));
             return;
         }
         String[] labels = sessions.stream()
@@ -787,7 +767,7 @@ public class SettingsWindow {
         }
         String sessionId = chosen.getSessionId();
         Path target = file.toPath();
-        runInBackground(I18n.t("settings.export.running"),
+        runInBackground("settings.export.session",
                 () -> Optional.of(I18n.t("settings.export.done",
                         exportService.exportSessionMarkdown(sessionId, target).getFileName())),
                 null);
@@ -804,7 +784,7 @@ public class SettingsWindow {
             return;
         }
         Path target = file.toPath();
-        runInBackground(I18n.t("settings.export.running"),
+        runInBackground("settings.export.full",
                 () -> Optional.of(I18n.t("settings.export.done",
                         exportService.exportFullJson(target).getFileName())),
                 null);
@@ -821,29 +801,30 @@ public class SettingsWindow {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
                 Desktop.getDesktop().open(dir.toFile());
             } else {
-                statusLabel.setText(I18n.t("settings.data.openFail", "Desktop unsupported"));
+                notify("settings.menu.general", I18n.t("settings.data.openFail", "Desktop unsupported"));
             }
         } catch (Exception e) {
-            statusLabel.setText(I18n.t("settings.data.openFail", e.getMessage()));
+            notify("settings.menu.general", I18n.t("settings.data.openFail", e.getMessage()));
         }
     }
 
     /**
-     * 后台线程执行耗时操作：先在状态栏显示 {@code runningText}，完成后用结果消息覆盖，
-     * 失败时显示错误；{@code onSuccess} 可空，非空时在 FX 线程回调（如刷新页面）。
+     * 后台线程执行耗时操作：完成或失败后以 {@code titleKey} 为标题弹框告知结果；
+     * {@code onSuccess} 可空，非空时在 FX 线程回调（如刷新页面）。
      */
-    private void runInBackground(String runningText, java.util.function.Supplier<Optional<String>> work, Runnable onSuccess) {
-        statusLabel.setText(runningText);
+    private void runInBackground(String titleKey, java.util.function.Supplier<Optional<String>> work, Runnable onSuccess) {
         Thread t = new Thread(() -> {
             String result;
             try {
-                result = work.get().orElse(runningText);
+                result = work.get().orElse(null);
             } catch (RuntimeException e) {
                 result = I18n.t("settings.data.fail", String.valueOf(e.getMessage()));
             }
             final String msg = result;
             Platform.runLater(() -> {
-                statusLabel.setText(msg);
+                if (msg != null && !msg.isBlank()) {
+                    notify(titleKey, msg);
+                }
                 if (onSuccess != null) {
                     onSuccess.run();
                 }
@@ -903,10 +884,10 @@ public class SettingsWindow {
             if (Desktop.isDesktopSupported() && dir != null) {
                 Desktop.getDesktop().open(dir.toFile());
             } else {
-                statusLabel.setText(I18n.t("settings.memory.revealFail", "Desktop unsupported"));
+                notify("settings.menu.memory", I18n.t("settings.memory.revealFail", "Desktop unsupported"));
             }
         } catch (Exception e) {
-            statusLabel.setText(I18n.t("settings.memory.revealFail", e.getMessage()));
+            notify("settings.menu.memory", I18n.t("settings.memory.revealFail", e.getMessage()));
         }
     }
 
@@ -1051,22 +1032,19 @@ public class SettingsWindow {
 
     /** 弹智能体表单（与侧栏共用 {@link AgentDialog}），保存后刷列表。 */
     private void openAgentDialog(AgentDefinition editing) {
-        AgentDialog.edit(hostWindow(), agentAdminService, editing).ifPresent(saved -> {
-            statusLabel.setText(I18n.t("settings.status.savedAgent", saved.getAgentName()));
-            reloadAll();
-        });
+        AgentDialog.edit(hostWindow(), agentAdminService, editing).ifPresent(saved -> reloadAll());
     }
 
     private void handleDeleteAgent(AgentDefinition sel) {
         String code = sel.getAgentCode();
         if (agentAdminService.isDefault(code)) {
-            statusLabel.setText(I18n.t("settings.status.defaultAgentUndeletable"));
+            notify("settings.menu.agents", I18n.t("settings.status.defaultAgentUndeletable"));
             return;
         }
         int sessions = agentAdminService.sessionUsage(code);
         int tasks = agentAdminService.taskUsage(code);
         if (sessions > 0 || tasks > 0) {
-            statusLabel.setText(I18n.t("settings.status.agentInUse", code, str(sessions), str(tasks)));
+            notify("settings.menu.agents", I18n.t("settings.status.agentInUse", code, str(sessions), str(tasks)));
             return;
         }
         if (!GimDialog.confirm(hostWindow(), I18n.t("settings.menu.agents"),
@@ -1074,7 +1052,6 @@ public class SettingsWindow {
             return;
         }
         agentAdminService.delete(code);
-        statusLabel.setText(I18n.t("settings.status.deletedAgent", code));
         reloadAll();
     }
 
@@ -1227,6 +1204,11 @@ public class SettingsWindow {
     /** 宿主窗口：作为无边框对话框的 owner（窗口模态并居中）。 */
     private Window hostWindow() {
         return hostScene == null ? null : hostScene.getWindow();
+    }
+
+    /** 即时反馈：以统一对话框呈现需要用户知晓的结果/错误（不驻留，避免跨页面残留）。 */
+    private void notify(String titleKey, String message) {
+        GimDialog.message(hostWindow(), I18n.t(titleKey), null, message);
     }
 
     /** 弹出无边框模态窗口新增/编辑提供商；{@code editing} 为 null 表示新增。 */
@@ -1561,7 +1543,7 @@ public class SettingsWindow {
                 .toList();
         if (models.isEmpty()) {
             shell.stage().close();
-            statusLabel.setText(I18n.t("settings.status.noEnabledModel"));
+            notify("settings.menu.default", I18n.t("settings.status.noEnabledModel"));
             return;
         }
 
@@ -1624,7 +1606,6 @@ public class SettingsWindow {
                 return;
             }
             adminService.setDefault(picked.getProviderCode(), picked.getModelCode());
-            statusLabel.setText(I18n.t("settings.status.setDefault", picked.getProviderCode(), picked.getModelCode()));
             refreshDefaultModelInfo();
             shell.stage().close();
         });
@@ -1755,8 +1736,6 @@ public class SettingsWindow {
         toggle.setMinWidth(Region.USE_PREF_SIZE);
         toggle.selectedProperty().addListener((obs, o, sel) -> {
             promptTemplateAdminService.setEnabled(t.getTemplateCode(), sel);
-            statusLabel.setText(I18n.t(sel ? "settings.status.enabledTemplate" : "settings.status.disabledTemplate",
-                    name.getText()));
             renderTemplateCards();
         });
 
@@ -1824,7 +1803,7 @@ public class SettingsWindow {
             String name = nameField.getText() == null ? "" : nameField.getText().trim();
             String content = contentArea.getText() == null ? "" : contentArea.getText().trim();
             if (name.isEmpty() || content.isEmpty()) {
-                statusLabel.setText(I18n.t("settings.status.templateRequired"));
+                notify("settings.menu.templates", I18n.t("settings.status.templateRequired"));
                 return;
             }
             PromptTemplate t = editing == null ? new PromptTemplate() : editing;
@@ -1835,7 +1814,6 @@ public class SettingsWindow {
                 t.setEnabled(1);
             }
             promptTemplateAdminService.save(t);
-            statusLabel.setText(I18n.t("settings.status.savedTemplate", name));
             renderTemplateCards();
             shell.stage().close();
         });
@@ -1853,7 +1831,6 @@ public class SettingsWindow {
             return;
         }
         promptTemplateAdminService.delete(t.getTemplateCode());
-        statusLabel.setText(I18n.t("settings.status.deletedTemplate", t.getTemplateName()));
         renderTemplateCards();
     }
 
@@ -1906,7 +1883,6 @@ public class SettingsWindow {
             int i = Math.max(0, approvalCombo.getSelectionModel().getSelectedIndex());
             securityAdminService.setApprovalDefault(i == 1 ? SecurityAdminService.APPROVAL_AUTO
                     : i == 2 ? SecurityAdminService.APPROVAL_READONLY : SecurityAdminService.APPROVAL_ASK);
-            statusLabel.setText(I18n.t("settings.status.savedApprovalDefault", opts[i]));
         });
         tab.getChildren().add(groupCard(I18n.t("settings.security.approval.group"),
                 List.of(settingRow(I18n.t("settings.security.approval.default"),
@@ -2012,12 +1988,10 @@ public class SettingsWindow {
         toggle.setSelected(rule.enabled());
         toggle.selectedProperty().addListener((obs, o, sel) -> {
             securityAdminService.setDangerousRuleEnabled(rule.id(), sel);
-            statusLabel.setText(I18n.t(sel ? "settings.status.enabledRule" : "settings.status.disabledRule", desc));
         });
 
         Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> {
             securityAdminService.deleteDangerousRule(rule.id());
-            statusLabel.setText(I18n.t("settings.status.deletedRule", desc));
             renderDangerousRules();
         });
         del.getStyleClass().addAll("link-btn", "link-btn-danger");
@@ -2040,7 +2014,6 @@ public class SettingsWindow {
         for (String prog : list) {
             shellAllowBox.getChildren().add(listRow(prog, null, () -> {
                 securityAdminService.removeShellProgram(prog);
-                statusLabel.setText(I18n.t("settings.status.removedShell", prog));
                 renderShellAllowlist();
             }));
         }
@@ -2056,7 +2029,6 @@ public class SettingsWindow {
         for (String root : list) {
             pathRootsBox.getChildren().add(listRow(root, null, () -> {
                 securityAdminService.removePathRoot(root);
-                statusLabel.setText(I18n.t("settings.status.removedPath", root));
                 renderPathRoots();
             }));
         }
@@ -2076,7 +2048,6 @@ public class SettingsWindow {
             String label = r.getToolName() + " · " + scope + " · " + r.getDecision();
             grantBox.getChildren().add(listRow(label, null, () -> {
                 securityAdminService.delete(r.getId());
-                statusLabel.setText(I18n.t("settings.status.revoked", r.getToolName()));
                 renderGrants();
             }));
         }
@@ -2210,17 +2181,16 @@ public class SettingsWindow {
         save.setOnAction(e -> {
             String p = patternField.getText().trim();
             if (p.isEmpty()) {
-                statusLabel.setText(I18n.t("settings.status.rulePatternEmpty"));
+                notify("settings.security.rule.addTitle", I18n.t("settings.status.rulePatternEmpty"));
                 return;
             }
             try {
                 java.util.regex.Pattern.compile(p);
             } catch (java.util.regex.PatternSyntaxException ex) {
-                statusLabel.setText(I18n.t("settings.status.rulePatternBad", ex.getMessage()));
+                notify("settings.security.rule.addTitle", I18n.t("settings.status.rulePatternBad", ex.getMessage()));
                 return;
             }
             securityAdminService.addDangerousRule(p, descField.getText().trim());
-            statusLabel.setText(I18n.t("settings.status.addedRule"));
             shell.stage().close();
             renderDangerousRules();
         });
@@ -2236,7 +2206,6 @@ public class SettingsWindow {
             return;
         }
         securityAdminService.resetDangerousRules();
-        statusLabel.setText(I18n.t("settings.status.resetRules"));
         renderDangerousRules();
     }
 
@@ -2246,7 +2215,6 @@ public class SettingsWindow {
                 I18n.t("settings.security.shell.program"), "", 64);
         name.ifPresent(n -> {
             securityAdminService.addShellProgram(n);
-            statusLabel.setText(I18n.t("settings.status.addedShell", n));
             renderShellAllowlist();
         });
     }
@@ -2257,7 +2225,6 @@ public class SettingsWindow {
         File dir = chooser.showDialog(hostWindow());
         if (dir != null) {
             securityAdminService.addPathRoot(dir.getAbsolutePath());
-            statusLabel.setText(I18n.t("settings.status.addedPath", dir.getAbsolutePath()));
             renderPathRoots();
         }
     }
@@ -2319,7 +2286,6 @@ public class SettingsWindow {
         providerEnabledCheck.setSelected(true);
         providerCodeField.setDisable(false);
         loading = false;
-        statusLabel.setText(I18n.t("settings.status.newProvider"));
     }
 
     private void loadProviderToForm(ModelProviderConfig p) {
@@ -2339,7 +2305,7 @@ public class SettingsWindow {
 
     private boolean commitProviderForm() {
         if (providerCodeField.getText().isBlank()) {
-            statusLabel.setText(I18n.t("settings.status.providerCodeEmpty"));
+            notify("settings.menu.providers", I18n.t("settings.status.providerCodeEmpty"));
             return false;
         }
         ModelProviderConfig p = new ModelProviderConfig();
@@ -2356,7 +2322,6 @@ public class SettingsWindow {
                 .findFirst().ifPresent(ex -> p.setApiKey(ex.getApiKey()));
         String newKey = apiKeyField.getText();
         adminService.saveProvider(p, (newKey == null || newKey.isBlank()) ? null : newKey);
-        statusLabel.setText(I18n.t("settings.status.savedProvider", p.getProviderCode()));
         reloadAll();
         return true;
     }
@@ -2367,7 +2332,6 @@ public class SettingsWindow {
             return;
         }
         adminService.deleteProvider(sel.getProviderCode());
-        statusLabel.setText(I18n.t("settings.status.deletedProvider", sel.getProviderCode()));
         reloadAll();
     }
 
@@ -2388,7 +2352,6 @@ public class SettingsWindow {
             refreshProviderCombos();
         }
         loading = false;
-        statusLabel.setText(I18n.t("settings.status.newModel"));
     }
 
     private void loadModelToForm(ModelConfig m) {
@@ -2407,7 +2370,7 @@ public class SettingsWindow {
 
     private boolean commitModelForm() {
         if (modelCodeField.getText().isBlank() || modelNameField.getText().isBlank()) {
-            statusLabel.setText(I18n.t("settings.status.modelFieldsEmpty"));
+            notify("settings.menu.models", I18n.t("settings.status.modelFieldsEmpty"));
             return false;
         }
         ModelConfig m = new ModelConfig();
@@ -2418,7 +2381,6 @@ public class SettingsWindow {
         m.setEnabled(modelEnabledCheck.isSelected() ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
         applyModelStatus(m);
         adminService.saveModel(m);
-        statusLabel.setText(I18n.t("settings.status.savedModel", m.getModelCode()));
         reloadAll();
         return true;
     }
@@ -2429,7 +2391,6 @@ public class SettingsWindow {
             return;
         }
         adminService.deleteModel(sel.getModelCode());
-        statusLabel.setText(I18n.t("settings.status.deletedModel", sel.getModelCode()));
         reloadAll();
     }
 
@@ -2437,7 +2398,6 @@ public class SettingsWindow {
 
     private void handleClearPermissions() {
         securityAdminService.clear();
-        statusLabel.setText(I18n.t("settings.status.clearedPermission"));
         reloadAll();
     }
 
