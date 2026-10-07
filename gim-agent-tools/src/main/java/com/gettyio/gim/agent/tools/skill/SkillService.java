@@ -24,7 +24,7 @@ import java.util.zip.ZipInputStream;
 /**
  * 技能安装服务（MVP SkillInstallHelper/AiSkillHubService 语义迁移）：
  * <ul>
- *   <li>技能落盘目录 {@code ~/.gim-agent/workspace/skills/&lt;code&gt;/SKILL.md}，
+ *   <li>技能落盘目录 {@code ~/.jwork/workspace/skills/&lt;code&gt;/SKILL.md}，
  *       直接作为 AgentScope FileSystemSkillRepository 的扫描根；</li>
  *   <li>禁用 = 目录整体移入 {@code skills-disabled/}（从仓库扫描中隔离），元数据保留在 skills 表；</li>
  *   <li>内置示例技能在启动时从 classpath 资源播种（幂等，不覆盖用户修改）。</li>

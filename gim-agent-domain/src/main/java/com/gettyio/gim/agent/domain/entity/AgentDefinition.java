@@ -39,7 +39,7 @@ public class AgentDefinition {
     /** MCP 服务编码列表 JSON 数组 */
     private String mcpServersJson;
 
-    /** 工作区目录（相对 ~/.gim-agent/workspace） */
+    /** 工作区目录（相对 ~/.jwork/workspace） */
     private String workspaceDir;
 
     /** 授权项目目录（绝对路径）；智能体可在其中读写文件，非空即启用 projectWritable 文件系统 */

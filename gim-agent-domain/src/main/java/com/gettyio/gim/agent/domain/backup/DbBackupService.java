@@ -22,7 +22,7 @@ import java.util.stream.Stream;
 /**
  * 数据库备份：用 SQLite 的 {@code VACUUM INTO} 生成一致性的在线快照
  * （WAL 模式下直接复制文件可能丢未合并页，故不采用文件拷贝）。
- * <p>备份文件命名 {@code gim-agent-yyyyMMdd-HHmmss.db}，滚动保留最近 {@value #KEEP} 份；
+ * <p>备份文件命名 {@code jwork-yyyyMMdd-HHmmss.db}，滚动保留最近 {@value #KEEP} 份；
  * 上次备份时间记录在 settings 表（键 {@value #LAST_BACKUP_KEY}），启动时超 24h 自动补一次。</p>
  */
 public class DbBackupService {
@@ -37,7 +37,7 @@ public class DbBackupService {
     public static final Duration MIN_INTERVAL = Duration.ofHours(24);
 
     private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
-    private static final String PREFIX = "gim-agent-";
+    private static final String PREFIX = "jwork-";
     private static final String SUFFIX = ".db";
 
     private final GimDatabase db;

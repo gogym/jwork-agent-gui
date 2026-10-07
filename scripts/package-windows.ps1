@@ -1,4 +1,4 @@
-# Gim Agent Windows 打包脚本（M5：jpackage）
+# Jwork Windows 打包脚本（M5：jpackage）
 # 用法:
 #   powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1 [-Type msi|app-image]
 # 依赖:
@@ -10,7 +10,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$AppName = "Gim Agent"
+$AppName = "Jwork"
 $MainClass = "com.gettyio.gim.agent.ui.Launcher"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot

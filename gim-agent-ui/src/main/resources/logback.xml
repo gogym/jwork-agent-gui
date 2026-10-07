@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Gim Agent 日志配置：控制台 + 滚动文件双通道。
-  文件目录由 Launcher 在 logback 初始化前设定为 GimPaths.logsDir()（~/.gim-agent/logs）；
+  Jwork 日志配置：控制台 + 滚动文件双通道。
+  文件目录由 Launcher 在 logback 初始化前设定为 GimPaths.logsDir()（~/.jwork/logs）；
   开发模式未设属性时兜底 user.home，保证 IDE 直接运行也有文件日志。
 -->
 <configuration>
-    <property name="LOG_DIR" value="${gim.log.dir:-${user.home}/.gim-agent/logs}"/>
+    <property name="LOG_DIR" value="${gim.log.dir:-${user.home}/.jwork/logs}"/>
 
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>

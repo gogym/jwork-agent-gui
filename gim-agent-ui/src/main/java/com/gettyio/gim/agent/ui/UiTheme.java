@@ -8,7 +8,7 @@ import javafx.stage.Window;
  * UI 主题中心：浅色/深色模式 + 字体大小档位。
  * <p>样式表组合 = 基础表 + 深色覆盖表（仅覆盖 -gim-* 语义色变量）
  * + 字号覆盖表；偏好经 {@link UserPrefs} 持久化到
- * {@code ~/.gim-agent/theme.properties}（与语言偏好同文件不同键），
+ * {@code ~/.jwork/theme.properties}（与语言偏好同文件不同键），
  * 切换时对全部已打开窗口即时生效。</p>
  */
 public final class UiTheme {

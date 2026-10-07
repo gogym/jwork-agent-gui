@@ -45,7 +45,7 @@ public class AppLifecycle {
 
     /** HKCU 开机自启注册表位置与值名（Windows）。 */
     private static final String RUN_KEY = "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Run";
-    private static final String RUN_VALUE = "Gim Agent";
+    private static final String RUN_VALUE = "Jwork";
 
     private final GimDatabase db;
 
@@ -131,7 +131,7 @@ public class AppLifecycle {
         if (stage != null) {
             stage.hide();
         }
-        trayNotifier.notify(I18n.t("notify.trayTitle", "Gim Agent"), I18n.t("notify.tray.hint"));
+        trayNotifier.notify(I18n.t("notify.trayTitle", "Jwork"), I18n.t("notify.tray.hint"));
     }
 
     /** 从托盘唤回主窗（AWT 线程回调，转投 FX 线程）。 */

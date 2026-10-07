@@ -36,7 +36,7 @@ public class TrayNotifier {
             return;
         }
         try {
-            TrayIcon icon = new TrayIcon(createIconImage(), "Gim Agent");
+            TrayIcon icon = new TrayIcon(createIconImage(), "Jwork");
             icon.setImageAutoSize(true);
             SystemTray.getSystemTray().add(icon);
             this.trayIcon = icon;

@@ -8,7 +8,7 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 /**
- * 用户偏好存储：{@code ~/.gim-agent/theme.properties}，
+ * 用户偏好存储：{@code ~/.jwork/theme.properties}，
  * 供 UiTheme（模式/字号）与 I18n（语言）共享读写，避免多文件互相覆盖。
  */
 public final class UserPrefs {
@@ -58,6 +58,6 @@ public final class UserPrefs {
     }
 
     private static Path file() {
-        return Path.of(System.getProperty("user.home"), ".gim-agent", "theme.properties");
+        return Path.of(System.getProperty("user.home"), ".jwork", "theme.properties");
     }
 }

@@ -320,7 +320,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
                 themeMenuButton, modelButton, approvalButton, providerAdminService, securityAdminService, this);
         sidebar = new com.gettyio.gim.agent.ui.chat.SessionSidebar(
-                sessionsBox, recentHeader, recentBox, recentSectionCaret,
+                sessionsBox, sessionsHeader, recentHeader, recentBox, recentSectionCaret,
                 sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
                 sessionsSectionCaret, agentAdminService, chatService, this);
         // 无消息时展示居中欢迎页，有消息后自动隐藏

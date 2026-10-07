@@ -6,8 +6,8 @@ import java.nio.file.Paths;
 /**
  * 本地数据目录约定（本地优先，数据自持）：
  * <pre>
- * ~/.gim-agent/
- *   gim-agent.db
+ * ~/.jwork/
+ *   jwork.db
  *   secret.key
  *   workspace/
  *   logs/
@@ -17,7 +17,7 @@ import java.nio.file.Paths;
  */
 public class GimPaths {
 
-    public static final String DEFAULT_ROOT_NAME = ".gim-agent";
+    public static final String DEFAULT_ROOT_NAME = ".jwork";
 
     private final Path root;
 
@@ -34,7 +34,7 @@ public class GimPaths {
     }
 
     public Path dbFile() {
-        return root.resolve("gim-agent.db");
+        return root.resolve("jwork.db");
     }
 
     public Path secretKeyFile() {

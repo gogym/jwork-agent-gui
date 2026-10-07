@@ -1,4 +1,4 @@
--- Gim Agent 桌面版 SQLite schema（本地优先，数据自持）
+-- Jwork 桌面版 SQLite schema（本地优先，数据自持）
 -- 时间列以 ISO-8601 字符串（TEXT）存储，由 SqlRunner 约定读写
 
 CREATE TABLE IF NOT EXISTS agents (

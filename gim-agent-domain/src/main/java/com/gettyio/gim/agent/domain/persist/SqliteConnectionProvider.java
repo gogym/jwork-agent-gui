@@ -17,7 +17,7 @@ public class SqliteConnectionProvider implements ConnectionProvider {
     private final String jdbcUrl;
 
     /**
-     * @param dbFile 数据库文件绝对路径，如 ~/.gim-agent/gim-agent.db；
+     * @param dbFile 数据库文件绝对路径，如 ~/.jwork/jwork.db；
      *               传 ":memory:" 使用内存库（仅测试）
      */
     public SqliteConnectionProvider(Path dbFile) {

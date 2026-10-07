@@ -152,7 +152,7 @@
                                     </ScrollPane>
                                     <VBox fx:id="welcomePane" styleClass="welcome" maxWidth="640.0" mouseTransparent="true">
                                         <Label fx:id="welcomeTitle" text="不止于对话" styleClass="welcome-title"/>
-                                        <Label fx:id="welcomeSubtitle" text="用 Gim Agent 把日常事务交给 AI" styleClass="welcome-subtitle"/>
+                                        <Label fx:id="welcomeSubtitle" text="用 Jwork 把日常事务交给 AI" styleClass="welcome-subtitle"/>
                                     </VBox>
                                 </StackPane>
                                 <VBox styleClass="input-wrap">

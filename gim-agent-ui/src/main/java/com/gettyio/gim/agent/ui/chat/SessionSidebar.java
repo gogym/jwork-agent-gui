@@ -60,6 +60,7 @@ public class SessionSidebar {
     private static final String ICON_DELETE = "\uE74D";
 
     private final VBox sessionsBox;
+    private final HBox sessionsHeader;
     private final HBox recentHeader;
     private final VBox recentBox;
     private final Label recentSectionCaret;
@@ -82,12 +83,13 @@ public class SessionSidebar {
     /** 处于收起态的分区块标识（ungrouped / group:<id>），启动时从偏好加载 */
     private final Set<String> collapsedKeys = new HashSet<>();
 
-    public SessionSidebar(VBox sessionsBox, HBox recentHeader, VBox recentBox, Label recentSectionCaret,
+    public SessionSidebar(VBox sessionsBox, HBox sessionsHeader, HBox recentHeader, VBox recentBox, Label recentSectionCaret,
                           Label sessionsCount, HBox agentSwitcher,
                           Label agentAvatar, Label agentNameLabel, Label agentDescLabel,
                           Label sessionsSectionCaret, AgentAdminService agentAdminService,
                           ChatService chatService, SessionSidebarHost host) {
         this.sessionsBox = sessionsBox;
+        this.sessionsHeader = sessionsHeader;
         this.recentHeader = recentHeader;
         this.recentBox = recentBox;
         this.recentSectionCaret = recentSectionCaret;
@@ -101,6 +103,7 @@ public class SessionSidebar {
         this.chatService = chatService;
         this.host = host;
         loadCollapsedKeys();
+        installSessionsHeaderMenu();
     }
 
     /** 从偏好加载折叠的分区块集合（逗号分隔，容忍空白）。 */
@@ -163,9 +166,6 @@ public class SessionSidebar {
         } else {
             renderSection("ungrouped", I18n.t("group.ungrouped"), ungrouped, false, null);
         }
-
-        // 底部：新建分组入口
-        sessionsBox.getChildren().add(buildNewGroupRow());
     }
 
     /**
@@ -271,17 +271,30 @@ public class SessionSidebar {
         return menu;
     }
 
-    /** 底部「+ 新建分组」行：弹框取名后落库并刷新（空名回退 i18n 默认「新分组」）。 */
-    private HBox buildNewGroupRow() {
-        Label plus = new Label("\uFF0B");
-        plus.getStyleClass().add("ws-session-dot");
-        Label text = new Label(I18n.t("group.new"));
-        text.getStyleClass().add("session-new-group");
-        HBox row = new HBox(6, plus, text);
-        row.getStyleClass().add("ws-session-row");
-        row.setAlignment(Pos.CENTER_LEFT);
-        row.setOnMouseClicked(e -> createGroupDialog(null));
-        return row;
+    /**
+     * 在「会话」表头右侧挂一个「⋯」按钮，点击弹出含「新建分组」的菜单。
+     * <p>与分组区表头的「⋯」同用 {@code ws-mini-btn} 样式，观感一致；复用单一 {@link ContextMenu}
+     * 实例避免反复点击累积阴影/漂移，每次弹出前按当前语言重建条目文案。</p>
+     */
+    private void installSessionsHeaderMenu() {
+        if (sessionsHeader == null) {
+            return;
+        }
+        ContextMenu menu = new ContextMenu();
+        Button menuBtn = new Button();
+        menuBtn.setGraphic(UiTheme.icon(ICON_MORE));
+        menuBtn.getStyleClass().add("ws-mini-btn");
+        menuBtn.setFocusTraversable(false);
+        menuBtn.setOnAction(e -> {
+            if (menu.isShowing()) {
+                return;
+            }
+            MenuItem newGroup = new MenuItem(I18n.t("group.new"), UiTheme.icon(ICON_ADD));
+            newGroup.setOnAction(ev -> createGroupDialog(null));
+            menu.getItems().setAll(newGroup);
+            menu.show(menuBtn, Side.BOTTOM, 0, 0);
+        });
+        sessionsHeader.getChildren().add(menuBtn);
     }
 
     /** 切换某分区块的折叠态并持久化、重画。 */

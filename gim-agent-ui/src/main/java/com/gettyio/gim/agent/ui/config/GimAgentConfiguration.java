@@ -356,7 +356,7 @@ public class GimAgentConfiguration {
             }
             AgentDefinition agent = new AgentDefinition();
             agent.setAgentCode(MultiAgentGateway.DEFAULT_AGENT_CODE);
-            agent.setAgentName("Gim Agent");
+            agent.setAgentName("Jwork");
             agent.setAgentType(AgentType.SIMPLE.name());
             agent.setDescription("本地优先的个人 AI 助理（默认智能体）");
             // 生成参数留空：交由模型/提供商默认决定，不在此固定 temperature/maxTokens
@@ -389,6 +389,6 @@ public class GimAgentConfiguration {
         } catch (IOException ignored) {
             // 回退到内置提示
         }
-        return "你是 Gim Agent，一个运行在本地桌面的个人 AI 助理。";
+        return "你是 Jwork，一个运行在本地桌面的个人 AI 助理。";
     }
 }

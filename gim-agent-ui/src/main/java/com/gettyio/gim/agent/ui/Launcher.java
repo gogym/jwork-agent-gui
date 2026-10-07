@@ -19,7 +19,7 @@ public final class Launcher {
     }
 
     public static void main(String[] args) {
-        // 先于 logback 初始化设定文件日志目录，保证打包后日志一律落 ~/.gim-agent/logs/
+        // 先于 logback 初始化设定文件日志目录，保证打包后日志一律落 ~/.jwork/logs/
         System.setProperty("gim.log.dir", new GimPaths().logsDir().toString());
         Logger log = LoggerFactory.getLogger(Launcher.class);
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->

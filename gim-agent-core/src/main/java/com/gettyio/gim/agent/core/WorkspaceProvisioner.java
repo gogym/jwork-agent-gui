@@ -17,7 +17,7 @@ public class WorkspaceProvisioner {
     private static final Logger log = LoggerFactory.getLogger(WorkspaceProvisioner.class);
 
     private static final String DEFAULT_AGENTS_MD = """
-            # Gim Agent
+            # Jwork
 
             你是运行在本地桌面的个人 AI 助理。遵循以下原则：
 

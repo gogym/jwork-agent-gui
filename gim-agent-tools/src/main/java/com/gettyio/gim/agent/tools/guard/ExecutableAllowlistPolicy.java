@@ -94,7 +94,7 @@ public class ExecutableAllowlistPolicy implements ToolGuard {
             return null;
         }
         String reason = "以下程序不在允许启动的白名单内，已拒绝：" + String.join("、", offending)
-                + "；如确需使用，请把程序名加入 ~/.gim-agent/shell-allowlist.txt";
+                + "；如确需使用，请把程序名加入 ~/.jwork/shell-allowlist.txt";
         log.warn("shell 白名单拒绝: session={}, blocked={}", ctx.sessionId(), offending);
         return GuardResult.deny(reason);
     }
