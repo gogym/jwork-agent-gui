@@ -136,6 +136,28 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         }
     }
 
+    /**
+     * 压缩指定会话的上下文：按前缀命中该智能体已装配的任一模型变体执行（各变体共享同一份磁盘
+     * 会话状态，取首个即可）；尚未装配时先按定义装配默认变体再压缩。
+     */
+    @Override
+    public Mono<ContextCompactionResult> compact(String agentCode, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return Mono.empty();
+        }
+        String prefix = normalize(agentCode) + RUNTIME_KEY_SEP;
+        for (Map.Entry<String, HarnessAgentGateway> entry : runtimes.entrySet()) {
+            if (entry.getKey().startsWith(prefix)) {
+                return entry.getValue().compactContext(sessionId);
+            }
+        }
+        ChatRequest probe = ChatRequest.builder()
+                .agentCode(normalize(agentCode))
+                .sessionId(sessionId)
+                .build();
+        return gatewayFor(probe).compactContext(sessionId);
+    }
+
     private HarnessAgentGateway gatewayFor(ChatRequest request) {
         String key = runtimeKey(request.getAgentCode(), request.getProviderCode(), request.getModelCode());
         HarnessAgentGateway hit = runtimes.get(key);

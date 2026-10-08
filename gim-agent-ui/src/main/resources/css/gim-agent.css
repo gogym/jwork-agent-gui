@@ -357,25 +357,57 @@
     -fx-text-fill: -gim-text-5;
 }
 
-.messages { -fx-padding: 16 24 16 24; -fx-spacing: 10; }
+/* 聊天阅读区：整体用更柔和圆润的中文字体栈——Noto Sans SC 是可变字体（VF），JavaFX
+   枚举不到，由 UiTheme#ensureChatFont 启动时注册（优先随包字体 resources/fonts，未安装
+   字体的机器观感也一致；资源缺失时才回退本机安装路径）；JavaFX 字体族仅取列表首项、
+   不做逐项回退，全部缺失时自然回退系统字体。字号/行距在 markdown 与气泡规则中统一抬升，
+   营造舒适阅读感；正文基准 14px（= 根字号 +1），档位缩放由 gim-agent-font-small /
+   font-large.css 同步覆盖 */
+.messages {
+    -fx-padding: 16 24 16 24;
+    -fx-spacing: 10;
+    -fx-font-family: "Noto Sans SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}
+/* 消息列居中容器：内容列（.messages，maxWidth 见 FXML）在宽窗下水平居中、窄窗下随视口收缩 */
+.messages-center { -fx-alignment: top-center; }
+/* 「回到底部」悬浮按钮：消息列底部中央的圆形按钮，滚动离开最新消息时显现 */
+.scroll-bottom-btn {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 17;
+    -fx-min-width: 34;
+    -fx-min-height: 34;
+    -fx-pref-width: 34;
+    -fx-pref-height: 34;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 10, 0, 0, 2);
+}
+.scroll-bottom-btn:hover { -fx-background-color: -gim-hover; }
+.scroll-bottom-btn .icon { -fx-font-size: 14px; -fx-text-fill: -gim-text-2; }
 .bubble-row { -fx-padding: 0; }
 .bubble-user {
     -fx-background-color: -gim-tint;
     -fx-background-radius: 14;
     -fx-padding: 10 14 10 14;
     -fx-text-fill: -gim-tint-fg-2;
+    -fx-font-size: 14px;
+    -fx-line-spacing: 5;
 }
 .bubble-assistant {
     -fx-background-color: transparent;
     -fx-padding: 8 12 8 12;
     -fx-text-fill: -gim-text;
-    -fx-line-spacing: 2;
+    -fx-line-spacing: 5;
 }
 
 /* ---------- Markdown 渲染（助手气泡 / 历史重放 / 导出共用） ---------- */
+/* 流式期的实时纯文本：与收尾后的 Markdown 正文同为一等文本色（不强调的统一深色），
+   避免收尾重渲染瞬间出现色阶跳变 */
 .bubble-text {
     -fx-text-fill: -gim-text;
-    -fx-line-spacing: 2;
+    -fx-font-size: 14px;
+    -fx-line-spacing: 6;
 }
 /* 「思考中」占位：弱化颜色 + 斜体，配合不透明度脉动动画传达“正在处理” */
 .bubble-thinking {
@@ -383,27 +415,49 @@
     -fx-font-style: italic;
 }
 .md-p {
-    -fx-line-spacing: 2;
-    -fx-text-fill: -gim-text;
+    -fx-line-spacing: 6;
+    -fx-font-size: 14px;
+    /* 段落上下各留 2：相邻段落间形成 4px 呼吸间隙，整段更舒展 */
+    -fx-padding: 2 0 2 0;
 }
+/* 段落内联文本的实际着色：-fx-text-fill 对 TextFlow 无效，必须落到子节点上；且 JavaFX
+   原生 Text 不带 "text" 样式类（那是控件内部文本才有），故行内文本统一挂自定义基类
+   md-text（见 MarkdownRenderer.mdText）。不强调的正文一律同色（-gim-text，与标题同为
+   一等色、明暗自动切换）；强调只体现在字重与字体族上（加粗加字重、行内码等宽字体 + 淡底
+   chip），仅链接保留主题色 */
+.md-p .md-text { -fx-fill: -gim-text; }
+.md-p .md-bold { -fx-fill: -gim-text; }
+.md-p .md-link { -fx-fill: -gim-accent; }
+.md-p .md-image-alt { -fx-fill: -gim-text-4; }
 .md-h1, .md-h2, .md-h3, .md-h4 {
     -fx-font-weight: bold;
     -fx-text-fill: -gim-text-title;
 }
-.md-h1 { -fx-font-size: 20px; -fx-padding: 8 0 4 0; }
-.md-h2 { -fx-font-size: 17px; -fx-padding: 7 0 3 0; }
-.md-h3 { -fx-font-size: 15px; -fx-padding: 6 0 2 0; }
-.md-h4 { -fx-font-size: 14px; -fx-padding: 5 0 2 0; }
+.md-h1 { -fx-font-size: 21px; -fx-padding: 10 0 5 0; }
+.md-h2 { -fx-font-size: 18px; -fx-padding: 9 0 4 0; }
+.md-h3 { -fx-font-size: 16px; -fx-padding: 7 0 3 0; }
+.md-h4 { -fx-font-size: 15px; -fx-padding: 6 0 2 0; }
 .md-bold { -fx-font-weight: bold; }
 .md-italic { -fx-font-style: italic; }
 .md-link { -fx-fill: -gim-accent; -fx-underline: true; }
 .md-image-alt { -fx-fill: -gim-text-4; -fx-font-style: italic; }
+/* 行内码 chip（对齐 QwenPaw/Spark 做法）：正文同色 + 淡底 + 细边框 + 小圆角 + 等宽字体。
+   节点为 Label（内嵌 TextFlow，见 MarkdownRenderer.appendInline）——JavaFX 原生 Text
+   只有字形能力做不出底色；-fx-fill 仅作 Text 场合兜底，Label 实际吃 -fx-text-fill */
 .md-inline-code {
-    -fx-fill: -gim-code-fg;
+    -fx-fill: -gim-text;
+    -fx-text-fill: -gim-text;
+    -fx-background-color: -gim-inline-code-bg;
+    -fx-background-radius: 4;
+    -fx-border-color: -gim-code-border;
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
+    -fx-padding: 1 5 1 5;
     -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    -fx-font-size: 12px;
 }
 .md-list { -fx-padding: 2 0 2 4; }
-.md-bullet { -fx-text-fill: -gim-text-3; -fx-font-family: "Consolas", monospace; }
+.md-bullet { -fx-text-fill: -gim-text; -fx-font-size: 14px; -fx-font-family: "Consolas", monospace; }
 .md-quote {
     -fx-background-color: -gim-panel-2;
     -fx-background-radius: 6;
@@ -411,7 +465,7 @@
     -fx-border-color: transparent transparent transparent -gim-quote-bar;
     -fx-border-width: 0 0 0 3;
 }
-.md-quote .md-p { -fx-text-fill: -gim-quote-fg; }
+.md-quote .md-p .md-text { -fx-fill: -gim-text; }
 .md-rule { -fx-padding: 6 0 6 0; }
 .md-rule .line { -fx-background-color: -gim-border-2; }
 .md-table {
@@ -422,6 +476,7 @@
 .md-th, .md-td {
     -fx-background-color: -gim-bg;
     -fx-padding: 6 10 6 10;
+    -fx-font-size: 14px;
     -fx-text-fill: -gim-text;
 }
 .md-th { -fx-font-weight: bold; -fx-background-color: -gim-panel-2; -fx-text-fill: -gim-text-title; }
@@ -440,18 +495,22 @@
 }
 .md-code-area > .content { -fx-background-color: transparent; }
 
-/* 着色代码块（TextFlow 版）：底色圆角挂在 viewport 上，token 色由明暗两套各给一份 */
+/* 着色代码块（TextFlow 版）：底色圆角挂在 viewport 上，token 色由明暗两套各给一份。
+   注意：ScrollPane viewport 的 -fx-padding 不参与 content 布局（实测无效），
+   内边距必须挂在 .md-code-flow 上才对文本生效 */
 .md-code-scroll { -fx-background-color: transparent; }
 .md-code-scroll > .viewport {
     -fx-background-color: -gim-code-bg;
     -fx-background-radius: 8;
     -fx-border-color: -gim-code-border;
     -fx-border-radius: 8;
-    -fx-padding: 8 10 8 10;
 }
 .md-code-flow {
     -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
-    -fx-font-size: 12px;
+    -fx-font-size: 13px;
+    -fx-line-spacing: 2;
+    /* 内边距：上/左/下留白，避免文字贴住卡片边缘（右侧 0，宽度随视口撑满） */
+    -fx-padding: 12 0 12 14;
 }
 .md-code-txt { -fx-fill: -gim-code-fg; }
 .md-code-kw  { -fx-fill: #a626a4; -fx-font-weight: bold; }
@@ -503,54 +562,62 @@
 .bubble-hit .bubble-assistant { -fx-background-color: -gim-tint-3; -fx-background-radius: 12; }
 .bubble-hit .bubble-user { -fx-background-color: -gim-tint-2; }
 
-/* ---------- 工具调用折叠卡片（助手气泡内）---------- */
-.tool-card {
-    -fx-background-color: -gim-panel-2;
-    -fx-background-radius: 8;
-    -fx-border-color: -gim-code-border;
-    -fx-border-radius: 8;
-    -fx-padding: 0;
-}
-.tool-card-header {
-    -fx-padding: 7 10 7 10;
+/* ---------- 工具调用组卡片（助手气泡内）：一轮合并为一张，标题显示次数，行级展开输入/响应 ---------- */
+.tool-group { -fx-spacing: 0; }
+.tool-group-header {
+    -fx-padding: 4 8 4 2;
+    -fx-background-radius: 6;
     -fx-cursor: hand;
-    -fx-background-radius: 8;
 }
-.tool-card-header:hover { -fx-background-color: -gim-hover; }
-.tool-card-chevron {
-    -fx-font-size: 10px;
-    -fx-text-fill: -gim-text-4;
-    -fx-min-width: 12;
+.tool-group-header:hover { -fx-background-color: -gim-hover; }
+.tool-group-chevron { -fx-font-size: 10px; -fx-text-fill: -gim-text-4; -fx-min-width: 12; }
+.tool-group-title { -fx-font-size: 13px; -fx-text-fill: -gim-text-3; }
+.tool-group-body { -fx-padding: 2 0 4 2; -fx-spacing: 2; }
+.tool-group-row {
+    -fx-padding: 3 8 3 2;
+    -fx-spacing: 6;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
 }
-.tool-card-title {
-    -fx-font-size: 12px;
-    -fx-font-weight: bold;
-    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
-    -fx-text-fill: -gim-text-title;
-}
-.tool-card-duration { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; }
-.tool-card-status { -fx-font-size: 11px; }
-.tool-card-ok { -fx-text-fill: -gim-accent; }
-.tool-card-err { -fx-text-fill: -gim-badge-red-fg; }
-.tool-card-body { -fx-padding: 4 10 10 10; }
-.tool-card-field-label {
-    -fx-font-size: 11px;
-    -fx-font-weight: bold;
-    -fx-text-fill: -gim-text-3;
-}
-.tool-card-field {
+.tool-group-row:hover { -fx-background-color: -gim-hover; }
+.tool-group-icon { -fx-font-size: 13px; -fx-min-width: 16; }
+.tool-group-icon-ok { -fx-text-fill: -gim-accent; }
+.tool-group-icon-err { -fx-text-fill: -gim-badge-red-fg; }
+.tool-group-name { -fx-font-size: 12px; -fx-text-fill: -gim-text; }
+.tool-group-summary { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+.tool-group-detail { -fx-padding: 2 8 6 46; -fx-spacing: 4; }
+.tool-group-detail-label { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; }
+.tool-group-detail-text {
     -fx-background-color: -gim-code-bg;
     -fx-background-radius: 6;
-    -fx-border-color: -gim-code-border;
-    -fx-border-radius: 6;
-    -fx-padding: 6 8 6 8;
+    -fx-padding: 6 10 6 10;
     -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
     -fx-font-size: 12px;
     -fx-text-fill: -gim-code-fg;
-    -fx-pref-height: 96;
-    -fx-max-height: 220;
 }
-.tool-card-field > .content { -fx-background-color: transparent; }
+
+/* ---------- 思考过程卡片（助手气泡内）：「已思考 · 摘要」一行，点击展开全文；流式期实时增长 ---------- */
+.thinking-card { -fx-spacing: 2; }
+.thinking-header {
+    -fx-padding: 3 8 3 2;
+    -fx-background-radius: 6;
+    -fx-cursor: hand;
+}
+.thinking-header:hover { -fx-background-color: -gim-hover; }
+.thinking-icon { -fx-font-size: 13px; -fx-min-width: 16; -fx-text-fill: -gim-text-4; }
+.thinking-title { -fx-font-size: 13px; -fx-text-fill: -gim-text-3; }
+.thinking-summary { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; }
+.thinking-body {
+    -fx-padding: 6 10 6 22;
+    -fx-spacing: 4;
+    -fx-background-color: -gim-code-bg;
+    -fx-background-radius: 6;
+}
+/* 灰底块内的 Markdown 段落：弱化为次级灰、小一号，与正文区分 */
+.thinking-body .md-p { -fx-font-size: 13.5px; -fx-line-spacing: 5; }
+.thinking-body .md-p .md-text { -fx-fill: -gim-text-3; }
+.thinking-body .md-inline-code { -fx-text-fill: -gim-text-3; }
+.thinking-text { -fx-font-size: 13.5px; -fx-text-fill: -gim-text-3; -fx-line-spacing: 5; }
 
 /* ---------- 对话区顶部：当前会话标题 ---------- */
 .chat-header {
@@ -736,6 +803,56 @@
     -fx-background-radius: 8;
     -fx-padding: 2 8 2 8;
 }
+
+/* ---------- 上下文占用条（百分比）与悬停浮层 ---------- */
+/* 占用区整体作为悬停触发区：鼠标进入即弹出明细浮层（已用量/上限 + 压缩按钮） */
+.context-stats { -fx-cursor: hand; }
+/* 占用条本体：长方形指示条（4px 圆角、无胶囊圆头；2px 在 12px 高度上视觉近似直角，故取高度的 1/3）。
+   max 压住 HBox fillHeight 的拉伸，min 防挤；重置 modena 默认的多层内缩底色，避免细条里的凹陷层糊在一起 */
+.context-gauge {
+    -fx-pref-height: 12;
+    -fx-min-height: 12;
+    -fx-max-height: 12;
+}
+.context-gauge > .track {
+    -fx-background-color: -gim-border-3;
+    -fx-background-radius: 4;
+    -fx-background-insets: 0;
+}
+.context-gauge > .bar {
+    -fx-background-color: -gim-accent;
+    -fx-background-radius: 4;
+    -fx-background-insets: 0;
+}
+/* 百分比文案缩到与左下用量行同档（11px），颜色用次要灰 */
+.context-bar { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; }
+/* 接近上限时百分比文案转警示色 */
+.context-bar-warn { -fx-text-fill: -gim-badge-red-fg; }
+/* 悬停浮层卡片（Popup 窗口承载，样式表随主窗继承、明暗主题随动） */
+.context-popup {
+    -fx-background-color: -gim-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 10;
+    -fx-padding: 10 12 10 12;
+    -fx-spacing: 8;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 16, 0.08, 0, 4);
+}
+.context-popup-info { -fx-font-size: 12px; -fx-text-fill: -gim-text; }
+/* 后代选择器保证赢过全局 .button 的底色/圆角，压缩按钮为带描边的实底样式 */
+.context-popup .button {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 8;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 8;
+    -fx-padding: 5 10 5 10;
+    -fx-font-size: 12px;
+    -fx-text-fill: -gim-text-2;
+}
+.context-popup .button:hover { -fx-background-color: -gim-btn-hover; }
+/* 压缩结果/失败回显行（默认中性灰，失败转红） */
+.context-popup-status { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; -fx-line-spacing: 1; }
+.context-popup-status-error { -fx-text-fill: -gim-badge-red-fg; }
 .send-button {
     -fx-background-color: -gim-accent;
     -fx-background-radius: 10;

@@ -2,6 +2,7 @@ package com.gettyio.gim.agent.ui.controller;
 
 import com.gettyio.gim.agent.core.chat.ChatRequest;
 import com.gettyio.gim.agent.core.chat.ChatService;
+import com.gettyio.gim.agent.core.chat.ContextCompactionResult;
 import com.gettyio.gim.agent.core.chat.FileAttachment;
 import com.gettyio.gim.agent.core.knowledge.KnowledgeService;
 import com.gettyio.gim.agent.core.plan.PlanService;
@@ -84,6 +85,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.io.ByteArrayInputStream;
@@ -139,6 +141,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private VBox messagesContainer;
     @FXML
     private VBox welcomePane;
+    /** 「回到底部」悬浮按钮：滚动离开最新消息时显现（显隐与滚动动画由 {@link com.gettyio.gim.agent.ui.chat.ScrollToBottomButton} 驱动） */
+    @FXML
+    private Button scrollBottomBtn;
     @FXML
     private TextArea inputField;
     @FXML
@@ -197,6 +202,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private javafx.scene.control.ProgressBar contextGauge;
     @FXML
     private Label contextBar;
+    /** 上下文占用区容器（进度条 + 百分比文案）：整体作为悬停弹层触发区 */
+    @FXML
+    private HBox contextStats;
     @FXML
     private HBox chatHeader;
     @FXML
@@ -342,6 +350,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         messageRenderer = new com.gettyio.gim.agent.ui.chat.MessageListRenderer(scrollPane, messagesContainer, this);
         // 滚动到顶向上补页（长会话历史分页）
         messageRenderer.setOnTopReached(this::loadOlderMessages);
+        // 「回到底部」悬浮按钮：停靠消息区底部中央，离开最新消息时显现，点击平滑回底
+        StackPane.setAlignment(scrollBottomBtn, javafx.geometry.Pos.BOTTOM_CENTER);
+        StackPane.setMargin(scrollBottomBtn, new javafx.geometry.Insets(0, 0, 16, 0));
+        new com.gettyio.gim.agent.ui.chat.ScrollToBottomButton(scrollPane, scrollBottomBtn);
         attachmentBar = new com.gettyio.gim.agent.ui.chat.AttachmentBar(
                 attachChipsBox, inputField, attachButton, gimPaths, this);
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
@@ -352,8 +364,19 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
                 sessionsSectionCaret, agentAdminService, chatService, this);
         statusBar = new com.gettyio.gim.agent.ui.chat.ChatStatusBar(
-                usageBar, contextBar, contextGauge, inputField, chatService, rateGovernor, database,
-                toolbar::selectedModelCode, this::currentSessionId);
+                usageBar, contextBar, contextGauge, contextStats, inputField, chatService, rateGovernor, database,
+                toolbar::selectedModelCode, this::currentSessionId,
+                new com.gettyio.gim.agent.ui.chat.ChatStatusBar.ContextCompactor() {
+                    @Override
+                    public boolean busy() {
+                        return activeStream != null;
+                    }
+
+                    @Override
+                    public Mono<ContextCompactionResult> compact(String sessionId) {
+                        return chatService.compact(agentOfSession(sessionId), sessionId);
+                    }
+                });
         // 无消息时展示居中欢迎页，有消息后自动隐藏
         welcomePane.visibleProperty().bind(Bindings.isEmpty(messageRenderer.messages()));
         welcomePane.managedProperty().bind(welcomePane.visibleProperty());
@@ -431,6 +454,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             sidebar.renderSessions();
             toolbar.renderModelButton();
             toolbar.renderApprovalButton();
+            // 占用条百分比与浮层内按钮文案随语言即时刷新
+            statusBar.updateContext();
         });
     }
 
@@ -636,6 +661,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     public void handleSend() {
         // 在途生成期间不并发升一轮（Enter 与重复点击同一口径）；停止请点发送按钮的停止态
         if (activeStream != null) {
+            return;
+        }
+        // 手动压缩在途：上下文正被改写，拒绝并发送入（core 侧 inflight 计数亦有兜底）
+        if (statusBar.isCompacting()) {
+            GimDialog.message(ownerWindow(), I18n.t("context.compact.title"), null, I18n.t("context.compact.wait"));
             return;
         }
         String text = inputField.getText();
@@ -966,9 +996,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 content = content + "\n" + I18n.t("chat.interrupted");
             }
             if (prepend) {
-                messageRenderer.prependAssistantMarkdown(content, id, c.getToolCalls());
+                messageRenderer.prependAssistantMarkdown(content, id, c.getToolCalls(), meta.thinking());
             } else {
-                messageRenderer.appendAssistantMarkdown(content, id, c.getToolCalls());
+                messageRenderer.appendAssistantMarkdown(content, id, c.getToolCalls(), meta.thinking());
             }
         }
     }
@@ -1029,6 +1059,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         if (activeStream != null) {
             return;
         }
+        if (statusBar.isCompacting()) {
+            GimDialog.message(ownerWindow(), I18n.t("context.compact.title"), null, I18n.t("context.compact.wait"));
+            return;
+        }
         String sid = currentSessionId;
         if (sid == null) {
             return;
@@ -1048,6 +1082,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @Override
     public void onEditResend(long conversationId, String currentText) {
         if (activeStream != null || conversationId <= 0) {
+            return;
+        }
+        if (statusBar.isCompacting()) {
+            GimDialog.message(ownerWindow(), I18n.t("context.compact.title"), null, I18n.t("context.compact.wait"));
             return;
         }
         String sid = currentSessionId;

@@ -37,4 +37,16 @@ public interface AgentGateway {
      */
     default void stop(String agentCode, String sessionId) {
     }
+
+    /**
+     * 手动压缩指定会话的模型上下文（LLM 摘要式，与框架自动压缩同一条链路）。
+     * <p>默认空实现：不支持手动压缩的网关返回 {@link Mono#empty()}，调用方按「未压缩」处理。</p>
+     *
+     * @param agentCode 会话归属的智能体编码
+     * @param sessionId 目标会话
+     * @return 压缩结果；空 Mono 表示无对应运行时或不支持压缩
+     */
+    default Mono<ContextCompactionResult> compact(String agentCode, String sessionId) {
+        return Mono.empty();
+    }
 }

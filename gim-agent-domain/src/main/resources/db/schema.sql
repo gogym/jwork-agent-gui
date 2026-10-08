@@ -34,6 +34,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     pinned             INTEGER DEFAULT 0,
     favorite           INTEGER DEFAULT 0,
     parent_session_id  TEXT,
+    -- 最近一次手动压缩后的上下文估算（token）：新一轮真实用量回报前作为占用条显示基准，随会话行持久化
+    compacted_tokens   INTEGER,
     created_at         TEXT,
     updated_at         TEXT
 );

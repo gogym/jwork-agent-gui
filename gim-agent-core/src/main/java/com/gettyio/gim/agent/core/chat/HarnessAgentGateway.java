@@ -25,8 +25,13 @@ import io.agentscope.core.permission.PermissionContextState;
 import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.core.skill.repository.FileSystemSkillRepository;
+import io.agentscope.core.state.AgentState;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.memory.MemoryConfig;
+import io.agentscope.harness.agent.memory.MemoryFlushManager;
+import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
+import io.agentscope.harness.agent.memory.compaction.ConversationCompactor;
+import io.agentscope.harness.agent.memory.compaction.TokenCounterUtil;
 import io.agentscope.harness.agent.subagent.SubagentDeclaration;
 import io.agentscope.harness.agent.filesystem.spec.LocalFilesystemSpec;
 import io.agentscope.harness.agent.tools.McpServerRegistrationListener;
@@ -47,6 +52,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
 
@@ -77,8 +83,14 @@ public class HarnessAgentGateway implements AutoCloseable {
     /** 主模型调用失败后的框架级重试次数（配合备用模型 failover） */
     private static final int FRAMEWORK_MAX_RETRIES = 2;
 
-    /** 上下文窗口 token 上限默认值（AppSetting 键 {@code agent.context.maxTokens} 可调）；超出时框架自动压缩 */
-    private static final int DEFAULT_MAX_CONTEXT_TOKENS = 12000;
+    /** 上下文窗口上限的 AppSetting 键：运行体自动压缩阈值与输入框占用条分母共用此单一来源。 */
+    public static final String SETTING_CONTEXT_MAX_TOKENS = "agent.context.maxTokens";
+
+    /**
+     * 上下文窗口 token 上限默认值（AppSetting 键 {@link #SETTING_CONTEXT_MAX_TOKENS} 可调）；
+     * 超出时框架自动压缩。显示占用条与运行体压缩阈值统一以此为准，避免两套默认值不一致。
+     */
+    public static final int DEFAULT_MAX_CONTEXT_TOKENS = 128_000;
 
     /** 不可变标识（= agentCode）：上下文存储的目录键，不随显示名改动 */
     private final String agentId;
@@ -123,6 +135,12 @@ public class HarnessAgentGateway implements AutoCloseable {
     private volatile List<SubagentDeclaration> subagentDeclarations;
 
     private volatile HarnessAgent agent;
+
+    /**
+     * 每会话在途生成计数（流式/非流式共用）：手动压缩前探测 >0 即拒绝，
+     * 避免压缩与在途轮次并发改写同一份会话上下文。只在订阅/终止钩子里增减，线程安全。
+     */
+    private final Map<String, AtomicInteger> inflight = new ConcurrentHashMap<>();
 
     public HarnessAgentGateway(String agentId, String agentName, String sysPrompt,
                                Supplier<Model> modelSupplier, Path workspace) {
@@ -333,7 +351,9 @@ public class HarnessAgentGateway implements AutoCloseable {
             HarnessAgent a = agent();
             a.setPermissionMode(ctx, PermissionMode.EXPLORE);
             return a.call(input, ctx).block();
-        }).map(Msg::getTextContent).subscribeOn(Schedulers.boundedElastic());
+        }).map(Msg::getTextContent).subscribeOn(Schedulers.boundedElastic())
+                .doOnSubscribe(sig -> retainInflight(sessionId))
+                .doFinally(sig -> releaseInflight(sessionId));
     }
 
     /**
@@ -350,6 +370,90 @@ public class HarnessAgentGateway implements AutoCloseable {
         } catch (RuntimeException e) {
             log.warn("中断生成失败: session={}", sessionId, e);
         }
+    }
+
+    /**
+     * 手动压缩指定会话的模型上下文：与框架自动压缩同一条链路（记忆沉淀 → 历史转存 JSONL →
+     * LLM 摘要 → [摘要] + 尾部保留），结果直接替换并持久化会话状态，下一轮起生效。
+     * <p>生成中的会话拒绝执行（避免与在途轮次竞争同一份上下文）；会话过短或上下文为空时
+     * 返回 {@code compacted=false} 的结果，不做任何修改。</p>
+     */
+    public Mono<ContextCompactionResult> compactContext(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return Mono.empty();
+        }
+        return Mono.defer(() -> {
+            if (inflightCount(sessionId) > 0) {
+                return Mono.error(new IllegalStateException("会话正在生成中，请先停止后再压缩"));
+            }
+            HarnessAgent a = agent();
+            // 先清本变体的状态缓存再加载：同一会话可能由另一模型变体跑过，缓存可能已落后
+            a.getDelegate().clearStateCache(null, sessionId);
+            AgentState state = a.getDelegate().getAgentState(null, sessionId);
+            List<Msg> context = state.contextMutable();
+            if (context.isEmpty()) {
+                return Mono.just(ContextCompactionResult.skipped());
+            }
+            Model model = a.getModel();
+            MemoryConfig memCfg = this.memoryConfig;
+            String flushPrompt = memCfg != null ? memCfg.flushPrompt() : null;
+            MemoryFlushManager flushManager = flushPrompt != null
+                    ? new MemoryFlushManager(a.getWorkspaceManager(), model, flushPrompt)
+                    : new MemoryFlushManager(a.getWorkspaceManager(), model);
+            ConversationCompactor compactor = new ConversationCompactor(model, flushManager);
+            RuntimeContext rc = RuntimeContext.builder().sessionId(sessionId).build();
+            // 入参用快照：压缩器会先就地裁剪参数/工具结果，避免中途异常破坏活动上下文
+            List<Msg> snapshot = new ArrayList<>(context);
+            return compactor.compactIfNeeded(rc, snapshot, forceCompactionConfig(model), agentName, sessionId)
+                    .map(opt -> {
+                        if (opt.isEmpty()) {
+                            return ContextCompactionResult.skipped();
+                        }
+                        List<Msg> compacted = opt.get();
+                        context.clear();
+                        context.addAll(compacted);
+                        a.getDelegate().saveAgentState(null, sessionId);
+                        log.info("手动压缩完成: agent={}, session={}, {} 条 -> {} 条",
+                                agentId, sessionId, snapshot.size(), compacted.size());
+                        return new ContextCompactionResult(true, TokenCounterUtil.calculateToken(compacted));
+                    });
+        }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 手动压缩的强制配置：{@code triggerMessages(1)} 保证非空上下文必然触发；尾部保留量复刻
+     * 框架 {@code CompactionMiddleware} 的动态公式（{@code min(最大, max(最小, 可用窗口×比例))}），
+     * 模型未报告上下文窗口时退回本运行体的上限（应用设置），保证仍按 token 截尾。
+     */
+    private CompactionConfig forceCompactionConfig(Model model) {
+        CompactionConfig defaults = CompactionConfig.builder().build();
+        int contextWindow = model.getContextWindowSize();
+        if (contextWindow <= 0) {
+            contextWindow = this.maxContextTokens;
+        }
+        int usable = contextWindow - defaults.getReserved();
+        int keepTokens = Math.min(defaults.getKeepTokensMax(),
+                Math.max(defaults.getKeepTokensMin(), (int) (usable * defaults.getKeepTokensRatio())));
+        CompactionConfig.Builder builder = CompactionConfig.builder().triggerMessages(1);
+        if (keepTokens > 0) {
+            builder.keepTokens(keepTokens);
+        }
+        return builder.build();
+    }
+
+    /** 在途生成计数 +1（订阅时调用，请与 {@link #releaseInflight} 配对）。 */
+    private void retainInflight(String sessionId) {
+        inflight.computeIfAbsent(sessionId, k -> new AtomicInteger()).incrementAndGet();
+    }
+
+    /** 在途生成计数 -1，归零时摘除键（终止时调用；重复调用减到负数前的键已被摘除，无副作用）。 */
+    private void releaseInflight(String sessionId) {
+        inflight.computeIfPresent(sessionId, (k, v) -> v.decrementAndGet() <= 0 ? null : v);
+    }
+
+    private int inflightCount(String sessionId) {
+        AtomicInteger counter = inflight.get(sessionId);
+        return counter == null ? 0 : counter.get();
     }
 
     /** 流式对话：按 {@link ChatRequest} 组装多模态输入、设定权限模式后产出归一化事件流 */
@@ -389,7 +493,10 @@ public class HarnessAgentGateway implements AutoCloseable {
                     TokenUsage total = usageAcc.get();
                     return total == null || total.isEmpty()
                             ? Flux.empty() : Flux.just(StreamEvent.usage(sessionId, total));
-                }));
+                }))
+                // 在途计数覆盖整条链（含用量收尾段）：生成结束前拒绝手动压缩，避免并发改写上下文
+                .doOnSubscribe(sig -> retainInflight(sessionId))
+                .doFinally(sig -> releaseInflight(sessionId));
     }
 
     /** 组装 USER 消息：文本块 + 若干图片块（Base64）；无文本时至少留一个空文本块以满足角色约束。 */

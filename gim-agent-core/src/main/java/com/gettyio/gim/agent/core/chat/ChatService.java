@@ -11,6 +11,7 @@ import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.io.IOException;
@@ -74,6 +75,7 @@ public class ChatService {
                 .permissionMode(io.agentscope.core.permission.PermissionMode.EXPLORE)
                 .build();
         StringBuilder buf = new StringBuilder();
+        StringBuilder thinkingBuf = new StringBuilder();
         AtomicReference<TokenUsage> usage = new AtomicReference<>(TokenUsage.ZERO);
         List<ToolCallRecordCodec.ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
         try {
@@ -81,6 +83,8 @@ public class ChatService {
                     .doOnNext(event -> {
                         if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                             buf.append(event.getText());
+                        } else if (event.getType() == StreamEventType.THINKING_DELTA && event.getText() != null) {
+                            thinkingBuf.append(event.getText());
                         } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
                             usage.set(event.getUsage());
                         } else if (event.getType() == StreamEventType.TOOL_END) {
@@ -90,11 +94,12 @@ public class ChatService {
                     .blockLast();
         } catch (RuntimeException e) {
             // 自主会话出错也要保住已生成的半截应答，落盘后继续上抛给调度侧记失败
-            persistAssistant(sessionId, agentCode, effectiveModelCode(req), buf.toString(), usage.get(), true,
-                    toolCalls);
+            persistAssistant(sessionId, agentCode, effectiveModelCode(req), buf.toString(), thinkingBuf.toString(),
+                    usage.get(), true, toolCalls);
             throw e;
         }
-        persistAssistant(sessionId, agentCode, effectiveModelCode(req), buf.toString(), usage.get(), false, toolCalls);
+        persistAssistant(sessionId, agentCode, effectiveModelCode(req), buf.toString(), thinkingBuf.toString(),
+                usage.get(), false, toolCalls);
         return buf.toString();
     }
 
@@ -157,6 +162,8 @@ public class ChatService {
     /** 对已落盘用户消息的会话发起流式应答并落盘助手消息；{@code chat}/{@code regenerate} 共用的流式主体。 */
     private Flux<StreamEvent> streamAssistant(ChatRequest req, String sessionId, String agentCode, String effectiveModel) {
         StringBuilder assistantBuf = new StringBuilder();
+        // 本轮思考过程（THINKING_DELTA）累积，收尾写入 metadata.thinking 供历史折叠重放
+        StringBuilder thinkingBuf = new StringBuilder();
         AtomicReference<TokenUsage> usageRef = new AtomicReference<>(TokenUsage.ZERO);
         // 本轮工具调用详情（TOOL_END 事件）按发生顺序累积，收尾时写入 tool_calls 列供历史折叠重放
         List<ToolCallRecordCodec.ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
@@ -167,6 +174,8 @@ public class ChatService {
                 .doOnNext(event -> {
                     if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                         assistantBuf.append(event.getText());
+                    } else if (event.getType() == StreamEventType.THINKING_DELTA && event.getText() != null) {
+                        thinkingBuf.append(event.getText());
                     } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
                         usageRef.set(event.getUsage());
                     } else if (event.getType() == StreamEventType.TOOL_END) {
@@ -174,11 +183,11 @@ public class ChatService {
                     }
                 })
                 .doOnComplete(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), usageRef.get(), false, settled, toolCalls))
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), false, settled, toolCalls))
                 .doOnError(e -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), usageRef.get(), true, settled, toolCalls))
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls))
                 .doOnCancel(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), usageRef.get(), true, settled, toolCalls));
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls));
     }
 
     /** 把一条 {@link StreamEventType#TOOL_END} 事件转为落盘视图。 */
@@ -190,6 +199,14 @@ public class ChatService {
     /** 中断指定会话在途的生成：网关侧打断 Agent 循环，UI 侧取消订阅后走 doOnCancel 落盘半截内容。 */
     public void stop(String agentCode, String sessionId) {
         gateway.stop(agentCode, sessionId);
+    }
+
+    /**
+     * 手动压缩指定会话的模型上下文（LLM 摘要式）：委托网关按智能体路由执行，结果持久化到会话状态。
+     * <p>生成中的会话会被网关拒绝；空 Mono 表示无对应运行时或不支持压缩。</p>
+     */
+    public Mono<ContextCompactionResult> compact(String agentCode, String sessionId) {
+        return gateway.compact(agentCode, sessionId);
     }
 
     /** 解析本轮实际使用的模型编码；解析器缺失或解析失败时回退消息级覆盖值。 */
@@ -246,7 +263,7 @@ public class ChatService {
         c.setRole(ConversationRole.USER.getCode());
         c.setContent(req.getText() == null ? "" : req.getText());
         c.setModelCode(effectiveModel != null ? effectiveModel : req.getModelCode());
-        c.setMetadata(MessageMetadataCodec.write(stored, false));
+        c.setMetadata(MessageMetadataCodec.write(stored, false, null));
         c.setCreatedAt(LocalDateTime.now());
         db.conversationDao().insert(c);
         db.sessionDao().incrementMessageCount(req.getSessionId(), 1);
@@ -365,12 +382,12 @@ public class ChatService {
         return ".png";
     }
 
-    private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText,
+    private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText, String thinking,
                                   TokenUsage usage, boolean interrupted, List<ToolCallRecordCodec.ToolCallRecord> toolCalls) {
-        persistAssistant(sessionId, agentCode, modelCode, assistantText, usage, interrupted, new AtomicBoolean(), toolCalls);
+        persistAssistant(sessionId, agentCode, modelCode, assistantText, thinking, usage, interrupted, new AtomicBoolean(), toolCalls);
     }
 
-    private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText,
+    private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText, String thinking,
                                   TokenUsage usage, boolean interrupted, AtomicBoolean settled,
                                   List<ToolCallRecordCodec.ToolCallRecord> toolCalls) {
         if (settled != null && !settled.compareAndSet(false, true)) {
@@ -378,8 +395,9 @@ public class ChatService {
         }
         List<ToolCallRecordCodec.ToolCallRecord> toolSnapshot =
                 toolCalls == null ? List.of() : new ArrayList<>(toolCalls);
-        if ((assistantText == null || assistantText.isEmpty()) && toolSnapshot.isEmpty()) {
-            // 一个字都没生成就被中断且无工具调用：不落空行，会话里不出现空气泡
+        boolean hasThinking = thinking != null && !thinking.isBlank();
+        if ((assistantText == null || assistantText.isEmpty()) && toolSnapshot.isEmpty() && !hasThinking) {
+            // 一个字都没生成就被中断且无工具调用、无思考：不落空行，会话里不出现空气泡
             return;
         }
         ChatConversation c = new ChatConversation();
@@ -401,7 +419,8 @@ public class ChatService {
             c.setLlmElapsedMillis(usage.elapsedMillis());
         }
         c.setCreatedAt(LocalDateTime.now());
-        c.setMetadata(interrupted ? MessageMetadataCodec.write(List.of(), true) : null);
+        // 附件/中断/思考统一入 metadata（无思考的普通完成轮与原先一致，列留空）
+        c.setMetadata(MessageMetadataCodec.write(List.of(), interrupted, thinking));
         db.conversationDao().insert(c);
         db.sessionDao().incrementMessageCount(sessionId, 1);
     }

@@ -96,6 +96,42 @@ class ChatServicePersistenceTest {
     }
 
     @Test
+    @DisplayName("thinking：思考增量按序累积入 metadata.thinking，供历史折叠重放")
+    void thinkingPersistedToMetadata() {
+        String sid = "s-thinking";
+        Flux<StreamEvent> src = Flux.just(
+                StreamEvent.thinkingDelta(sid, "先看报错信息，"),
+                StreamEvent.thinkingDelta(sid, "再定位到 47 行。"),
+                StreamEvent.textDelta(sid, "已修复"),
+                StreamEvent.complete(sid));
+        this.chatService = withGateway(() -> src);
+
+        chatService.chat(req(sid, "帮我修一下")).blockLast();
+
+        ChatConversation assistant = lastAssistant(sid);
+        assertNotNull(assistant);
+        assertEquals("已修复", assistant.getContent());
+        assertEquals("先看报错信息，再定位到 47 行。",
+                MessageMetadataCodec.read(assistant.getMetadata()).thinking());
+    }
+
+    @Test
+    @DisplayName("thinking 且无正文：半截思考也落盘，不丢")
+    void thinkingOnlyPersisted() {
+        String sid = "s-think-only";
+        Flux<StreamEvent> src = Flux.just(
+                StreamEvent.thinkingDelta(sid, "正在构思答案…"),
+                StreamEvent.complete(sid));
+        this.chatService = withGateway(() -> src);
+
+        chatService.chat(req(sid, "在吗")).blockLast();
+
+        ChatConversation assistant = lastAssistant(sid);
+        assertNotNull(assistant, "仅有思考也应落盘助手行");
+        assertEquals("正在构思答案…", MessageMetadataCodec.read(assistant.getMetadata()).thinking());
+    }
+
+    @Test
     @DisplayName("error：半截应答落盘且标 interrupted")
     void errorPersistsPartialInterrupted() {
         String sid = "s-error";

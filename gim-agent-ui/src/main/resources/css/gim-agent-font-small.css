@@ -23,3 +23,12 @@
 .agent-switch-name { -fx-font-size: 13px; }
 .agent-switch-desc, .agent-item-desc { -fx-font-size: 10px; }
 .agent-item-name   { -fx-font-size: 12px; }
+
+/* 聊天气泡与 Markdown 正文（基础表为 14px 档）：正文 13px，标题 +7/+4/+2/+1，代码 -1 */
+.bubble-user, .bubble-text, .md-p, .md-bullet, .md-th, .md-td { -fx-font-size: 13px; }
+.md-h1 { -fx-font-size: 20px; }
+.md-h2 { -fx-font-size: 17px; }
+.md-h3 { -fx-font-size: 15px; }
+.md-h4 { -fx-font-size: 14px; }
+.md-code-flow { -fx-font-size: 12px; }
+.md-inline-code { -fx-font-size: 11px; }

@@ -78,10 +78,10 @@ public class MessageListRenderer {
         return bubble;
     }
 
-    /** 追加一条助手气泡并立即以 Markdown 渲染（历史重放用）；{@code toolCallsJson} 为 {@code tool_calls} 列原文，可空。 */
-    public void appendAssistantMarkdown(String content, long conversationId, String toolCallsJson) {
+    /** 追加一条助手气泡并立即以 Markdown 渲染（历史重放用）；{@code toolCallsJson} 为 {@code tool_calls} 列原文，可空；{@code thinking} 为思考过程全文，可空。 */
+    public void appendAssistantMarkdown(String content, long conversationId, String toolCallsJson, String thinking) {
         AssistantBubble bubble = new AssistantBubble(BUBBLE_MAX_WIDTH, listener);
-        bubble.renderContent(content,
+        bubble.renderContent(content, thinking,
                 com.gettyio.gim.agent.core.chat.ToolCallRecordCodec.decode(toolCallsJson));
         bubble.setConversationId(conversationId);
         Node node = bubble.node();
@@ -103,10 +103,10 @@ public class MessageListRenderer {
         return bubble;
     }
 
-    /** 头部插入一条助手气泡并立即以 Markdown 渲染（向上补页用）；不触发 promote 与滚动。 */
-    public void prependAssistantMarkdown(String content, long conversationId, String toolCallsJson) {
+    /** 头部插入一条助手气泡并立即以 Markdown 渲染（向上补页用）；{@code thinking} 为思考过程全文，可空；不触发 promote 与滚动。 */
+    public void prependAssistantMarkdown(String content, long conversationId, String toolCallsJson, String thinking) {
         AssistantBubble bubble = new AssistantBubble(BUBBLE_MAX_WIDTH, listener);
-        bubble.renderContent(content,
+        bubble.renderContent(content, thinking,
                 com.gettyio.gim.agent.core.chat.ToolCallRecordCodec.decode(toolCallsJson));
         bubble.setConversationId(conversationId);
         Node node = bubble.node();
@@ -157,12 +157,16 @@ public class MessageListRenderer {
         reset.play();
     }
 
-    /** 把一帧窗口内的事件合并：正文增量与工具/确认提示都累加进 {@code acc}，并即时以纯文本追加到气泡。 */
+    /** 把一帧窗口内的事件合并：思考/正文增量与工具/确认提示都即时追加到气泡（正文另累加进 {@code acc} 供出错收尾）。 */
     public void applyBatch(List<StreamEvent> batch, AssistantBubble bubble, StringBuilder acc) {
         StringBuilder frame = new StringBuilder();
+        boolean thinkingGrew = false;
         for (StreamEvent e : batch) {
             if (e.getType() == StreamEventType.TEXT_DELTA && e.getText() != null) {
                 frame.append(e.getText());
+            } else if (e.getType() == StreamEventType.THINKING_DELTA && e.getText() != null) {
+                bubble.appendThinking(e.getText());
+                thinkingGrew = true;
             } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null) {
                 frame.append("\n").append(I18n.t("chat.toolCall", e.getToolName()));
             } else if (e.getType() == StreamEventType.CONFIRM_REQUEST && e.getToolName() != null) {
@@ -172,6 +176,8 @@ public class MessageListRenderer {
         if (frame.length() > 0) {
             acc.append(frame);
             bubble.appendPlain(frame.toString());
+            scrollToBottom();
+        } else if (thinkingGrew) {
             scrollToBottom();
         }
     }

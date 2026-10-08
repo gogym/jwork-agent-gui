@@ -79,6 +79,10 @@ public class SettingsWindow {
     @Autowired
     private com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
 
+    /** 多智能体网关：通用页上下文窗口上限变更后需失效全部运行体即时重装配。 */
+    @Autowired
+    private com.gettyio.gim.agent.core.chat.MultiAgentGateway agentGateway;
+
     @Autowired
     private ExportService exportService;
 
@@ -147,7 +151,7 @@ public class SettingsWindow {
     private GeneralSettingsPanel generalPanel() {
         if (generalPanel == null) {
             generalPanel = new GeneralSettingsPanel(this, gimPaths, appLifecycle, globalHotkeyService,
-                    dbBackupService, exportService, database, webDavSyncService, voiceInputService);
+                    dbBackupService, exportService, database, webDavSyncService, voiceInputService, agentGateway);
         }
         return generalPanel;
     }

@@ -23,6 +23,8 @@ public final class Launcher {
         System.setProperty("gim.log.dir", new GimPaths().logsDir().toString());
         // 挂接启动画面：Spring 容器引导与主窗加载期间展示（主窗就绪后自动隐藏）
         System.setProperty("javafx.preloader", SplashPreloader.class.getName());
+        // 全局灰度字体平滑：关闭 LCD 次像素渲染，消除字形边缘彩边，字体观感更干净
+        System.setProperty("prism.lcdtext", "false");
         Logger log = LoggerFactory.getLogger(Launcher.class);
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
                 log.error("未捕获异常 on thread {}", thread.getName(), throwable));

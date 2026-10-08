@@ -1,6 +1,8 @@
 package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.core.chat.HarnessAgentGateway;
+import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
@@ -50,6 +52,8 @@ final class GeneralSettingsPanel {
     private final GimDatabase database;
     private final WebDavSyncService webDavSyncService;
     private final VoiceInputService voiceInputService;
+    /** 多智能体网关：上下文窗口上限变更后失效全部运行体，使新阈值于下一轮对话重新装配时生效。 */
+    private final MultiAgentGateway agentGateway;
 
     /** 通用页「最近备份」值标签：备份完成后就地刷新。 */
     private final Label lastBackupValueLabel = new Label("-");
@@ -57,7 +61,8 @@ final class GeneralSettingsPanel {
     GeneralSettingsPanel(SettingsWindow host, GimPaths gimPaths, AppLifecycle appLifecycle,
                          GlobalHotkeyService globalHotkeyService, DbBackupService dbBackupService,
                          ExportService exportService, GimDatabase database,
-                         WebDavSyncService webDavSyncService, VoiceInputService voiceInputService) {
+                         WebDavSyncService webDavSyncService, VoiceInputService voiceInputService,
+                         MultiAgentGateway agentGateway) {
         this.host = host;
         this.gimPaths = gimPaths;
         this.appLifecycle = appLifecycle;
@@ -67,6 +72,7 @@ final class GeneralSettingsPanel {
         this.database = database;
         this.webDavSyncService = webDavSyncService;
         this.voiceInputService = voiceInputService;
+        this.agentGateway = agentGateway;
     }
 
     VBox build() {
@@ -83,6 +89,7 @@ final class GeneralSettingsPanel {
         rows.add(SettingsLayout.settingRow(I18n.t("settings.backup.lastAt"), null, lastBackupValueLabel));
         box.getChildren().add(SettingsLayout.groupCard(I18n.t("settings.group.paths"), rows));
         box.getChildren().add(behaviorCard());
+        box.getChildren().add(contextCard());
         box.getChildren().add(dataMaintenanceCard());
         box.getChildren().add(budgetCard());
         box.getChildren().add(webDavCard());
@@ -126,6 +133,70 @@ final class GeneralSettingsPanel {
         rows.add(SettingsLayout.settingRow(I18n.t("settings.autostart"), I18n.t("settings.autostart.desc"), autoControl));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.hotkey"), I18n.t("settings.hotkey.desc"), hotkeyControl()));
         return SettingsLayout.groupCard(I18n.t("settings.group.startupClose"), rows);
+    }
+
+    /**
+     * 上下文窗口卡片：常用上限下拉。选中值写入 AppSetting {@code agent.context.maxTokens}，
+     * 它既是输入框占用条的分母，也是运行体自动压缩历史（compaction）的阈值——两者同源。
+     * 保存后失效全部运行体，下一轮对话按新上限重新装配即时生效。
+     */
+    private VBox contextCard() {
+        String[] labels = contextLimitLabels();
+        ComboBox<String> combo = SettingsLayout.pillCombo(labels);
+        combo.setValue(formatTokenUnit(currentContextMaxTokens()));
+        combo.setOnAction(e -> {
+            int idx = combo.getSelectionModel().getSelectedIndex();
+            if (idx >= 0 && idx < CONTEXT_LIMIT_OPTIONS.length) {
+                saveContextMaxTokens(CONTEXT_LIMIT_OPTIONS[idx]);
+            }
+        });
+        return SettingsLayout.groupCard(I18n.t("settings.context.group"), List.of(
+                SettingsLayout.settingRow(I18n.t("settings.context.limit"),
+                        I18n.t("settings.context.limit.desc"), combo)));
+    }
+
+    /** 常用上下文窗口上限档位（token）；标签按 {@link #formatTokenUnit} 生成（32K/128K/…/1M）。 */
+    private static final int[] CONTEXT_LIMIT_OPTIONS = {32_000, 128_000, 200_000, 512_000, 1_000_000};
+
+    /** 读取当前上限：未配置或非法回退到统一默认值。 */
+    private int currentContextMaxTokens() {
+        return database.settingDao().getValue(HarnessAgentGateway.SETTING_CONTEXT_MAX_TOKENS)
+                .map(raw -> {
+                    try {
+                        int v = Integer.parseInt(raw.trim());
+                        return v > 0 ? v : HarnessAgentGateway.DEFAULT_MAX_CONTEXT_TOKENS;
+                    } catch (NumberFormatException ex) {
+                        return HarnessAgentGateway.DEFAULT_MAX_CONTEXT_TOKENS;
+                    }
+                })
+                .orElse(HarnessAgentGateway.DEFAULT_MAX_CONTEXT_TOKENS);
+    }
+
+    /** 保存上限并失效全部运行体，使新阈值于下一轮对话重新装配时生效。 */
+    private void saveContextMaxTokens(int tokens) {
+        database.settingDao().upsert(HarnessAgentGateway.SETTING_CONTEXT_MAX_TOKENS,
+                String.valueOf(tokens), "上下文窗口 token 上限（占用条分母与自动压缩阈值）");
+        agentGateway.invalidateAll();
+    }
+
+    /** 下拉选项标签（语言无关的数字单位）。 */
+    private static String[] contextLimitLabels() {
+        String[] labels = new String[CONTEXT_LIMIT_OPTIONS.length];
+        for (int i = 0; i < labels.length; i++) {
+            labels[i] = formatTokenUnit(CONTEXT_LIMIT_OPTIONS[i]);
+        }
+        return labels;
+    }
+
+    /** token 数简写：整百万显示为 xM，整千显示为 xK，其余原样数字。 */
+    private static String formatTokenUnit(int tokens) {
+        if (tokens >= 1_000_000 && tokens % 1_000_000 == 0) {
+            return (tokens / 1_000_000) + "M";
+        }
+        if (tokens % 1000 == 0) {
+            return (tokens / 1000) + "K";
+        }
+        return String.valueOf(tokens);
     }
 
     /**

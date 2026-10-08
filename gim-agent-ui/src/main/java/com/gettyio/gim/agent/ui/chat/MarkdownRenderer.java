@@ -121,7 +121,7 @@ public final class MarkdownRenderer {
         } else if (node instanceof HtmlBlock html) {
             // 不解析内嵌 HTML，按纯文本呈现，避免注入未定义节点
             javafx.scene.text.TextFlow flow =
-                    new javafx.scene.text.TextFlow(new javafx.scene.text.Text(html.getLiteral() == null ? "" : html.getLiteral()));
+                    new javafx.scene.text.TextFlow(mdText(html.getLiteral() == null ? "" : html.getLiteral()));
             flow.getStyleClass().add("md-p");
             out.add(flow);
         }
@@ -154,7 +154,7 @@ public final class MarkdownRenderer {
             blocks.addAll(renderBlock(c));
         }
         if (blocks.isEmpty()) {
-            javafx.scene.text.TextFlow empty = new javafx.scene.text.TextFlow(new javafx.scene.text.Text(""));
+            javafx.scene.text.TextFlow empty = new javafx.scene.text.TextFlow(mdText(""));
             empty.getStyleClass().add("md-p");
             blocks.add(empty);
         }
@@ -269,7 +269,7 @@ public final class MarkdownRenderer {
 
     private static void appendInline(Node node, List<javafx.scene.Node> out, boolean bold, boolean italic, boolean link) {
         if (node instanceof Text t) {
-            javafx.scene.text.Text text = new javafx.scene.text.Text(t.getLiteral());
+            javafx.scene.text.Text text = mdText(t.getLiteral());
             if (bold) {
                 text.getStyleClass().add("md-bold");
             }
@@ -281,12 +281,13 @@ public final class MarkdownRenderer {
             }
             out.add(text);
         } else if (node instanceof Code code) {
-            javafx.scene.text.Text text = new javafx.scene.text.Text(code.getLiteral());
-            text.getStyleClass().add("md-inline-code");
+            // 行内码内嵌 Label 才能带底色/边框（Text 继承自 Shape，没有背景能力）
+            Label chip = new Label(code.getLiteral());
+            chip.getStyleClass().add("md-inline-code");
             if (bold) {
-                text.getStyleClass().add("md-bold");
+                chip.getStyleClass().add("md-bold");
             }
-            out.add(text);
+            out.add(chip);
         } else if (node instanceof StrongEmphasis) {
             for (Node c = node.getFirstChild(); c != null; c = c.getNext()) {
                 appendInline(c, out, true, italic, link);
@@ -301,7 +302,7 @@ public final class MarkdownRenderer {
             }
         } else if (node instanceof Image img) {
             String alt = plainInline(img);
-            javafx.scene.text.Text text = new javafx.scene.text.Text(alt.isBlank() ? "[\u56fe\u7247]" : alt);
+            javafx.scene.text.Text text = mdText(alt.isBlank() ? "[\u56fe\u7247]" : alt);
             text.getStyleClass().add("md-image-alt");
             out.add(text);
         } else if (node instanceof SoftLineBreak) {
@@ -309,6 +310,14 @@ public final class MarkdownRenderer {
         } else if (node instanceof HardLineBreak) {
             out.add(new javafx.scene.text.Text("\n"));
         }
+    }
+
+    /** 创建行内基础文本：挂 {@code md-text} 基类承载默认填充色——JavaFX 原生 {@code Text}
+        不带 "text" 样式类，CSS 选择器必须落到自定义类上才能命中。 */
+    private static javafx.scene.text.Text mdText(String content) {
+        javafx.scene.text.Text text = new javafx.scene.text.Text(content);
+        text.getStyleClass().add("md-text");
+        return text;
     }
 
     /** 取节点下所有文本内容（标题、表格单元、图片 alt 等用），内联标记按纯文本拼接。 */

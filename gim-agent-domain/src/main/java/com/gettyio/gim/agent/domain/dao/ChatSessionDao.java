@@ -15,7 +15,7 @@ import java.util.Optional;
 public class ChatSessionDao {
 
     private static final String COLUMNS =
-            "id, session_id, agent_code, group_id, title, model_code, message_count, status, pinned, favorite, parent_session_id, created_at, updated_at";
+            "id, session_id, agent_code, group_id, title, model_code, message_count, status, pinned, favorite, parent_session_id, compacted_tokens, created_at, updated_at";
 
     private final SqlRunner runner;
 
@@ -36,6 +36,7 @@ public class ChatSessionDao {
         s.setPinned(SqlRunner.getInt(rs, "pinned"));
         s.setFavorite(SqlRunner.getInt(rs, "favorite"));
         s.setParentSessionId(rs.getString("parent_session_id"));
+        s.setCompactedTokens(SqlRunner.getInt(rs, "compacted_tokens"));
         s.setCreatedAt(SqlRunner.getDateTime(rs, "created_at"));
         s.setUpdatedAt(SqlRunner.getDateTime(rs, "updated_at"));
         return s;
@@ -126,5 +127,13 @@ public class ChatSessionDao {
     /** 收藏/取消收藏：只改 {@code favorite}，不影响排序。 */
     public int updateFavorite(String sessionId, boolean favorite) {
         return runner.update("UPDATE sessions SET favorite=? WHERE session_id=?", favorite ? 1 : 0, sessionId);
+    }
+
+    /**
+     * 记录最近一次手动压缩后的上下文估算；{@code tokens} 传 null 即清除（新一轮真实用量已覆盖）。
+     * <p>与重命名/分组同理不碰 {@code updated_at}：压缩属后台维护，不该刷新会话活跃排序。</p>
+     */
+    public int updateCompactedTokens(String sessionId, Integer tokens) {
+        return runner.update("UPDATE sessions SET compacted_tokens=? WHERE session_id=?", tokens, sessionId);
     }
 }

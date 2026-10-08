@@ -39,6 +39,9 @@ public class ChatSession {
     /** 分支来源会话 ID（复制会话到新分叉点时记录父会话），非分支会话为 null */
     private String parentSessionId;
 
+    /** 最近一次手动压缩后的上下文估算（token）：新一轮真实用量回报覆盖前，占用条以它为显示基准；null=无 */
+    private Integer compactedTokens;
+
     private LocalDateTime createdAt;
 
     private LocalDateTime updatedAt;

@@ -35,6 +35,8 @@ public final class AssistantBubble {
     private final Timeline thinkingPulse;
     /** 「思考中」计时动画：每秒递增已耗时秒数并刷新占位文案，让用户感知等待。 */
     private final Timeline thinkingTimer;
+    /** 流式期间思考卡的实时句柄（首个 THINKING_DELTA 到达时创建）；收尾重放时随整卡替换。 */
+    private ThinkingCard.Live thinkingLive;
 
     private String rawSource = "";
     private long conversationId;
@@ -127,34 +129,53 @@ public final class AssistantBubble {
 
     /** 整体渲染：清空气泡内容并用 Markdown 渲染结果替换；空内容回落为一条空文本行。 */
     public void renderMarkdown(String markdown) {
-        renderContent(markdown, List.of());
+        renderContent(markdown, null, List.of());
     }
 
     /**
-     * 整体渲染：先按发生顺序挂上工具折叠卡片，再渲染 Markdown 正文。
-     * <p>历史重放与实时收尾共用；{@code tools} 为空时等价于纯 {@link #renderMarkdown(String)}。</p>
+     * 整体渲染：先按发生顺序挂上思考折叠卡（「已思考 · 摘要」，点击展开全文）与工具折叠卡，再渲染 Markdown 正文。
+     * <p>历史重放与实时收尾共用；{@code thinking} 为空白时无思考卡，{@code tools} 为空时无工具卡。</p>
      */
-    public void renderContent(String markdown, List<ToolCallRecordCodec.ToolCallRecord> tools) {
+    public void renderContent(String markdown, String thinking, List<ToolCallRecordCodec.ToolCallRecord> tools) {
         clearThinking();
         rawSource = markdown == null ? "" : markdown;
         List<Node> rendered = MarkdownRenderer.render(rawSource);
         boolean hasTools = tools != null && !tools.isEmpty();
+        Node thinkingCard = ThinkingCard.build(thinking);
         contentBox.getChildren().clear();
-        if (hasTools) {
-            // 工具卡片各自成一行并留小间距，避免上下黏在一起；与下方正文之间再留一段空隙
-            VBox toolsBox = new VBox(6);
-            for (ToolCallRecordCodec.ToolCallRecord r : tools) {
-                toolsBox.getChildren().add(ToolCallCard.build(r));
-            }
-            VBox.setMargin(toolsBox, new Insets(0, 0, 8, 0));
-            contentBox.getChildren().add(toolsBox);
+        if (thinkingCard != null) {
+            // 思考先于工具与正文发生，故置于最上；与下方元素留一段空隙
+            VBox.setMargin(thinkingCard, new Insets(0, 0, 8, 0));
+            contentBox.getChildren().add(thinkingCard);
         }
-        if (rendered.isEmpty() && !hasTools) {
+        if (hasTools) {
+            // 一轮内的多次工具调用合并为一张「执行工具 N 次」折叠卡片（组卡内按行展开输入/响应），与下方正文留一段空隙
+            Node toolsCard = ToolCallGroupCard.build(tools);
+            VBox.setMargin(toolsCard, new Insets(0, 0, 8, 0));
+            contentBox.getChildren().add(toolsCard);
+        }
+        if (rendered.isEmpty() && !hasTools && thinkingCard == null) {
             live.setText(rawSource);
             contentBox.getChildren().add(live);
         } else if (!rendered.isEmpty()) {
             contentBox.getChildren().addAll(rendered);
         }
+    }
+
+    /**
+     * 流式追加思考增量：首个增量到达时以思考卡替换「思考中」占位（标题「思考中…」，正文实时增长），
+     * 后续增量持续追加；收尾（或历史重放）时整卡由 {@link #renderContent} 的完成态替换。
+     */
+    public void appendThinking(String delta) {
+        if (delta == null || delta.isEmpty()) {
+            return;
+        }
+        if (thinkingLive == null) {
+            clearThinking();
+            thinkingLive = ThinkingCard.live();
+            contentBox.getChildren().add(0, thinkingLive.node());
+        }
+        thinkingLive.append(delta);
     }
 
     /** 关联落盘主键（历史重放或实时收尾后回填；0 表示尚未持久化，删除/编辑不可用）。 */

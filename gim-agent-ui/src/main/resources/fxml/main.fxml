@@ -165,13 +165,23 @@
                                 <StackPane VBox.vgrow="ALWAYS">
                                     <ScrollPane fx:id="scrollPane" fitToWidth="true">
                                         <content>
-                                            <VBox fx:id="messagesContainer" styleClass="messages"/>
+                                            <!-- 消息列居中容器：窗口拉宽时内容列限宽 800 水平居中（而非随宽拉开），窄窗时随视口收缩 -->
+                                            <StackPane styleClass="messages-center">
+                                                <VBox fx:id="messagesContainer" styleClass="messages" minWidth="0.0" maxWidth="800.0"/>
+                                            </StackPane>
                                         </content>
                                     </ScrollPane>
                                     <VBox fx:id="welcomePane" styleClass="welcome" maxWidth="640.0" mouseTransparent="true">
                                         <Label fx:id="welcomeTitle" text="不止于对话" styleClass="welcome-title"/>
                                         <Label fx:id="welcomeSubtitle" text="用 Jwork 把日常事务交给 AI" styleClass="welcome-subtitle"/>
                                     </VBox>
+                                    <!-- 回到底部：滚动离开最新消息时显现，点击平滑滑回底部 -->
+                                    <Button fx:id="scrollBottomBtn" styleClass="scroll-bottom-btn"
+                                            visible="false" managed="false">
+                                        <graphic>
+                                            <Label styleClass="icon" text="&#xE70D;"/>
+                                        </graphic>
+                                    </Button>
                                 </StackPane>
                                 <VBox styleClass="input-wrap">
                                     <VBox styleClass="input-card">
@@ -193,8 +203,10 @@
                                             <Button fx:id="micButton" styleClass="attach-button"/>
                                             <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
                                             <Region HBox.hgrow="ALWAYS"/>
-                                            <ProgressBar fx:id="contextGauge" styleClass="context-gauge" prefWidth="40.0" maxWidth="40.0" progress="0.0" managed="false" visible="false"/>
-                                            <Label fx:id="contextBar" styleClass="context-bar" managed="false" visible="false"/>
+                                            <HBox fx:id="contextStats" styleClass="context-stats" alignment="CENTER_RIGHT" spacing="8.0">
+                                                <ProgressBar fx:id="contextGauge" styleClass="context-gauge" prefWidth="30.0" maxWidth="30.0" progress="0.0" managed="false" visible="false"/>
+                                                <Label fx:id="contextBar" styleClass="context-bar" managed="false" visible="false"/>
+                                            </HBox>
                                             <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
                                             <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSendOrStop">
                                                 <graphic>

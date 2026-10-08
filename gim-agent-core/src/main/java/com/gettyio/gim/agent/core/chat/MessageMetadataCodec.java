@@ -11,8 +11,8 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 消息级 {@code conversations.metadata} 的 JSON 编解码：统一承载附件清单与中断标记。
- * <p>结构：{@code {"attachments":[{"name":..,"mime":..,"path":..}],"interrupted":true}}；
+ * 消息级 {@code conversations.metadata} 的 JSON 编解码：统一承载附件清单、中断标记与思考过程。
+ * <p>结构：{@code {"attachments":[{"name":..,"mime":..,"path":..}],"interrupted":true,"thinking":".."}}；
  * 全部字段缺省时列留空（返回 null，不写 "{}"）。解析容错：脏数据只告警并按「空元数据」处理，
  * 绝不因一条坏 metadata 让整条历史消息渲染失败。</p>
  */
@@ -23,6 +23,7 @@ public final class MessageMetadataCodec {
 
     private static final String KEY_ATTACHMENTS = "attachments";
     private static final String KEY_INTERRUPTED = "interrupted";
+    private static final String KEY_THINKING = "thinking";
 
     private MessageMetadataCodec() {
     }
@@ -32,19 +33,26 @@ public final class MessageMetadataCodec {
      *
      * @param attachments 图片/文件附件清单，永不为 null
      * @param interrupted 应答是否被中断（出错或用户停止），仅助手消息可能为 true
+     * @param thinking    本轮模型的思考过程全文（仅助手消息可能非 null）
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record MessageMetadata(List<StoredAttachment> attachments, boolean interrupted) {
+    public record MessageMetadata(List<StoredAttachment> attachments, boolean interrupted, String thinking) {
 
         public MessageMetadata {
             attachments = attachments == null ? List.of() : List.copyOf(attachments);
         }
+
+        /** 便捷视图：无思考过程（附件 + 中断标记）。 */
+        public MessageMetadata(List<StoredAttachment> attachments, boolean interrupted) {
+            this(attachments, interrupted, null);
+        }
     }
 
-    /** 写元数据 JSON；无附件且未中断时返回 {@code null}（metadata 列留空）。 */
-    public static String write(List<StoredAttachment> attachments, boolean interrupted) {
+    /** 写元数据 JSON；无附件、未中断且无思考时返回 {@code null}（metadata 列留空）。 */
+    public static String write(List<StoredAttachment> attachments, boolean interrupted, String thinking) {
         boolean hasAttachments = attachments != null && !attachments.isEmpty();
-        if (!hasAttachments && !interrupted) {
+        boolean hasThinking = thinking != null && !thinking.isBlank();
+        if (!hasAttachments && !interrupted && !hasThinking) {
             return null;
         }
         Map<String, Object> node = new LinkedHashMap<>();
@@ -53,6 +61,9 @@ public final class MessageMetadataCodec {
         }
         if (interrupted) {
             node.put(KEY_INTERRUPTED, true);
+        }
+        if (hasThinking) {
+            node.put(KEY_THINKING, thinking);
         }
         try {
             return MAPPER.writeValueAsString(node);

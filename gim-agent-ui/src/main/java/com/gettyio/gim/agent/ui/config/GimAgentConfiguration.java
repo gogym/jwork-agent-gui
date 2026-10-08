@@ -169,9 +169,9 @@ public class GimAgentConfiguration {
                 });
     }
 
-    /** 从 AppSetting {@code agent.context.maxTokens} 读取上下文窗口上限；缺失或非法（非正整数）则返回空（用默认）。 */
+    /** 从 AppSetting {@link HarnessAgentGateway#SETTING_CONTEXT_MAX_TOKENS} 读取上下文窗口上限；缺失或非法（非正整数）则返回空（用默认）。 */
     private static java.util.Optional<Integer> readContextMaxTokens(GimDatabase db) {
-        return db.settingDao().getValue("agent.context.maxTokens").flatMap(raw -> {
+        return db.settingDao().getValue(HarnessAgentGateway.SETTING_CONTEXT_MAX_TOKENS).flatMap(raw -> {
             try {
                 int v = Integer.parseInt(raw.trim());
                 return v > 0 ? java.util.Optional.of(v) : java.util.Optional.empty();
