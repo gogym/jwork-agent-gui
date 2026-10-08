@@ -10,7 +10,6 @@ import com.gettyio.gim.agent.core.chat.MessageMetadataCodec;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.core.chat.StreamEvent;
-import com.gettyio.gim.agent.core.chat.TokenUsage;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
@@ -20,7 +19,6 @@ import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
 import com.gettyio.gim.agent.domain.entity.PromptTemplate;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
-import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UserPrefs;
@@ -39,11 +37,6 @@ import com.gettyio.gim.agent.ui.window.SessionSearchDialog;
 import com.gettyio.gim.agent.ui.window.SettingsWindow;
 import com.gettyio.gim.agent.ui.window.TitleBar;
 import io.agentscope.core.permission.PermissionMode;
-import javafx.animation.Animation;
-import javafx.animation.Interpolator;
-import javafx.animation.KeyFrame;
-import javafx.animation.KeyValue;
-import javafx.animation.Timeline;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
@@ -68,14 +61,12 @@ import javafx.scene.layout.FlowPane;
 import javafx.scene.Parent;
 import javafx.scene.Node;
 import javafx.scene.layout.HBox;
-import javafx.scene.layout.Pane;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
-import javafx.scene.shape.Line;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.input.KeyCode;
 import javafx.scene.input.Clipboard;
@@ -129,12 +120,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private static final Duration FRAME_WINDOW = Duration.ofMillis(33);
     /** 侧栏偏好键：记住上次选择的智能体，新建会话默认归它 */
     private static final String PREF_SIDEBAR_AGENT = "sidebar.agent";
-    /** 侧栏偏好键：记住侧栏是否收起 */
-    private static final String PREF_SIDEBAR_COLLAPSED = "sidebar.collapsed";
-    /** 侧栏展开时整体宽度：VBox 固定 250 + sidebar-margin 左边距 12（伸缩动画的满量程） */
-    private static final double SIDEBAR_FULL_WIDTH = 262;
-    /** 侧栏伸缩动画时长（毫秒） */
-    private static final double SIDEBAR_ANIM_MS = 220;
     
 
     @FXML
@@ -248,8 +233,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 内容区最外层容器（content-margin）：侧栏收起时补回左侧留白，保持与右侧边距对称 */
     @FXML
     private StackPane contentMargin;
-    /** 标题栏上侧栏开关按钮：在 initialize() 中构造，通过 AppShell.onTitleBarReady 挂入标题栏 */
-    private Button sidebarToggle;
+    /** 协作类：侧栏收起/展开（开关按钮挂载、伸缩动画、留白补偿、偏好持久化），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.SidebarToggle sidebarToggle;
 
     /** 协作类：消息列表渲染（气泡追加/帧合并刷新/滚动跟随），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.MessageListRenderer messageRenderer;
@@ -262,6 +247,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     /** 协作类：侧栏（智能体切换卡 + 会话列表渲染/交互），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.SessionSidebar sidebar;
+
+    /** 协作类：底栏状态条（本轮用量 + 上下文占用），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.ChatStatusBar statusBar;
 
     @Autowired
     private ChatService chatService;
@@ -315,10 +303,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private final ObservableList<ChatSession> sessions = FXCollections.observableArrayList();
     private String currentSessionId;
     private boolean settingsOpen;
-    /** 左侧菜单栏是否收起 */
-    private boolean sidebarCollapsed;
-    /** 侧栏伸缩动画（复用：切换时若上一次还在跑先停下，避免叠加） */
-    private Timeline sidebarAnim;
     /** 顶部卡片选中的智能体：新建会话归属它，它的会话构成侧栏列表，选中即写回偏好 */
     private String selectedAgentCode = DEFAULT_AGENT;
     /** 在途流式订阅：保留句柄以便用户点「停止」时取消；仅在 FX 线程读写 */
@@ -343,6 +327,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 sessionsBox, sessionsHeader, recentHeader, recentBox, recentSectionCaret,
                 sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
                 sessionsSectionCaret, agentAdminService, chatService, this);
+        statusBar = new com.gettyio.gim.agent.ui.chat.ChatStatusBar(
+                usageBar, contextBar, contextGauge, inputField, chatService, rateGovernor, database,
+                toolbar::selectedModelCode, this::currentSessionId);
         // 无消息时展示居中欢迎页，有消息后自动隐藏
         welcomePane.visibleProperty().bind(Bindings.isEmpty(messageRenderer.messages()));
         welcomePane.managedProperty().bind(welcomePane.visibleProperty());
@@ -354,7 +341,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             }
         });
         // 输入变化即时刷新上下文占用条（预估下一轮的提示词体量）
-        inputField.textProperty().addListener((obs, o, nv) -> updateContextBar());
+        inputField.textProperty().addListener((obs, o, nv) -> statusBar.updateContext());
 
         // 侧栏导航切换主区页面（对话 / 定时任务 / 技能）
         mainPages.getChildren().setAll(chatPage);
@@ -390,10 +377,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         // 「最近会话」标题行点击：平级独立区展开/收起
         recentHeader.setOnMouseClicked(e -> sidebar.toggleRecentSection());
 
-        // 恢复侧栏收起/展开状态
-        sidebarCollapsed = "true".equals(UserPrefs.get(PREF_SIDEBAR_COLLAPSED, "false"));
-        applySidebarState();
-        installSidebarToggle();
+        // 恢复侧栏收起/展开状态，并把开关按钮挂到标题栏
+        sidebarToggle = new com.gettyio.gim.agent.ui.chat.SidebarToggle(sidebarMargin, contentMargin, appShell);
+        sidebarToggle.restore();
 
         // 底部终端抽屉：shell 进程退出时由视图回调宿主收起（进程与历史保留）
         terminalView.setOnCloseRequest(this::hideTerminal);
@@ -484,10 +470,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             terminalButton.getTooltip().setText(I18n.t("chat.terminal.toggle"));
         }
         if (sidebarToggle != null) {
-            if (sidebarToggle.getTooltip() == null) {
-                sidebarToggle.setTooltip(new Tooltip());
-            }
-            sidebarToggle.getTooltip().setText(I18n.t("chat.sidebar.toggle"));
+            sidebarToggle.refreshLabel();
         }
         if (modelBannerText != null) {
             modelBannerText.setText(I18n.t("chat.banner.noModel"));
@@ -672,7 +655,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 .build();
         rateGovernor.recordRequest(gateModel);
         runStream(chatService.chat(req), sessionId, req.isPlanMode());
-        updateContextBar();
+        statusBar.updateContext();
     }
 
     /**
@@ -732,7 +715,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 .subscribe(
                         batch -> Platform.runLater(() -> {
                             messageRenderer.applyBatch(batch, bubble, acc);
-                            updateUsageFromBatch(batch);
+                            statusBar.updateUsageFromBatch(batch);
                         }),
                         err -> {
                             log.warn("流式对话失败", err);
@@ -890,184 +873,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 messageRenderer.appendAssistantMarkdown(content, id, c.getToolCalls());
             }
         }
-        updateUsageFromSession(sessionId);
-        updateContextBar();
-    }
-
-    // ===================== 本轮用量条（输入区底栏）=====================
-
-    /** 扫描本帧窗口内的 USAGE 事件（一轮只在收尾时下发一次），刷新用量条。 */
-    private void updateUsageFromBatch(List<StreamEvent> batch) {
-        TokenUsage usage = null;
-        for (StreamEvent e : batch) {
-            if (e.getType() == StreamEventType.USAGE && e.getUsage() != null) {
-                usage = e.getUsage();
-            }
-        }
-        if (usage != null) {
-            showUsage(usage, toolbar.selectedModelCode());
-        }
-    }
-
-    /** 切换/重放会话时，取该会话最后一条带用量的助手消息刷新用量条；无则隐藏。 */
-    private void updateUsageFromSession(String sessionId) {
-        if (sessionId == null) {
-            hideUsage();
-            return;
-        }
-        List<ChatConversation> history = chatService.history(sessionId);
-        for (int i = history.size() - 1; i >= 0; i--) {
-            ChatConversation c = history.get(i);
-            if (ConversationRole.ASSISTANT.getCode().equalsIgnoreCase(c.getRole())
-                    && (c.getTokensInput() != null || c.getTokensOutput() != null)) {
-                TokenUsage u = new TokenUsage(nz(c.getTokensInput()), nz(c.getTokensOutput()),
-                        nz(c.getTokensCached()), nz(c.getLlmCalls()),
-                        c.getLlmElapsedMillis() == null ? 0L : c.getLlmElapsedMillis());
-                if (u.isEmpty()) {
-                    hideUsage();
-                } else {
-                    showUsage(u, c.getModelCode());
-                }
-                return;
-            }
-        }
-        hideUsage();
-    }
-
-    private void showUsage(TokenUsage usage, String modelCode) {
-        if (usage == null || usage.isEmpty()) {
-            hideUsage();
-            return;
-        }
-        StringBuilder sb = new StringBuilder();
-        sb.append('\u2191').append(usage.inputTokens())
-                .append(" \u2193").append(usage.outputTokens());
-        if (usage.cachedTokens() > 0) {
-            sb.append(" \u21e2").append(usage.cachedTokens());
-        }
-        if (usage.calls() > 0) {
-            sb.append(" \u00b7 ").append(I18n.t("chat.usage.calls", usage.calls()));
-        }
-        double[] cost = chatService.modelCostPer1k(modelCode);
-        if (cost != null) {
-            double money = usage.inputTokens() / 1000.0 * cost[0] + usage.outputTokens() / 1000.0 * cost[1];
-            sb.append(" \u00b7 ").append(I18n.t("chat.usage.cost", String.format("%.2f", money)));
-        }
-        usageBar.setText(sb.toString());
-        usageBar.setVisible(true);
-        usageBar.setManaged(true);
-        // 回报本轮真实 token 用量给速率治理（TPM 滑窗计数）
-        rateGovernor.recordTokens(modelCode, (long) usage.inputTokens() + usage.outputTokens());
-    }
-
-    private void hideUsage() {
-        if (usageBar != null) {
-            usageBar.setVisible(false);
-            usageBar.setManaged(false);
-        }
-    }
-
-    // ===================== 上下文占用条（输入区底栏）=====================
-
-    /** 上下文上限默认值（token）：未配置 {@code context.max.tokens} 时用。 */
-    private static final int DEFAULT_CONTEXT_TOKENS = 128_000;
-    /** 应用级设置键：上下文窗口上限（token），供占用条分母。 */
-    private static final String KEY_CONTEXT_MAX_TOKENS = "context.max.tokens";
-    /** 占用率达到该阈值即转警示色并提示将触发历史压缩。 */
-    private static final double CONTEXT_WARN_RATIO = 0.85;
-    /** 字符→token 粗估系数（中英混排经验值），仅在拿不到真实回报时兜底。 */
-    private static final double CHARS_PER_TOKEN = 2.5;
-
-    /**
-     * 刷新上下文占用条：以会话上一轮助手回报的 {@code tokens_input}（即真实提示词体量）为基准，
-     * 叠加待发送输入框的估算 token；拿不到回报时退而按全部历史字符粗估。接近上限时转红并提示将压缩。
-     */
-    private void updateContextBar() {
-        if (contextBar == null || contextGauge == null) {
-            return;
-        }
-        if (currentSessionId == null) {
-            hideContextBar();
-            return;
-        }
-        List<ChatConversation> history = chatService.history(currentSessionId);
-        Integer lastInput = null;
-        long chars = 0;
-        for (ChatConversation c : history) {
-            if (c.getContent() != null) {
-                chars += c.getContent().length();
-            }
-            if (ConversationRole.ASSISTANT.getCode().equalsIgnoreCase(c.getRole())
-                    && c.getTokensInput() != null && c.getTokensInput() > 0) {
-                lastInput = c.getTokensInput();
-            }
-        }
-        int pending = estimateTokens(inputField.getText());
-        int estimated = (lastInput != null && lastInput > 0)
-                ? lastInput + pending
-                : (int) Math.round(chars / CHARS_PER_TOKEN) + pending;
-        int limit = contextTokenLimit();
-        double ratio = limit > 0 ? (double) estimated / limit : 0;
-        boolean near = ratio >= CONTEXT_WARN_RATIO;
-
-        contextGauge.setProgress(Math.max(0.0, Math.min(1.0, ratio)));
-        contextBar.setText(I18n.t("context.usage", formatK(estimated), formatK(limit)));
-        contextBar.setTooltip(new Tooltip(I18n.t(near ? "context.warn" : "context.info",
-                formatK(estimated), formatK(limit))));
-        if (contextBar.getStyleClass().contains("context-bar-warn")) {
-            contextBar.getStyleClass().remove("context-bar-warn");
-        }
-        if (near) {
-            contextBar.getStyleClass().add("context-bar-warn");
-        }
-        contextBar.setVisible(true);
-        contextBar.setManaged(true);
-        contextGauge.setVisible(true);
-        contextGauge.setManaged(true);
-    }
-
-    private void hideContextBar() {
-        if (contextBar != null) {
-            contextBar.setVisible(false);
-            contextBar.setManaged(false);
-        }
-        if (contextGauge != null) {
-            contextGauge.setVisible(false);
-            contextGauge.setManaged(false);
-        }
-    }
-
-    /** 读上下文 token 上限：应用级设置优先，非法或未配置回退默认。 */
-    private int contextTokenLimit() {
-        try {
-            return database.settingDao().getValue(KEY_CONTEXT_MAX_TOKENS)
-                    .map(s -> {
-                        int v = Integer.parseInt(s.trim());
-                        return v > 0 ? v : DEFAULT_CONTEXT_TOKENS;
-                    })
-                    .orElse(DEFAULT_CONTEXT_TOKENS);
-        } catch (RuntimeException e) {
-            return DEFAULT_CONTEXT_TOKENS;
-        }
-    }
-
-    private static int estimateTokens(String text) {
-        if (text == null || text.isBlank()) {
-            return 0;
-        }
-        return (int) Math.round(text.length() / CHARS_PER_TOKEN);
-    }
-
-    /** token 数简写：≥ 1000 显示为 x.yk，否则原样。 */
-    private static String formatK(int tokens) {
-        if (tokens < 1000) {
-            return String.valueOf(tokens);
-        }
-        return String.format(java.util.Locale.ROOT, "%.1fk", tokens / 1000.0);
-    }
-
-    private static int nz(Integer v) {
-        return v == null ? 0 : v;
+        statusBar.updateUsageFromSession(sessionId);
+        statusBar.updateContext();
     }
 
     // ===================== 消息气泡操作：复制 / 重生成 / 编辑重发 / 删除 =====================
@@ -1314,98 +1121,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         sidebar.renderAgentSwitcher();
         refreshSessions();
         dropForeignSession();
-    }
-
-    /** 左侧菜单栏展开/收起：点击工具栏按钮切换，带宽度过渡动画，状态持久化到偏好 */
-    @FXML
-    private void handleToggleSidebar() {
-        sidebarCollapsed = !sidebarCollapsed;
-        UserPrefs.put(PREF_SIDEBAR_COLLAPSED, String.valueOf(sidebarCollapsed));
-        applyContentMargin();
-        animateSidebar(!sidebarCollapsed);
-    }
-
-    /**
-     * 侧栏收起时给内容区补回左侧留白（与右侧 content-margin 的 4 对称），展开时去掉。
-     * <p>展开态侧栏紧贴内容区、由 sidebar-margin 负责左沿留白；收起后 maxWidth 归 0 会连那 4 一起没了，
-     * 故此处把留白责任临时交给内容区自身。</p>
-     */
-    private void applyContentMargin() {
-        if (contentMargin == null) {
-            return;
-        }
-        contentMargin.getStyleClass().remove("no-sidebar");
-        if (sidebarCollapsed) {
-            contentMargin.getStyleClass().add("no-sidebar");
-        }
-    }
-
-    /** 启动侧栏伸缩动画：maxWidth 在 0 ↔ 满量程间缓动；收起后把容器设为鼠标透明 */
-    private void animateSidebar(boolean expand) {
-        if (sidebarMargin == null) {
-            return;
-        }
-        if (sidebarAnim != null && sidebarAnim.getStatus() == Animation.Status.RUNNING) {
-            sidebarAnim.stop();
-        }
-        sidebarMargin.setMouseTransparent(false);
-        double to = expand ? SIDEBAR_FULL_WIDTH : 0;
-        sidebarAnim = new Timeline(new KeyFrame(
-                javafx.util.Duration.millis(SIDEBAR_ANIM_MS),
-                new KeyValue(sidebarMargin.maxWidthProperty(), to, Interpolator.EASE_BOTH)));
-        sidebarAnim.setOnFinished(e -> sidebarMargin.setMouseTransparent(!expand));
-        sidebarAnim.play();
-    }
-
-    /** 根据当前 sidebarCollapsed 标志瞬时应用侧栏宽度（启动恢复用，不走动画） */
-    private void applySidebarState() {
-        if (sidebarMargin == null) {
-            return;
-        }
-        sidebarMargin.setMaxWidth(sidebarCollapsed ? 0 : SIDEBAR_FULL_WIDTH);
-        sidebarMargin.setMouseTransparent(sidebarCollapsed);
-        applyContentMargin();
-    }
-
-    /** 构造侧栏开关按钮，挂到标题栏右侧（标题文字后、弹性 spacer 前） */
-    private void installSidebarToggle() {
-        if (sidebarToggle != null) {
-            return;
-        }
-        Button btn = new Button();
-        btn.setGraphic(buildSidebarToggleIcon());
-        btn.getStyleClass().add("sidebar-toggle");
-        btn.setFocusTraversable(false);
-        btn.setOnAction(e -> handleToggleSidebar());
-        sidebarToggle = btn;
-        appShell.onTitleBarReady(bar -> bar.addAfterBrand(btn));
-    }
-
-    /** 绘制侧栏开关图标：圆角矩形外框 + 左侧竖线分隔（匹配 Fluent “PanelLeft” 风格）。
-     *  <p>容器高度与按钮内容区（标题栏 38px）一致，形状画在容器垂直正中，
-     *  规避 Button 对无基线 graphic 顶部对齐导致的图标偏上问题。</p> */
-    private static Node buildSidebarToggleIcon() {
-        double paneH = 38;
-        double iconW = 14;
-        double iconH = 12;
-        double top = (paneH - iconH) / 2;
-        double left = 1;
-
-        Rectangle frame = new Rectangle(left, top, iconW, iconH);
-        frame.setArcWidth(4);
-        frame.setArcHeight(4);
-        frame.setFill(null);
-        frame.setStrokeWidth(1.4);
-        frame.getStyleClass().add("sidebar-icon-stroke");
-
-        Line divider = new Line(left + 4.5, top, left + 4.5, top + iconH);
-        divider.setStrokeWidth(1.4);
-        divider.getStyleClass().add("sidebar-icon-stroke");
-
-        Pane icon = new Pane(frame, divider);
-        icon.setPrefSize(16, paneH);
-        icon.setMinSize(16, paneH);
-        return icon;
     }
 
     /** 搜索按钮：弹出命令面板，在当前智能体的会话标题与消息正文里检索，选中即打开（消息行还会滚到该条）。 */

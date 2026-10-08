@@ -7,9 +7,11 @@ import com.gettyio.gim.agent.ui.window.StageResizer;
 import javafx.application.Application;
 import javafx.application.Platform;
 import javafx.fxml.FXMLLoader;
+import javafx.geometry.Rectangle2D;
 import javafx.scene.Parent;
 import javafx.scene.Scene;
 import javafx.scene.paint.Color;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import org.slf4j.Logger;
@@ -83,6 +85,9 @@ public class GimAgentApplication extends Application {
         stage.setMinHeight(620);
         stage.setScene(scene);
         stage.show();
+        // 依屏幕分辨率自适应启动尺寸并居中：TRANSPARENT 无边框窗口的首显尺寸由根 pref 决定，
+        // 故在 show 之后显式设定宽高（与标题栏最大化同款手段，可靠生效）
+        applyAdaptiveStartupSize(stage);
 
         // 更新检查：若开关开启且当日未查过，后台静默比对服务器最新版（发现新版：强更弹模态，否则发托盘气泡）
         springContext.getBean(com.gettyio.gim.agent.ui.update.UpdateChecker.class).maybeCheckOnStartup(stage);
@@ -97,6 +102,25 @@ public class GimAgentApplication extends Application {
         hotkeys.setOnQuickAsk(() -> Platform.runLater(quickAsk::toggle));
         hotkeys.setOnScreenshot(() -> Platform.runLater(controller::captureScreenshotToComposer));
         hotkeys.start();
+    }
+
+    /**
+     * 依主屏可视区自适应启动窗口尺寸并居中：取可视区的约 60%×76% 作为目标，
+     * 不小于最小尺寸、且四周留出边距不铺满整屏，最后在工作区内居中。
+     */
+    private void applyAdaptiveStartupSize(Stage stage) {
+        Rectangle2D visual = Screen.getPrimary().getVisualBounds();
+        double margin = 80;
+        double width = clamp(visual.getWidth() * 0.60, stage.getMinWidth(), visual.getWidth() - margin);
+        double height = clamp(visual.getHeight() * 0.76, stage.getMinHeight(), visual.getHeight() - margin);
+        stage.setWidth(width);
+        stage.setHeight(height);
+        stage.setX(visual.getMinX() + (visual.getWidth() - width) / 2);
+        stage.setY(visual.getMinY() + (visual.getHeight() - height) / 2);
+    }
+
+    private static double clamp(double value, double min, double max) {
+        return Math.max(min, Math.min(value, max));
     }
 
     @Override
