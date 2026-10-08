@@ -35,6 +35,7 @@ import com.gettyio.gim.agent.tools.guard.GuardChain;
 import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
+import com.gettyio.gim.agent.tools.sandbox.SandboxExecutor;
 import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.tools.web.WebSearchTools;
 import com.gettyio.gim.agent.ui.export.ExportService;
@@ -125,7 +126,8 @@ public class GimAgentConfiguration {
                                           SkillService skillService,
                                           AgentCapabilityResolver capabilities,
                                           TaskSchedulerService schedulerService,
-                                          SecurityAdminService securityAdminService) {
+                                          SecurityAdminService securityAdminService,
+                                          com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService embeddingIndexer) {
         // 智能体定义 + 消息级模型覆盖 → 模型实例（未定向则用应用默认模型，按生成参数分桶复用）；
         // 备用模型：同提供商按优先级取下一个启用模型，接 Harness 框架级重试 + failover
         MultiAgentGateway.ModelResolver modelResolver = new MultiAgentGateway.ModelResolver() {
@@ -161,6 +163,9 @@ public class GimAgentConfiguration {
                     gw.registerToolTarget(new ScheduleTools(schedulerService, db.taskDao(), gw.getAgentId()));
                     // 联网工具：web_search / web_fetch——Key 从加密的 settings 实时取用，改配不重启即生效
                     gw.registerToolTarget(new WebSearchTools(securityAdminService::getWebSearchApiKeyPlain));
+                    // 知识检索工具：knowledge_search——向量召回知识块，与 KNOWLEDGE.md 文件树路线并存
+                    gw.registerToolTarget(new com.gettyio.gim.agent.core.knowledge.KnowledgeSearchTools(
+                            embeddingIndexer, gw::getAgentId));
                 });
     }
 
@@ -211,10 +216,29 @@ public class GimAgentConfiguration {
         return new MemoryService(db, agentGateway);
     }
 
-    /** 应用级知识库管理（原生 knowledge 文件树）：供知识页导入/删除资料并维护 KNOWLEDGE.md 索引。 */
+    /**
+     * 向量知识索引器：分块嵌入落 knowledge_chunks，供知识检索工具与知识页重建索引。
+     * embedding 客户端每次现建（读加密 settings），配置改动即生效。
+     */
     @Bean
-    public KnowledgeService knowledgeService(GimDatabase db, MultiAgentGateway agentGateway) {
-        return new KnowledgeService(db, agentGateway);
+    public com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService embeddingIndexService(
+            GimDatabase db, SecurityAdminService securityAdminService) {
+        return new com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService(db, () -> {
+            String baseUrl = securityAdminService.getKnowledgeEmbeddingBaseUrl();
+            String model = securityAdminService.getKnowledgeEmbeddingModel();
+            if (baseUrl.isEmpty() || model.isEmpty()) {
+                return null;
+            }
+            return new com.gettyio.gim.agent.core.knowledge.OpenAiCompatibleEmbeddingClient(
+                    baseUrl, securityAdminService.getKnowledgeEmbeddingKeyPlain(), model);
+        });
+    }
+
+    /** 应用级知识库管理（文件树 + 向量双路线）：供知识页导入/删除资料并维护 KNOWLEDGE.md 索引。 */
+    @Bean
+    public KnowledgeService knowledgeService(GimDatabase db, MultiAgentGateway agentGateway,
+                                             com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService embeddingIndexer) {
+        return new KnowledgeService(db, agentGateway, embeddingIndexer);
     }
 
     /** 计划文件读写：供规划轮结束后在 UI 预览/编辑 {@code plans/PLAN.md}。 */
@@ -394,11 +418,39 @@ public class GimAgentConfiguration {
         return new ExportService(db);
     }
 
-    /** 启动时距上次备份超过 24h 自动补一次（首次无记录也执行）。 */
+    /**
+     * 启动时距上次备份超过 24h 自动补一次（首次无记录也执行）。
+     * <p>备份（VACUUM INTO + 滚动清理）可能秒级耗时，放后台线程执行，不阻塞主窗出现。</p>
+     */
     @Bean
     @Order(50)
     public CommandLineRunner autoBackupOnStartup(DbBackupService backupService) {
-        return args -> backupService.backupIfDue();
+        return args -> {
+            Thread t = new Thread(() -> {
+                try {
+                    backupService.backupIfDue();
+                } catch (RuntimeException e) {
+                    log.warn("启动自动备份失败", e);
+                }
+            }, "startup-backup");
+            t.setDaemon(true);
+            t.start();
+        };
+    }
+
+    /** 启动时后台预拉取沙箱轻量镜像（Docker 可用时；失败/超时只记日志，绝不阻塞启动）。 */
+    @Bean
+    @Order(60)
+    public CommandLineRunner prePullSandboxImage() {
+        SandboxExecutor executor = new SandboxExecutor();
+        return args -> {
+            if (!executor.dockerAvailable()) {
+                return;
+            }
+            Thread t = new Thread(executor::prePullImage, "sandbox-prepull");
+            t.setDaemon(true);
+            t.start();
+        };
     }
 
     /**

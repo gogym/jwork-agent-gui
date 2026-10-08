@@ -39,6 +39,22 @@ public class MessageListRenderer {
         this.scrollPane = scrollPane;
         this.messagesContainer = messagesContainer;
         this.listener = listener;
+        // 滚动到顶回调（向上补页）：触发与否由回调方防抖，这里只负责探测
+        scrollPane.vvalueProperty().addListener((obs, was, now) -> {
+            if (onTopReached != null && now.doubleValue() <= TOP_REACH_THRESHOLD) {
+                onTopReached.run();
+            }
+        });
+    }
+
+    /** 滚动到顶阈值：vvalue 低于该值视为到达顶部 */
+    private static final double TOP_REACH_THRESHOLD = 0.02;
+
+    private Runnable onTopReached;
+
+    /** 安装「滚动到顶」回调（向上补页入口）；传 null 取消。 */
+    public void setOnTopReached(Runnable onTopReached) {
+        this.onTopReached = onTopReached;
     }
 
     /** 消息容器子节点列表：供控制器绑定欢迎页显隐等只读用途。 */
@@ -85,6 +101,26 @@ public class MessageListRenderer {
         promoteUser(bubble.actions());
         scrollToBottom();
         return bubble;
+    }
+
+    /** 头部插入一条助手气泡并立即以 Markdown 渲染（向上补页用）；不触发 promote 与滚动。 */
+    public void prependAssistantMarkdown(String content, long conversationId, String toolCallsJson) {
+        AssistantBubble bubble = new AssistantBubble(BUBBLE_MAX_WIDTH, listener);
+        bubble.renderContent(content,
+                com.gettyio.gim.agent.core.chat.ToolCallRecordCodec.decode(toolCallsJson));
+        bubble.setConversationId(conversationId);
+        Node node = bubble.node();
+        node.setUserData(conversationId);
+        messagesContainer.getChildren().add(0, node);
+    }
+
+    /** 头部插入一条用户气泡（向上补页用）；不触发 promote 与滚动。 */
+    public void prependUserBubble(String text, List<ImageView> thumbs, List<Node> fileRows, long conversationId) {
+        UserBubble bubble = new UserBubble(text, thumbs, fileRows, BUBBLE_MAX_WIDTH, listener);
+        bubble.setConversationId(conversationId);
+        Node node = bubble.node();
+        node.setUserData(conversationId);
+        messagesContainer.getChildren().add(0, node);
     }
 
     /**

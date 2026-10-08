@@ -79,6 +79,44 @@ final class ModelSettingsPanel {
         this.adminService = adminService;
     }
 
+    /**
+     * 探测本机 Ollama / LM Studio 并一键导入：后台线程探测（本地回环 1s 超时），
+     * 未发现时提示引导；发现后弹确认框列出模型清单，确认即落库（幂等，已存在跳过）。
+     */
+    private void detectLocalService(Button detectBtn) {
+        detectBtn.setDisable(true);
+        Thread worker = new Thread(() -> {
+            var detected = new com.gettyio.gim.agent.core.model.LocalModelDetector().detect();
+            Platform.runLater(() -> {
+                detectBtn.setDisable(false);
+                if (detectBtn.getScene() == null) {
+                    return;
+                }
+                if (detected.isEmpty()) {
+                    host.notify("settings.menu.providers", I18n.t("settings.provider.detectNone"));
+                    return;
+                }
+                confirmLocalImport(detected.get());
+            });
+        }, "local-model-detect");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** 弹确认框展示探测到的本地服务与模型清单，确认后导入。 */
+    private void confirmLocalImport(com.gettyio.gim.agent.core.model.LocalModelDetector.LocalService svc) {
+        String listing = String.join("\n", svc.models());
+        if (!GimDialog.confirm(host.hostWindow(), I18n.t("settings.provider.detectLocal"),
+                I18n.t("settings.provider.detectFound", svc.baseUrl()),
+                listing)) {
+            return;
+        }
+        var result = adminService.importLocalModels(svc.kind(), svc.baseUrl(), svc.models());
+        host.reloadAll();
+        host.notify("settings.menu.providers", I18n.t("settings.provider.detectImported",
+                result.imported(), result.skipped()));
+    }
+
     /** 初始化协议/鉴权下拉项：宿主整窗构建时调用一次。 */
     void initCombos() {
         protocolCombo.setItems(FXCollections.observableArrayList(
@@ -121,9 +159,15 @@ final class ModelSettingsPanel {
         addBtn.setGraphic(addIcon);
         addBtn.setOnAction(e -> openProviderDialog(null));
 
+        Button detectBtn = new Button(I18n.t("settings.provider.detectLocal"));
+        Label detectIcon = new Label("\uE9F5");
+        detectIcon.getStyleClass().add("icon");
+        detectBtn.setGraphic(detectIcon);
+        detectBtn.setOnAction(e -> detectLocalService(detectBtn));
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox header = new HBox(headText, spacer, addBtn);
+        HBox header = new HBox(headText, spacer, detectBtn, addBtn);
         header.setAlignment(Pos.CENTER_LEFT);
 
         providerCardsBox.getStyleClass().add("provider-cards");

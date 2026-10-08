@@ -11,6 +11,7 @@ import javafx.stage.Window;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.awt.Desktop;
@@ -39,7 +40,8 @@ import java.util.function.DoubleConsumer;
 /**
  * 更新检查：向 gim-server-ai 查询最新发布版本并与本应用语义化版本比对，支持应用内下载安装。
  * <ul>
- *   <li><b>服务器地址</b>：可在设置页配置，持久化在 AppSetting {@code app.update.serverBaseUrl}；
+ *   <li><b>服务器地址</b>：内置生产默认基地址（{@code application.properties} 的 {@code update.server.base-url}），
+ *       设置页可覆盖，覆盖值持久化在 AppSetting {@code app.update.serverBaseUrl}（留空即回退内置默认）；
  *       更新检查接口路径固定为 {@code /ai/update/check}（服务端已免鉴权，无需登录态）。</li>
  *   <li><b>当前版本</b>取自 classpath 资源 {@code version.properties}（{@code app.version}）；比较采用
  *       点分段语义化算法，与服务端 {@code VersionUtil} 保持一致。</li>
@@ -57,7 +59,7 @@ public class UpdateChecker {
     private static final String KEY_LAST_CHECK = "app.update.lastCheckDate";
     public static final String KEY_BASE_URL = "app.update.serverBaseUrl";
 
-    /** 应用编码，须与服务端发布的 software_release.app_id 一致。 */
+    /** 应用编码，须与统一管理后台（gim-server-admin）中对应 {@code app_info.app_id} 一致。 */
     private static final String APP_ID = "jwork-desktop";
     private static final String CHECK_PATH = "/ai/update/check";
     /** 服务端统一成功码（com.gettyio.common.enums.ResultCode.SUCCESS）。 */
@@ -75,6 +77,13 @@ public class UpdateChecker {
 
     private volatile String cachedCurrent;
 
+    /**
+     * 内置生产更新服务基地址（gim-server-ai）：用户未在设置页手动配置时作为默认。
+     * 来源于 {@code application.properties} 的 {@code update.server.base-url}；缺省为空（退化为纯手填）。
+     */
+    @Value("${update.server.base-url:}")
+    private String defaultBaseUrl;
+
     @Autowired
     public UpdateChecker(GimDatabase db, TrayNotifier trayNotifier) {
         this.db = db;
@@ -87,19 +96,23 @@ public class UpdateChecker {
      * @param version     最新版本号
      * @param downloadUrl 安装包下载地址
      * @param fileSize    安装包字节大小（未知为 -1）
-     * @param sha256      校验和（可为空）
+     * @param fileHash    MD5 校验值（可为空）
      * @param updateDesc  更新说明（可为空）
      * @param forceUpdate 是否强制更新
      */
     public record UpdateInfo(String version, String downloadUrl, long fileSize,
-                             String sha256, String updateDesc, boolean forceUpdate) {
+                             String fileHash, String updateDesc, boolean forceUpdate) {
     }
 
     // ===================== 配置 =====================
 
-    /** 读取已配置的服务器基地址（去除结尾斜杠）；未配置返回空串。 */
+    /** 读取生效的服务器基地址（去除结尾斜杠）：优先用户配置，未配置时回退内置默认；两者皆空返回空串。 */
     public String getServerBaseUrl() {
-        return trimTrailingSlash(db.settingDao().getValue(KEY_BASE_URL).orElse("").trim());
+        String configured = db.settingDao().getValue(KEY_BASE_URL).orElse("").trim();
+        if (!configured.isEmpty()) {
+            return trimTrailingSlash(configured);
+        }
+        return trimTrailingSlash(defaultBaseUrl);
     }
 
     public void setServerBaseUrl(String url) {
@@ -252,7 +265,7 @@ public class UpdateChecker {
                     data.path("version").asText(""),
                     url,
                     data.path("fileSize").asLong(-1),
-                    data.path("sha256").asText(""),
+                    data.path("fileHash").asText(""),
                     data.path("updateDesc").asText(""),
                     data.path("forceUpdate").asBoolean(false)));
         } catch (InterruptedException e) {
@@ -264,7 +277,7 @@ public class UpdateChecker {
     // ===================== 应用内下载与安装 =====================
 
     /**
-     * 下载安装包到临时目录并在提供 sha256 时校验。
+     * 下载安装包到临时目录并在提供 fileHash（MD5）时校验。
      *
      * @param info     更新信息
      * @param onProgress 进度回调（0..1），可为 null
@@ -301,12 +314,57 @@ public class UpdateChecker {
         if (onProgress != null) {
             onProgress.accept(1.0);
         }
-        if (info.sha256() != null && !info.sha256().isBlank()
-                && !info.sha256().equalsIgnoreCase(sha256Hex(target))) {
-            Files.deleteIfExists(target);
+        verifyChecksum(target, info.fileHash());
+        return target;
+    }
+
+    /**
+     * 校验下载包完整性：按哈希串长度判别算法——64 位十六进制视为 SHA-256（三段式更新的标准校验），
+     * 32 位视为 MD5（旧服务端兼容）；其他长度视为无法识别，跳过校验（与空 hash 同口径）。
+     * 校验不通过时删除本地文件并抛 {@link IOException}。
+     */
+    void verifyChecksum(Path file, String hash) throws IOException {
+        String h = hash == null ? "" : hash.trim().toLowerCase(Locale.ROOT);
+        if (h.isEmpty()) {
+            return;
+        }
+        String actual = switch (h.length()) {
+            case 64 -> sha256Hex(file);
+            case 32 -> md5Hex(file);
+            default -> "";
+        };
+        if (actual.isEmpty()) {
+            log.warn("无法识别的更新包校验值长度({}), 跳过校验", h.length());
+            return;
+        }
+        if (!h.equalsIgnoreCase(actual)) {
+            Files.deleteIfExists(file);
             throw new IOException(I18n.t("settings.update.checksumMismatch"));
         }
-        return target;
+    }
+
+    /**
+     * 三段式静默安装：Windows 且为 .msi 时走 {@code msiexec /i ... /qn /norestart}（无向导、
+     * 装完即更新完成），其余平台/格式退回 {@link #install(Path)} 拉起默认安装流程。
+     *
+     * @return 成功拉起返回 true
+     */
+    public boolean installSilently(Path file) {
+        if (file == null || !Files.exists(file)) {
+            return false;
+        }
+        if ("windows".equals(detectPlatform())
+                && file.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".msi")) {
+            try {
+                new ProcessBuilder("msiexec", "/i", file.toAbsolutePath().toString(),
+                        "/qn", "/norestart").start();
+                log.info("静默安装已启动: {}", file);
+                return true;
+            } catch (Exception e) {
+                log.warn("静默安装失败，回退到常规安装: {}", e.getMessage());
+            }
+        }
+        return install(file);
     }
 
     /**
@@ -362,6 +420,16 @@ public class UpdateChecker {
         db.settingDao().upsert(KEY_AUTO_CHECK, String.valueOf(enabled), "启动后每日静默检查更新");
     }
 
+    /** 上次检查日期（ISO 文本 yyyy-MM-dd）；从未检查返回空串。静默与手动检查均会更新。 */
+    public String lastCheckDate() {
+        return db.settingDao().getValue(KEY_LAST_CHECK).orElse("").trim();
+    }
+
+    /** 记录本次检查日期为今天：供设置页「上次检查」展示，并用于静默检查当日去重。 */
+    public void markCheckedToday() {
+        db.settingDao().upsert(KEY_LAST_CHECK, LocalDate.now().toString(), "上次检查日期(ISO)");
+    }
+
     /**
      * 启动后调用：开关开启且当日未检查过，则后台静默检查一次。
      * 命中新版时：强制更新弹不可关闭模态走完「下载→安装→退出」；否则仅发托盘气泡。
@@ -374,11 +442,11 @@ public class UpdateChecker {
             return;
         }
         LocalDate today = LocalDate.now();
-        String last = db.settingDao().getValue(KEY_LAST_CHECK).orElse("").trim();
+        String last = lastCheckDate();
         if (today.toString().equals(last)) {
             return;
         }
-        db.settingDao().upsert(KEY_LAST_CHECK, today.toString(), "上次静默检查日期(ISO)");
+        markCheckedToday();
         Thread t = new Thread(() -> {
             try {
                 checkLatest().ifPresent(info -> Platform.runLater(() -> {
@@ -465,7 +533,8 @@ public class UpdateChecker {
                 GimDialog.chooseForced(owner, I18n.t("settings.update.install.title"), descHeader(info),
                         I18n.t("settings.update.install.body", file.getFileName().toString()),
                         I18n.t("settings.update.install"));
-                boolean ok = install(file);
+                // 三段式最后一段：msi 走静默安装（msiexec /qn），其余退回拉起安装器
+                boolean ok = installSilently(file);
                 Platform.runLater(() -> {
                     GimDialog.chooseForced(owner, I18n.t("settings.update.exit.title"), null,
                             I18n.t(ok ? "settings.update.exit.body" : "settings.update.exit.bodyManual",
@@ -500,6 +569,28 @@ public class UpdateChecker {
     private static boolean isArchiveLike(String name) {
         String n = name.toLowerCase(Locale.ROOT);
         return n.endsWith(".tar.gz") || n.endsWith(".zip") || n.endsWith(".tgz");
+    }
+
+    private static String md5Hex(Path file) throws IOException {
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");
+            try (InputStream in = Files.newInputStream(file)) {
+                byte[] buf = new byte[8192];
+                int read;
+                while ((read = in.read(buf)) > 0) {
+                    md.update(buf, 0, read);
+                }
+            }
+            byte[] digest = md.digest();
+            StringBuilder sb = new StringBuilder(digest.length * 2);
+            for (byte b : digest) {
+                sb.append(Character.forDigit((b >> 4) & 0xF, 16));
+                sb.append(Character.forDigit(b & 0xF, 16));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("无法计算校验和", e);
+        }
     }
 
     private static String sha256Hex(Path file) throws IOException {

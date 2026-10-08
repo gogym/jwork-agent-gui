@@ -66,6 +66,9 @@
     -gim-badge-red-bg: #f9e5e4;
     -gim-badge-red-fg: #b3403f;
 
+    /* 计划待确认横幅的信息蓝底色 */
+    -gim-info-bg: #eaf1f8;
+
     /* 常驻提醒条（如「尚未配置模型」）的琥珀语义色 */
     -gim-warn-bg: #fdf3e0;
     -gim-warn-border: #f0dcae;
@@ -436,6 +439,25 @@
     -fx-highlight-text-fill: -gim-code-fg;
 }
 .md-code-area > .content { -fx-background-color: transparent; }
+
+/* 着色代码块（TextFlow 版）：底色圆角挂在 viewport 上，token 色由明暗两套各给一份 */
+.md-code-scroll { -fx-background-color: transparent; }
+.md-code-scroll > .viewport {
+    -fx-background-color: -gim-code-bg;
+    -fx-background-radius: 8;
+    -fx-border-color: -gim-code-border;
+    -fx-border-radius: 8;
+    -fx-padding: 8 10 8 10;
+}
+.md-code-flow {
+    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+.md-code-txt { -fx-fill: -gim-code-fg; }
+.md-code-kw  { -fx-fill: #a626a4; -fx-font-weight: bold; }
+.md-code-str { -fx-fill: #50a14f; }
+.md-code-num { -fx-fill: #986801; }
+.md-code-com { -fx-fill: #a0a1a7; -fx-font-style: italic; }
 .md-copy-btn {
     -fx-background-color: -gim-btn;
     -fx-background-radius: 6;
@@ -573,6 +595,36 @@
 .model-banner-action:hover    { -fx-background-color: -gim-accent-hover; }
 .model-banner-action:pressed  { -fx-background-color: -gim-accent-press; }
 
+/* ---------- 计划待确认横幅（规划轮跑完后展示，PLAN.md 预览 + 编辑/确认执行） ---------- */
+.plan-banner {
+    -fx-background-color: -gim-info-bg, -gim-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -gim-border-4;
+    -fx-border-radius: 10;
+    -fx-padding: 10 14 10 12;
+    /* 与 model-banner 同一内缩口径：与上方标题、下方消息区两侧对齐 */
+    -fx-background-insets: 4 24 6 24;
+    -fx-border-insets: 4 24 6 24;
+}
+.plan-banner-head { -fx-spacing: 10; }
+.plan-banner-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 15px;
+    -fx-text-fill: -gim-accent;
+}
+.plan-banner-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -gim-text-2;
+}
+.plan-preview {
+    -fx-background-color: transparent;
+    -fx-border-color: -gim-border-4;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 6 10 6 10;
+}
+
 /* 右上角终端开关按钮：与附件按钮同族（图标透明底、悬停转淡） */
 .terminal-button {
     -fx-background-color: transparent;
@@ -674,6 +726,8 @@
 /* 多行 TextArea：内部 content 兑底透明，避免全局 .text-area 的 -gim-input-bg 漏白，使输入区融入卡片 */
 .input-field > .content { -fx-background-color: transparent; }
 .card-footer { -fx-padding: 10 0 0 0; -fx-alignment: center-left; -fx-spacing: 8; }
+/* 卡片下方（非卡内）左下元信息行：隐私提示/本轮用量，宽度与卡片对齐并靠左 */
+.input-meta { -fx-max-width: 820; -fx-padding: 6 0 0 8; -fx-alignment: center-left; -fx-spacing: 8; }
 .model-hint { -fx-text-fill: -gim-text-4; -fx-font-size: 12px; }
 .usage-bar {
     -fx-text-fill: -gim-text-4;
@@ -1554,6 +1608,8 @@
 .ws-session-row-selected .ws-session-name { -fx-text-fill: -gim-text-title; }
 .ws-session-dot { -fx-text-fill: -gim-text-5; -fx-font-size: 12px; }
 .ws-session-name { -fx-font-size: 12px; -fx-text-fill: -gim-text-3; }
+/* 分支会话的「↳」溯源标记：弱色小号，不押过标题 */
+.session-fork-mark { -fx-text-fill: -gim-text-4; -fx-font-size: 11px; }
 /* 会话行「⋯」按钮：默认隐藏，悬停行或选中时显示（保留占位不引起布局跳动） */
 .ws-session-menu { -fx-opacity: 0; }
 .ws-session-row:hover .ws-session-menu,
@@ -1578,3 +1634,15 @@
 /* 底部「+ 新建分组」行：文案与普通会话名同字号，弱色 */
 .session-new-group { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
 .session-new-group:hover { -fx-text-fill: -gim-text-2; }
+
+/* ---------- 启动画面（Preloader）：居中小卡片，主窗就绪即隐藏 ---------- */
+.splash-root {
+    -fx-background-color: -gim-bg;
+    -fx-background-radius: 12;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 24;
+}
+.splash-title { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.splash-status { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }

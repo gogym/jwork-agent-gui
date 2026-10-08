@@ -181,6 +181,19 @@ CREATE TABLE IF NOT EXISTS settings (
     updated_at    TEXT
 );
 
+-- 向量知识块：导入文档分块嵌入后的向量索引（余弦相似度检索，与 knowledge/ 文件树路线并存）
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    agent_code TEXT NOT NULL,
+    doc_name   TEXT NOT NULL,
+    chunk_idx  INTEGER NOT NULL,
+    content    TEXT NOT NULL,
+    embedding  BLOB NOT NULL,
+    created_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_knowledge_chunks_agent ON knowledge_chunks (agent_code);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_knowledge_chunks_doc ON knowledge_chunks (agent_code, doc_name, chunk_idx);
+
 CREATE TABLE IF NOT EXISTS tool_permission_rules (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     tool_name   TEXT NOT NULL,

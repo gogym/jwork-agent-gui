@@ -6,7 +6,6 @@ import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.Separator;
-import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
@@ -91,9 +90,19 @@ public final class MarkdownRenderer {
             flow.getStyleClass().add("md-p");
             out.add(flow);
         } else if (node instanceof FencedCodeBlock f) {
-            out.add(codeBlock(f.getLiteral() == null ? "" : f.getLiteral().stripTrailing()));
+            String info = f.getInfo() == null ? "" : f.getInfo().trim();
+            String literal = f.getLiteral() == null ? "" : f.getLiteral().stripTrailing();
+            if ("mermaid".equalsIgnoreCase(info)) {
+                // 图表源码交 Mermaid 离线渲染；引擎缺失（资源未打包）时回退普通代码块
+                MermaidView mermaid = MermaidView.tryCreate(literal);
+                if (mermaid != null) {
+                    out.add(mermaid.node());
+                    return out;
+                }
+            }
+            out.add(codeBlock(literal, info));
         } else if (node instanceof IndentedCodeBlock ic) {
-            out.add(codeBlock(ic.getLiteral() == null ? "" : ic.getLiteral().stripTrailing()));
+            out.add(codeBlock(ic.getLiteral() == null ? "" : ic.getLiteral().stripTrailing(), null));
         } else if (node instanceof ListBlock list) {
             out.add(listBlock(list));
         } else if (node instanceof BlockQuote bq) {
@@ -156,12 +165,25 @@ public final class MarkdownRenderer {
         return row;
     }
 
-    /** 代码块：只读等宽文本域 + 右上角复制按钮（无语法高亮，纯文本可全选复制）。 */
-    private static Region codeBlock(String code) {
-        TextArea area = new TextArea(code);
-        area.setEditable(false);
-        area.setWrapText(false);
-        area.getStyleClass().add("md-code-area");
+    /**
+     * 代码块：着色文本流（关键字/字符串/数字/注释四类）+ 右上角复制按钮。
+     * <p>着色由 {@link CodeHighlighter} 切段，样式类 {@code md-code-*} 由明暗两套 CSS 提供色值。
+     * 外层 ScrollPane 承担横向滚动（代码不折行），纵向高度由内容自然撑开、交给消息区统一滚动。</p>
+     */
+    private static Region codeBlock(String code, String language) {
+        javafx.scene.text.TextFlow flow = new javafx.scene.text.TextFlow();
+        flow.getStyleClass().add("md-code-flow");
+        for (CodeHighlighter.Segment seg : CodeHighlighter.tokenize(code, language)) {
+            javafx.scene.text.Text text = new javafx.scene.text.Text(seg.text());
+            text.getStyleClass().add(seg.styleClass() == null ? "md-code-txt" : seg.styleClass());
+            flow.getChildren().add(text);
+        }
+        // 不折行：宽高自然撑开，横向溢出交给 ScrollPane
+        javafx.scene.control.ScrollPane scroller = new javafx.scene.control.ScrollPane(flow);
+        scroller.getStyleClass().add("md-code-scroll");
+        scroller.setFitToWidth(true);
+        scroller.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
+        scroller.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
 
         Label copyIcon = new Label("\uE8C8");
         copyIcon.getStyleClass().add("md-copy-icon");
@@ -188,7 +210,7 @@ public final class MarkdownRenderer {
         StackPane copyHolder = new StackPane(copy);
         StackPane.setAlignment(copy, Pos.TOP_RIGHT);
         StackPane.setMargin(copy, new Insets(6, 8, 0, 0));
-        StackPane pane = new StackPane(area, copyHolder);
+        StackPane pane = new StackPane(scroller, copyHolder);
         pane.getStyleClass().add("md-code-block");
         return pane;
     }

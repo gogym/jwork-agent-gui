@@ -2,8 +2,9 @@
 # 用法:
 #   powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1 [-Type msi|app-image]
 # 依赖:
-#   - Liberica JDK 17（含 jpackage）
+#   - Liberica JDK 21（含 jpackage）
 #   - 出 .msi 需安装 WiX Toolset v3（candle.exe/light.exe 在 PATH）；未装则回退 app-image。
+#   - msi 产物配合应用内三段式更新（检查 → SHA256 下载校验 → msiexec /qn 静默安装）。
 param(
     [ValidateSet("msi", "app-image")]
     [string]$Type = "app-image"
@@ -61,6 +62,12 @@ if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force -Path $OutDi
 $jpackage = Join-Path $env:JAVA_HOME "bin\jpackage.exe"
 if (-not (Test-Path $jpackage)) { $jpackage = "jpackage" }
 
+# msi 附加开始菜单与桌面快捷方式（仅 msi 生效；app-image 不传避免 jpackage 告警）
+$MsiExtras = @()
+if ($FinalType -eq "msi") {
+    $MsiExtras = @("--win-menu", "--win-shortcut")
+}
+
 & $jpackage `
     --type $FinalType `
     --name $AppName `
@@ -68,6 +75,7 @@ if (-not (Test-Path $jpackage)) { $jpackage = "jpackage" }
     --input $StageDir `
     --main-jar $MainJar.Name `
     --main-class $MainClass `
+    @MsiExtras `
     --java-options "-Xmx512m" `
     --java-options "-Dfile.encoding=UTF-8" `
     --dest $OutDir

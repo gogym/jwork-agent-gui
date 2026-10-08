@@ -41,10 +41,22 @@ public class KnowledgeService {
 
     private final GimDatabase db;
     private final MultiAgentGateway gateway;
+    /** 向量索引器；可为 {@code null}（未装配时纯文件树路线，行为与旧版一致）。 */
+    private final EmbeddingIndexService embeddingIndexer;
 
     public KnowledgeService(GimDatabase db, MultiAgentGateway gateway) {
+        this(db, gateway, null);
+    }
+
+    public KnowledgeService(GimDatabase db, MultiAgentGateway gateway, EmbeddingIndexService embeddingIndexer) {
         this.db = db;
         this.gateway = gateway;
+        this.embeddingIndexer = embeddingIndexer;
+    }
+
+    /** 向量索引器（供知识页重建索引/读索引状态）；未装配时为 {@code null}。 */
+    public EmbeddingIndexService embeddingIndexer() {
+        return embeddingIndexer;
     }
 
     /** 知识文件元信息：展示名、摘要、字节数、最后修改时间（epoch ms）。 */
@@ -127,8 +139,25 @@ public class KnowledgeService {
             throw new UncheckedIOException("写入知识文件失败", e);
         }
         rebuildIndex(agentCode);
+        indexVectors(agentCode, target, text);
         log.info("知识入库: agent={}, file={}, summaryLen={}", agentCode, target.getFileName(), trimmedSummary.length());
         return target.getFileName().toString();
+    }
+
+    /** 导入/重建后向量索引：embedding 未配置或调用失败仅记日志，不阻断文件树入库。 */
+    private void indexVectors(String agentCode, Path docFile, String text) {
+        if (embeddingIndexer == null) {
+            return;
+        }
+        String name = docFile.getFileName().toString();
+        try {
+            int chunks = embeddingIndexer.indexDocument(agentCode, name, text);
+            if (chunks < 0) {
+                log.info("embedding 未配置，跳过向量索引: agent={}, doc={}", agentCode, name);
+            }
+        } catch (RuntimeException e) {
+            log.warn("向量索引失败（文件树路线不受影响）: agent={}, doc={}", agentCode, name, e);
+        }
     }
 
     /** 从磁盘路径导入（读取字节后转交 {@link #importDocument}）。 */
@@ -151,6 +180,9 @@ public class KnowledgeService {
         try {
             if (Files.deleteIfExists(file)) {
                 rebuildIndex(agentCode);
+                if (embeddingIndexer != null) {
+                    embeddingIndexer.removeDocument(agentCode, name);
+                }
                 log.info("删除知识文件: agent={}, file={}", agentCode, name);
             }
         } catch (IOException e) {

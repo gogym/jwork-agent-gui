@@ -6,6 +6,8 @@ import com.gettyio.gim.agent.core.model.ModelSpec;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
+import com.gettyio.gim.agent.domain.enums.ApiProtocol;
+import com.gettyio.gim.agent.domain.enums.AuthMethod;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 
@@ -208,5 +210,62 @@ public class ProviderAdminService {
 
     public Optional<String> getDefaultModelCode() {
         return db.settingDao().getValue(DefaultModelResolver.KEY_DEFAULT_MODEL);
+    }
+
+    // ---- 本地模型一键接入 ----
+
+    /** 本地服务导入结果：落到哪个提供商、新增/跳过各多少个模型。 */
+    public record LocalImportResult(String providerCode, int imported, int skipped) {
+    }
+
+    /**
+     * 把探测到的本地服务（Ollama / LM Studio）一键接入：提供商不存在则创建，模型逐个落库（已存在的跳过）。
+     * <p>本地服务无需密钥：Ollama 走原生协议（密钥留空），LM Studio 走 OpenAI 兼容协议；
+     * 两者对 apiKey 均不校验，这里统一不填。重复点击安全：幂等，只补缺失的模型。</p>
+     *
+     * @param kind       {@code OLLAMA} 或 {@code LM_STUDIO}（见 {@code LocalModelDetector.LocalService#kind}）
+     * @param baseUrl    探测到的服务基础地址
+     * @param modelNames 服务端模型名清单（Ollama 为 {@code name}，LM Studio 为 {@code id}）
+     */
+    public LocalImportResult importLocalModels(String kind, String baseUrl, List<String> modelNames) {
+        boolean isOllama = "OLLAMA".equalsIgnoreCase(kind);
+        String providerCode = isOllama ? "ollama" : "lmstudio";
+        String providerName = isOllama ? "Ollama (本地)" : "LM Studio (本地)";
+        ApiProtocol protocol = isOllama ? ApiProtocol.OLLAMA : ApiProtocol.OPENAI_COMPATIBLE;
+
+        ModelProviderConfig provider = db.modelProviderDao().findByCode(providerCode)
+                .orElseGet(() -> {
+                    ModelProviderConfig p = new ModelProviderConfig();
+                    p.setProviderCode(providerCode);
+                    p.setProviderName(providerName);
+                    p.setApiProtocol(protocol.name());
+                    p.setAuthMethod(AuthMethod.BEARER_TOKEN.name());
+                    p.setEnabled(EnabledStatus.ENABLED);
+                    return p;
+                });
+        provider.setBaseUrl(baseUrl);
+        // 保留既有密钥：编辑时表单密钥为空即沿用，这里直接传 null 即可
+        saveProvider(provider, null);
+
+        int imported = 0;
+        int skipped = 0;
+        for (String name : modelNames) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            if (db.modelConfigDao().findByCode(name).isPresent()) {
+                skipped++;
+                continue;
+            }
+            ModelConfig m = new ModelConfig();
+            m.setProviderCode(providerCode);
+            m.setModelCode(name);
+            m.setModelName(name);
+            m.setPriority(200 + imported);
+            m.setEnabled(EnabledStatus.ENABLED);
+            saveModel(m);
+            imported++;
+        }
+        return new LocalImportResult(providerCode, imported, skipped);
     }
 }

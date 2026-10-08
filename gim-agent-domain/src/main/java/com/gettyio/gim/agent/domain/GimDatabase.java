@@ -26,6 +26,7 @@ public class GimDatabase {
     private final AppSettingDao settingDao;
     private final ToolPermissionRuleDao permissionRuleDao;
     private final PromptTemplateDao promptTemplateDao;
+    private final KnowledgeChunkDao knowledgeChunkDao;
 
     public GimDatabase(ConnectionProvider connectionProvider) {
         this.connectionProvider = connectionProvider;
@@ -43,6 +44,7 @@ public class GimDatabase {
         this.settingDao = new AppSettingDao(runner);
         this.permissionRuleDao = new ToolPermissionRuleDao(runner);
         this.promptTemplateDao = new PromptTemplateDao(runner);
+        this.knowledgeChunkDao = new KnowledgeChunkDao(runner);
     }
 
     /** 幂等初始化表结构 */
@@ -104,5 +106,9 @@ public class GimDatabase {
 
     public PromptTemplateDao promptTemplateDao() {
         return promptTemplateDao;
+    }
+
+    public KnowledgeChunkDao knowledgeChunkDao() {
+        return knowledgeChunkDao;
     }
 }

@@ -20,6 +20,7 @@ import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
 import javafx.scene.control.SeparatorMenuItem;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -381,6 +382,13 @@ public class SessionSidebar {
         } else {
             row = new HBox(6, dot, title, menuBtn);
         }
+        // 分支会话在标题前加「↳」溯源标记：一眼辨出它从哪个会话分出来
+        if (isForked(s)) {
+            Label forkMark = new Label("\u21B3");
+            forkMark.getStyleClass().add("session-fork-mark");
+            forkMark.setTooltip(new Tooltip(I18n.t("session.fork.mark")));
+            row.getChildren().add(1, forkMark);
+        }
         row.getStyleClass().add("ws-session-row");
         if (indent) {
             row.getStyleClass().add("session-group-row");
@@ -481,6 +489,11 @@ public class SessionSidebar {
     /** 收藏态：sessions.favorite=1。 */
     private static boolean isFavorite(ChatSession s) {
         return Integer.valueOf(1).equals(s.getFavorite());
+    }
+
+    /** 分支态：sessions.parent_session_id 指向源会话（branchSession/forkSession 写入）。 */
+    private static boolean isForked(ChatSession s) {
+        return s.getParentSessionId() != null && !s.getParentSessionId().isBlank();
     }
 
     /** 重命名会话：弹框预填当前标题；名字没改就不写库，也不重画列表 */

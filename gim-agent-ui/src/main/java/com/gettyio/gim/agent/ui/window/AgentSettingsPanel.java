@@ -1,8 +1,10 @@
 package com.gettyio.gim.agent.ui.window;
 
+import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
+import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -24,11 +26,14 @@ final class AgentSettingsPanel {
 
     private final SettingsWindow host;
     private final AgentAdminService agentAdminService;
+    /** 读写 Plan 模式总开关（AppSetting 键 agent.planMode.enabled，装配侧逐智能体下发） */
+    private final GimDatabase database;
     private final FlowPane agentCardsBox = SettingsLayout.cardsBox();
 
-    AgentSettingsPanel(SettingsWindow host, AgentAdminService agentAdminService) {
+    AgentSettingsPanel(SettingsWindow host, AgentAdminService agentAdminService, GimDatabase database) {
         this.host = host;
         this.agentAdminService = agentAdminService;
+        this.database = database;
     }
 
     VBox build() {
@@ -59,8 +64,24 @@ final class AgentSettingsPanel {
 
         agentCardsBox.getStyleClass().add("provider-cards");
         VBox.setVgrow(agentCardsBox, Priority.ALWAYS);
-        box.getChildren().addAll(header, agentCardsBox);
+        box.getChildren().addAll(header, planModeCard(), agentCardsBox);
         return box;
+    }
+
+    /**
+     * Plan 模式总开关卡片：勾选后智能体装配注册 plan_* 工具与只读中间件（新会话/新任务生效），
+     * 工具条的规划轮勾选不再产生计划文件。AppSetting 键 agent.planMode.enabled，缺省开启。
+     */
+    private Node planModeCard() {
+        ToggleSwitch toggle = new ToggleSwitch();
+        toggle.setSelected(!"false".equalsIgnoreCase(database.settingDao()
+                .getValue("agent.planMode.enabled").orElse("")));
+        toggle.selectedProperty().addListener((obs, was, sel) ->
+                database.settingDao().upsert("agent.planMode.enabled", String.valueOf(sel),
+                        "Plan 模式总开关（规划轮工具与只读中间件）"));
+        return SettingsLayout.groupCard(I18n.t("settings.agent.plan.group"), List.of(
+                SettingsLayout.settingRow(I18n.t("settings.agent.plan.label"),
+                        I18n.t("settings.agent.plan.desc"), toggle)));
     }
 
     /** 依据库中数据重绘智能体信息卡片（宿主整表刷新时调用）。 */

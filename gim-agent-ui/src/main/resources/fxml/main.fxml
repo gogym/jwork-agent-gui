@@ -139,6 +139,23 @@
                             <Button fx:id="modelBannerAction" styleClass="model-banner-action"
                                     onAction="#handleBannerConfigureModel"/>
                         </HBox>
+                        <!-- 规划轮跑完后的「计划待确认」横幅：PLAN.md 预览 + 编辑/确认执行 -->
+                        <VBox fx:id="planBanner" styleClass="plan-banner" spacing="6"
+                              visible="false" managed="false">
+                            <HBox styleClass="plan-banner-head" alignment="CENTER_LEFT">
+                                <Label styleClass="plan-banner-icon" text="&#xE9D5;"/>
+                                <Label fx:id="planBannerTitle" styleClass="plan-banner-title"
+                                       maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+                                <Button fx:id="planEditButton" styleClass="link-btn" onAction="#handlePlanEdit"/>
+                                <Button fx:id="planConfirmButton" styleClass="btn-primary" onAction="#handlePlanConfirm"/>
+                            </HBox>
+                            <ScrollPane fx:id="planPreviewScroll" styleClass="plan-preview"
+                                        fitToWidth="true" hbarPolicy="NEVER" maxHeight="240.0" prefHeight="160.0">
+                                <content>
+                                    <VBox fx:id="planPreview" styleClass="messages"/>
+                                </content>
+                            </ScrollPane>
+                        </VBox>
                     </VBox>
                 </top>
                 <center>
@@ -173,12 +190,11 @@
                                                     <Label styleClass="icon" text="&#xE73A;"/>
                                                 </graphic>
                                             </Button>
+                                            <Button fx:id="micButton" styleClass="attach-button"/>
                                             <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
-                                            <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
-                                            <Label fx:id="usageBar" styleClass="usage-bar" managed="false" visible="false"/>
-                                            <ProgressBar fx:id="contextGauge" styleClass="context-gauge" prefWidth="72.0" maxWidth="72.0" progress="0.0" managed="false" visible="false"/>
-                                            <Label fx:id="contextBar" styleClass="context-bar" managed="false" visible="false"/>
                                             <Region HBox.hgrow="ALWAYS"/>
+                                            <ProgressBar fx:id="contextGauge" styleClass="context-gauge" prefWidth="40.0" maxWidth="40.0" progress="0.0" managed="false" visible="false"/>
+                                            <Label fx:id="contextBar" styleClass="context-bar" managed="false" visible="false"/>
                                             <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
                                             <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSendOrStop">
                                                 <graphic>
@@ -187,6 +203,11 @@
                                             </Button>
                                         </HBox>
                                     </VBox>
+                                    <!-- 卡片下方（非卡内）左下元信息行：隐私提示 + 本轮用量 -->
+                                    <HBox styleClass="input-meta">
+                                        <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
+                                        <Label fx:id="usageBar" styleClass="usage-bar" managed="false" visible="false"/>
+                                    </HBox>
                                 </VBox>
                             </VBox>
                         </items>

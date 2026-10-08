@@ -1,0 +1,139 @@
+package com.gettyio.gim.agent.core.knowledge;
+
+import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.persist.SqliteConnectionProvider;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+
+import java.nio.file.Path;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+/**
+ * {@link EmbeddingIndexService} 与 {@link TextChunker} 单测：假嵌入客户端按词根生成可复现向量，
+ * 真实 SQLite 落库验整文档替换、余弦检索与未配置无害跳过。
+ */
+class EmbeddingIndexServiceTest {
+
+    /** 确定性假嵌入：按词根哈希置 1 的 64 维稀疏向量，含同词根的文本相似度高。 */
+    private static final class FakeClient implements EmbeddingClient {
+        @Override
+        public float[][] embedAll(List<String> texts) {
+            float[][] out = new float[texts.size()][];
+            for (int i = 0; i < texts.size(); i++) {
+                out[i] = vector(texts.get(i));
+            }
+            return out;
+        }
+
+        private static float[] vector(String text) {
+            float[] v = new float[64];
+            for (String token : text.toLowerCase().split("[^a-z0-9]+")) {
+                if (token.isEmpty()) {
+                    continue;
+                }
+                v[Math.abs(token.hashCode()) % 64] = 1;
+            }
+            return v;
+        }
+    }
+
+    @TempDir
+    Path tempDir;
+
+    private GimDatabase db;
+    private EmbeddingIndexService indexer;
+
+    @BeforeEach
+    void setUp() {
+        db = new GimDatabase(new SqliteConnectionProvider(tempDir.resolve("gim.db")));
+        db.initSchema();
+        indexer = new EmbeddingIndexService(db, FakeClient::new);
+    }
+
+    @Test
+    @DisplayName("索引文档：分块落库，文档数/块数计数一致")
+    void indexDocumentStoresChunks() {
+        String text = ("机器学习是人工智能的一个分支。").repeat(100);
+        int chunks = indexer.indexDocument("agent-a", "ml.md", text);
+
+        assertTrue(chunks > 1, "长文本应产生多个块");
+        assertEquals(1, indexer.docCount("agent-a"));
+        assertEquals(chunks, indexer.chunkCount("agent-a"));
+    }
+
+    @Test
+    @DisplayName("重复索引同文档：整文档替换不叠加")
+    void reindexReplaces() {
+        String text = "第一段内容。" + ("后续段落内容若干。").repeat(40);
+        int first = indexer.indexDocument("agent-a", "doc.md", text);
+        int second = indexer.indexDocument("agent-a", "doc.md", text);
+
+        assertEquals(first, second);
+        assertEquals(first, indexer.chunkCount("agent-a"));
+    }
+
+    @Test
+    @DisplayName("检索：查询词命中对应文档块，相关度降序")
+    void searchReturnsRelevantHits() {
+        // 英文词根与假嵌入分词口径一致：query 与 java.md 共享 threadpool/concurrency 两个词根
+        indexer.indexDocument("agent-a", "java.md", "concurrency threadpool virtualthreads");
+        indexer.indexDocument("agent-a", "cook.md", "cooking pork sugar sauce");
+
+        List<EmbeddingIndexService.SearchHit> hits = indexer.search("agent-a", "threadpool concurrency", 5);
+
+        assertTrue(!hits.isEmpty());
+        assertEquals("java.md", hits.get(0).docName());
+        double top = hits.get(0).score();
+        assertTrue(hits.stream().allMatch(h -> h.score() <= top));
+    }
+
+    @Test
+    @DisplayName("删除文档/智能体联动清块")
+    void removeClearsChunks() {
+        indexer.indexDocument("agent-a", "a.md", "内容若干。");
+        indexer.indexDocument("agent-b", "b.md", "另一些内容。");
+
+        indexer.removeDocument("agent-a", "a.md");
+        assertEquals(0, indexer.chunkCount("agent-a"));
+        assertEquals(1, indexer.chunkCount("agent-b"));
+
+        indexer.removeAgent("agent-b");
+        assertEquals(0, indexer.chunkCount("agent-b"));
+    }
+
+    @Test
+    @DisplayName("未配置 embedding：索引返回 -1、检索为空，均不抛异常")
+    void unconfiguredDegradesGracefully() {
+        EmbeddingIndexService plain = new EmbeddingIndexService(db, () -> null);
+
+        assertEquals(-1, plain.indexDocument("agent-a", "a.md", "内容"));
+        assertTrue(plain.search("agent-a", "任意", 5).isEmpty());
+        assertTrue(!plain.isConfigured());
+    }
+
+    @Test
+    @DisplayName("分块器：单块上限、跨块重叠、短文本单块")
+    void chunkerBasics() {
+        List<String> single = TextChunker.chunk("短文本一。");
+        assertEquals(1, single.size());
+
+        String longText = "段落甲。".repeat(300) + "\n\n" + "段落乙。".repeat(300);
+        List<String> chunks = TextChunker.chunk(longText);
+        assertTrue(chunks.size() >= 2);
+        for (String c : chunks) {
+            assertTrue(c.length() <= 1200, "块长不超上限");
+        }
+        // 相邻块存在重叠：后块以前块尾部（overlap 150 字符）开头
+        String prev = chunks.get(chunks.size() - 3);
+        String next = chunks.get(chunks.size() - 2);
+        if (prev.length() > 150) {
+            assertTrue(next.startsWith(prev.substring(prev.length() - 150)), "后块应以前块尾部重叠开头");
+        }
+    }
+}

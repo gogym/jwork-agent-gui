@@ -21,6 +21,8 @@ public final class Launcher {
     public static void main(String[] args) {
         // 先于 logback 初始化设定文件日志目录，保证打包后日志一律落 ~/.jwork/logs/
         System.setProperty("gim.log.dir", new GimPaths().logsDir().toString());
+        // 挂接启动画面：Spring 容器引导与主窗加载期间展示（主窗就绪后自动隐藏）
+        System.setProperty("javafx.preloader", SplashPreloader.class.getName());
         Logger log = LoggerFactory.getLogger(Launcher.class);
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
                 log.error("未捕获异常 on thread {}", thread.getName(), throwable));

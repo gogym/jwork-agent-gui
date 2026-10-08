@@ -66,6 +66,34 @@ public class ChatConversationDao {
                 ChatConversationDao::map, sessionId);
     }
 
+    /**
+     * 会话内最新 {@code limit} 条消息（游标分页首页），返回按 id 升序。
+     * <p>游标用自增主键 {@code id} 而非 {@code created_at}：二者同序，但 created_at 是变长
+     * 字符串且同秒可重复，字符串比较会误判边界，id 严格递增且唯一。</p>
+     */
+    public List<ChatConversation> findRecentBySession(String sessionId, int limit) {
+        if (sessionId == null || limit <= 0) {
+            return List.of();
+        }
+        List<ChatConversation> desc = runner.query(
+                "SELECT " + COLUMNS + " FROM conversations WHERE session_id=? ORDER BY id DESC LIMIT ?",
+                ChatConversationDao::map, sessionId, limit);
+        java.util.Collections.reverse(desc);
+        return desc;
+    }
+
+    /** 会话内 {@code beforeId} 之前的更早一页（游标分页），返回按 id 升序；首尾参非法返回空。 */
+    public List<ChatConversation> findPageBefore(String sessionId, long beforeId, int limit) {
+        if (sessionId == null || limit <= 0 || beforeId <= 0) {
+            return List.of();
+        }
+        List<ChatConversation> desc = runner.query(
+                "SELECT " + COLUMNS + " FROM conversations WHERE session_id=? AND id<? ORDER BY id DESC LIMIT ?",
+                ChatConversationDao::map, sessionId, beforeId, limit);
+        java.util.Collections.reverse(desc);
+        return desc;
+    }
+
     /** 多个会话的全部消息，按会话与插入序排列（会话导出用，一次取齐避免 N+1）。 */
     public List<ChatConversation> findBySessions(Collection<String> sessionIds) {
         if (sessionIds == null || sessionIds.isEmpty()) {

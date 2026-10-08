@@ -37,6 +37,9 @@ public class SecurityAdminService {
     private static final String KEY_PATH_ROOTS = "security.path.roots";
     private static final String KEY_WEB_PROVIDER = "web.search.provider";
     private static final String KEY_WEB_APIKEY = "web.search.apiKey";
+    private static final String KEY_KB_BASEURL = "knowledge.embedding.baseUrl";
+    private static final String KEY_KB_MODEL = "knowledge.embedding.model";
+    private static final String KEY_KB_APIKEY = "knowledge.embedding.apiKey";
 
     /** 联网搜索提供方默认值（当前仅内置 Tavily）。 */
     public static final String WEB_PROVIDER_TAVILY = "tavily";
@@ -255,6 +258,48 @@ public class SecurityAdminService {
     /** 是否已配置可用的联网搜索 Key。 */
     public boolean isWebSearchConfigured() {
         return !getWebSearchApiKeyPlain().isEmpty();
+    }
+
+    // ===================== 向量知识库 embedding 提供方 =====================
+
+    /** embedding 服务协议根（OpenAI 兼容 /embeddings；未配置返回空串）。 */
+    public String getKnowledgeEmbeddingBaseUrl() {
+        return db.settingDao().getValue(KEY_KB_BASEURL).orElse("").trim();
+    }
+
+    public void setKnowledgeEmbeddingBaseUrl(String url) {
+        db.settingDao().upsert(KEY_KB_BASEURL, url == null ? "" : url.trim(), "向量知识库 embedding 服务地址");
+    }
+
+    /** embedding 模型编码（如 text-embedding-v4 / text-embedding-3-small）。 */
+    public String getKnowledgeEmbeddingModel() {
+        return db.settingDao().getValue(KEY_KB_MODEL).orElse("").trim();
+    }
+
+    public void setKnowledgeEmbeddingModel(String model) {
+        db.settingDao().upsert(KEY_KB_MODEL, model == null ? "" : model.trim(), "向量知识库 embedding 模型");
+    }
+
+    /** 读取明文 embedding API Key（密文存储，取出即解密）；未配置或解密失败返回空串。 */
+    public String getKnowledgeEmbeddingKeyPlain() {
+        String stored = db.settingDao().getValue(KEY_KB_APIKEY).orElse("").trim();
+        if (stored.isEmpty()) {
+            return "";
+        }
+        try {
+            return cipher.canHandle(stored) ? cipher.decrypt(stored) : stored;
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
+
+    /** 保存 embedding API Key（加密入库）；空白即清除已存 Key。 */
+    public void setKnowledgeEmbeddingKey(String plain) {
+        if (plain == null || plain.isBlank()) {
+            db.settingDao().upsert(KEY_KB_APIKEY, "", "向量知识库 embedding API Key（密文）");
+            return;
+        }
+        db.settingDao().upsert(KEY_KB_APIKEY, cipher.encrypt(plain.trim()), "向量知识库 embedding API Key（密文）");
     }
 
     // ===================== 「总是允许」授权规则 =====================

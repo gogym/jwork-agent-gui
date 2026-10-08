@@ -15,8 +15,6 @@ import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
-import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
-import com.gettyio.gim.agent.domain.entity.PromptTemplate;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.ui.UiTheme;
@@ -76,7 +74,6 @@ import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
-import javafx.geometry.Pos;
 import javafx.geometry.Side;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
@@ -211,6 +208,17 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private Label modelBannerText;
     @FXML
     private Button modelBannerAction;
+    /** 规划轮跑完后的「计划待确认」横幅：PLAN.md 预览 + 编辑/确认执行（显隐由 reviewPlan/确认驱动） */
+    @FXML
+    private VBox planBanner;
+    @FXML
+    private Label planBannerTitle;
+    @FXML
+    private Button planEditButton;
+    @FXML
+    private Button planConfirmButton;
+    @FXML
+    private VBox planPreview;
     @FXML
     private SplitPane chatSplit;
     @FXML
@@ -221,6 +229,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private Button attachButton;
     @FXML
     private Button templateButton;
+    @FXML
+    private Button micButton;
     @FXML
     private Button modelButton;
     @FXML
@@ -250,6 +260,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     /** 协作类：底栏状态条（本轮用量 + 上下文占用），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.ChatStatusBar statusBar;
+
+    /** 协作类：底部终端抽屉（展开/收起、进程与历史保留），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.TerminalDrawer terminalDrawer;
 
     @Autowired
     private ChatService chatService;
@@ -296,6 +309,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @Autowired
     private com.gettyio.gim.agent.ui.throttle.ModelRateGovernor rateGovernor;
 
+    @Autowired
+    private com.gettyio.gim.agent.ui.notify.SystemNotifier systemNotifier;
+
+    @Autowired
+    private com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
+
     /** 读应用级设置（上下文 token 上限）；仅取 settingDao 的只读用途 */
     @Autowired
     private com.gettyio.gim.agent.domain.GimDatabase database;
@@ -311,6 +330,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private String streamingSessionId;
     /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
     private ContextMenu templateMenu;
+    /** 横幅当前展示的计划归属智能体（编辑/确认时定位 PLAN.md） */
+    private String planBannerAgent;
 
     @FXML
     private void initialize() {
@@ -319,10 +340,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         applySidebarClip();
         applySidebarMarginClip();
         messageRenderer = new com.gettyio.gim.agent.ui.chat.MessageListRenderer(scrollPane, messagesContainer, this);
+        // 滚动到顶向上补页（长会话历史分页）
+        messageRenderer.setOnTopReached(this::loadOlderMessages);
         attachmentBar = new com.gettyio.gim.agent.ui.chat.AttachmentBar(
                 attachChipsBox, inputField, attachButton, gimPaths, this);
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
-                themeMenuButton, modelButton, approvalButton, providerAdminService, securityAdminService, this);
+                themeMenuButton, modelButton, approvalButton, templateButton, inputField,
+                providerAdminService, securityAdminService, promptTemplateAdminService, this);
         sidebar = new com.gettyio.gim.agent.ui.chat.SessionSidebar(
                 sessionsBox, sessionsHeader, recentHeader, recentBox, recentSectionCaret,
                 sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
@@ -342,6 +366,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         });
         // 输入变化即时刷新上下文占用条（预估下一轮的提示词体量）
         inputField.textProperty().addListener((obs, o, nv) -> statusBar.updateContext());
+        // 按住说话：松开后转写文本插入输入框（QuickAsk 小窗同一套安装逻辑）
+        com.gettyio.gim.agent.ui.voice.MicHoldButton.install(micButton, voiceInputService,
+                this::insertVoiceText,
+                () -> GimDialog.message(ownerWindow(), I18n.t("voice.title"), null, I18n.t("voice.notConfigured")),
+                (title, msg) -> GimDialog.message(ownerWindow(), title, null, msg));
 
         // 侧栏导航切换主区页面（对话 / 定时任务 / 技能）
         mainPages.getChildren().setAll(chatPage);
@@ -382,7 +411,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         sidebarToggle.restore();
 
         // 底部终端抽屉：shell 进程退出时由视图回调宿主收起（进程与历史保留）
-        terminalView.setOnCloseRequest(this::hideTerminal);
+        terminalDrawer = new com.gettyio.gim.agent.ui.chat.TerminalDrawer(chatSplit, terminalView);
+        terminalView.setOnCloseRequest(terminalDrawer::hide);
 
         applyI18n();
         toolbar.buildThemeMenu();
@@ -477,6 +507,15 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         if (modelBannerAction != null) {
             modelBannerAction.setText(I18n.t("chat.banner.configure"));
+        }
+        if (planBannerTitle != null) {
+            planBannerTitle.setText(I18n.t("plan.banner.title"));
+        }
+        if (planEditButton != null) {
+            planEditButton.setText(I18n.t("common.edit"));
+        }
+        if (planConfirmButton != null) {
+            planConfirmButton.setText(I18n.t("plan.banner.confirm"));
         }
         refreshModelBanner();
     }
@@ -740,44 +779,68 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                             if (planTurn) {
                                 reviewPlan(agentOfSession(sessionId));
                             }
+                            // 每轮收尾后查一次月度预算，超限当日提醒一次
+                            checkMonthlyBudget();
                         })
                 );
     }
 
     /**
-     * 展示规划轮产出的 {@code plans/PLAN.md}：只读预览不够，用户可直接改后保存；
-     * 保存写回同一文件，下一轮取消勾选规划模式即按此计划执行。
+     * 月度预算告警：流完成后在后台线程聚合当月估算费用，超限则托盘/弹窗提醒；
+     * 去重（当日一次）与预算解析都在 {@link com.gettyio.gim.agent.ui.throttle.ModelRateGovernor}。
+     */
+    private void checkMonthlyBudget() {
+        Schedulers.boundedElastic().schedule(() ->
+                rateGovernor.budgetWarningIfExceeded()
+                        .ifPresent(msg -> systemNotifier.notifyBudget(msg)));
+    }
+
+    /**
+     * 规划轮跑完：顶部展示「计划待确认」横幅（PLAN.md 预览 + 编辑/确认执行），替代旧弹窗入口。
      */
     private void reviewPlan(String agentCode) {
-        if (planService == null || !planService.exists(agentCode)) {
+        if (planBanner == null) {
+            com.gettyio.gim.agent.ui.window.PlanReviewDialog.show(ownerWindow(), planService, agentCode);
             return;
         }
-        GimDialog.Shell shell = GimDialog.shell(ownerWindow(), I18n.t("plan.review.title"));
-        Label hint = new Label(I18n.t("plan.review.hint"));
-        hint.getStyleClass().add("dialog-message");
-        hint.setWrapText(true);
-        hint.setMaxWidth(640);
-        TextArea area = new TextArea(planService.read(agentCode));
-        area.setWrapText(true);
-        area.getStyleClass().add("memory-area");
-        area.setPrefColumnCount(72);
-        area.setPrefRowCount(20);
-        area.setMaxWidth(Double.MAX_VALUE);
-        Button cancel = new Button(I18n.t("common.cancel"));
-        cancel.setMinWidth(76);
-        cancel.setOnAction(e -> shell.stage().close());
-        Button save = new Button(I18n.t("plan.review.save"));
-        save.getStyleClass().add("btn-primary");
-        save.setMinWidth(76);
-        save.setOnAction(e -> {
-            planService.write(agentCode, area.getText());
-            shell.stage().close();
-        });
-        HBox actions = new HBox(8, cancel, save);
-        actions.getStyleClass().add("dialog-actions");
-        actions.setAlignment(Pos.CENTER_RIGHT);
-        shell.body().getChildren().addAll(hint, area, actions);
-        shell.showAndWait();
+        planBannerAgent = agentCode;
+        renderPlanPreview();
+        planBanner.setVisible(true);
+        planBanner.setManaged(true);
+    }
+
+    /** 重渲染横幅内的计划预览（首次展示与编辑保存后复用）。 */
+    private void renderPlanPreview() {
+        planPreview.getChildren()
+                .setAll(com.gettyio.gim.agent.ui.chat.MarkdownRenderer.render(planService.read(planBannerAgent)));
+    }
+
+    /** 横幅「编辑」：弹出可编辑面板写回 PLAN.md，返回后就地刷新预览。 */
+    @FXML
+    public void handlePlanEdit() {
+        if (planBannerAgent == null) {
+            return;
+        }
+        com.gettyio.gim.agent.ui.window.PlanReviewDialog.show(ownerWindow(), planService, planBannerAgent);
+        renderPlanPreview();
+    }
+
+    /** 横幅「确认执行」：收横幅、关工具条规划开关，自动发送「按计划继续执行」续聊。 */
+    @FXML
+    public void handlePlanConfirm() {
+        hidePlanBanner();
+        toolbar.setPlanModeRequested(false);
+        inputField.setText(I18n.t("plan.banner.continue"));
+        handleSend();
+    }
+
+    /** 收起计划确认横幅并清空归属记录（确认/切换会话/新任务共用）。 */
+    private void hidePlanBanner() {
+        if (planBanner != null) {
+            planBanner.setVisible(false);
+            planBanner.setManaged(false);
+        }
+        planBannerAgent = null;
     }
 
     /** 发送按钮的停止态入口：在途流存在则停止，否则正常发送（FXML 绑此方法）。 */
@@ -842,39 +905,111 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     private void switchToSession(String sessionId) {
         currentSessionId = sessionId;
+        hidePlanBanner();
         renderSessionMessages(sessionId);
         // 高亮当前会话行
         sidebar.renderSessions();
         updateHeaderTitle();
     }
 
-    /** 从库重放当前会话的消息：逐条按角色上屏，携带主键以供删除/编辑/重生成。 */
+    /** 已加载的最旧历史主键（游标）；0 表示无可补页 */
+    private long oldestLoadedId;
+    /** 还有更早历史未加载 */
+    private boolean hasMoreOlder;
+    /** 向上补页进行中（防抖） */
+    private boolean loadingOlder;
+
+    /**
+     * 从库重放当前会话的消息：只拉最新一页（{@link ChatService#HISTORY_PAGE_SIZE}）避免长会话全量上屏，
+     * 滚动到顶再向上补页；逐条按角色上屏，携带主键以供删除/编辑/重生成/分支。
+     */
     private void renderSessionMessages(String sessionId) {
+        // 先复位分页态：clear 会把 vvalue 拉回 0，不能让旧会话的补页态误触发
+        hasMoreOlder = false;
+        loadingOlder = false;
+        oldestLoadedId = 0;
         messageRenderer.clear();
         if (sessionId == null) {
             return;
         }
-        List<ChatConversation> history = chatService.history(sessionId);
+        List<ChatConversation> history = chatService.recentHistory(sessionId, ChatService.HISTORY_PAGE_SIZE);
         for (ChatConversation c : history) {
-            boolean self = ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole());
-            String content = c.getContent() == null ? "" : c.getContent();
-            long id = c.getId() == null ? 0L : c.getId();
-            MessageMetadataCodec.MessageMetadata meta = MessageMetadataCodec.read(c.getMetadata());
-            if (self) {
-                List<StoredAttachment> atts = meta.attachments();
-                List<StoredAttachment> imgs = atts.stream().filter(a -> !a.isFile()).toList();
-                List<StoredAttachment> files = atts.stream().filter(a -> a.isFile()).toList();
-                messageRenderer.appendUserBubble(content, attachmentBar.thumbsFromStored(imgs),
-                        attachmentBar.buildFileRows(files), id);
-            } else {
-                if (meta.interrupted() && !content.isEmpty()) {
-                    content = content + "\n" + I18n.t("chat.interrupted");
-                }
-                messageRenderer.appendAssistantMarkdown(content, id, c.getToolCalls());
-            }
+            renderMessage(c, false);
+        }
+        hasMoreOlder = history.size() >= ChatService.HISTORY_PAGE_SIZE;
+        if (!history.isEmpty() && history.get(0).getId() != null) {
+            oldestLoadedId = history.get(0).getId();
         }
         statusBar.updateUsageFromSession(sessionId);
         statusBar.updateContext();
+    }
+
+    /** 渲染单条历史消息；{@code prepend=true} 插到列表头（向上补页，不触发 promote 与滚动）。 */
+    private void renderMessage(ChatConversation c, boolean prepend) {
+        boolean self = ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole());
+        String content = c.getContent() == null ? "" : c.getContent();
+        long id = c.getId() == null ? 0L : c.getId();
+        MessageMetadataCodec.MessageMetadata meta = MessageMetadataCodec.read(c.getMetadata());
+        if (self) {
+            List<StoredAttachment> atts = meta.attachments();
+            List<StoredAttachment> imgs = atts.stream().filter(a -> !a.isFile()).toList();
+            List<StoredAttachment> files = atts.stream().filter(a -> a.isFile()).toList();
+            if (prepend) {
+                messageRenderer.prependUserBubble(content, attachmentBar.thumbsFromStored(imgs),
+                        attachmentBar.buildFileRows(files), id);
+            } else {
+                messageRenderer.appendUserBubble(content, attachmentBar.thumbsFromStored(imgs),
+                        attachmentBar.buildFileRows(files), id);
+            }
+        } else {
+            if (meta.interrupted() && !content.isEmpty()) {
+                content = content + "\n" + I18n.t("chat.interrupted");
+            }
+            if (prepend) {
+                messageRenderer.prependAssistantMarkdown(content, id, c.getToolCalls());
+            } else {
+                messageRenderer.appendAssistantMarkdown(content, id, c.getToolCalls());
+            }
+        }
+    }
+
+    /**
+     * 滚动到顶补页：拉取游标之前的一页历史倒序插到头部，并按新增高度补偿滚动偏移，
+     * 保持当前阅读位置不跳动。补满一整页才认为可能还有更早（与首页同口径）。
+     */
+    private void loadOlderMessages() {
+        if (loadingOlder || !hasMoreOlder || activeStream != null) {
+            return;
+        }
+        String sid = currentSessionId;
+        if (sid == null || oldestLoadedId <= 0) {
+            return;
+        }
+        loadingOlder = true;
+        List<ChatConversation> older = chatService.historyBefore(sid, oldestLoadedId, ChatService.HISTORY_PAGE_SIZE);
+        hasMoreOlder = older.size() >= ChatService.HISTORY_PAGE_SIZE;
+        if (older.isEmpty()) {
+            loadingOlder = false;
+            return;
+        }
+        scrollPane.layout();
+        double contentH = messagesContainer.getHeight();
+        double viewH = scrollPane.getViewportBounds().getHeight();
+        double offset = scrollPane.getVvalue() * Math.max(0, contentH - viewH);
+        // older 升序（旧→新）：倒序逐条 add(0)，最旧的最后插入即仍在最顶
+        for (int i = older.size() - 1; i >= 0; i--) {
+            renderMessage(older.get(i), true);
+        }
+        if (older.get(0).getId() != null) {
+            oldestLoadedId = older.get(0).getId();
+        }
+        javafx.application.Platform.runLater(() -> {
+            scrollPane.layout();
+            double newContentH = messagesContainer.getHeight();
+            double denom = Math.max(1, newContentH - viewH);
+            scrollPane.setVvalue(Math.min(1.0, Math.max(0.0, (offset + (newContentH - contentH)) / denom)));
+            loadingOlder = false;
+        });
     }
 
     // ===================== 消息气泡操作：复制 / 重生成 / 编辑重发 / 删除 =====================
@@ -948,6 +1083,31 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         refreshSessions();
     }
 
+    @Override
+    public void onFork(long conversationId) {
+        if (activeStream != null || conversationId <= 0) {
+            return;
+        }
+        String sid = currentSessionId;
+        if (sid == null) {
+            return;
+        }
+        // 流式中不分支：新会话复制不到正在生成的尾巴，反而让用户误以为已在原会话续聊
+        if (!GimDialog.confirm(ownerWindow(), I18n.t("chat.msg.fork"), I18n.t("chat.msg.forkConfirm"))) {
+            return;
+        }
+        String newId = chatService.forkSession(sid, conversationId);
+        refreshSessions();
+        openSessionById(newId);
+    }
+
+    /** 把语音识别文本插入输入框光标处（留一个空格便于续写），并抢回焦点。 */
+    private void insertVoiceText(String text) {
+        int at = Math.max(0, inputField.getCaretPosition());
+        inputField.insertText(at, text + " ");
+        inputField.requestFocus();
+    }
+
     /** 以工具条当前模型/审批档构造一条纯文本请求（重生成/编辑重发复用，不带图片附件）。 */
     private ChatRequest buildRequest(String sessionId, String text) {
         return ChatRequest.builder()
@@ -981,6 +1141,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @Override
     public void showBlankConversation() {
         currentSessionId = null;
+        hidePlanBanner();
         messageRenderer.clear();
         updateHeaderTitle();
     }
@@ -1015,33 +1176,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 右上角终端按钮：在底部展开/收起终端抽屉（收起只摘除节点、进程与历史保留）。 */
     @FXML
     private void handleToggleTerminal() {
-        if (terminalVisible()) {
-            hideTerminal();
-        } else {
-            showTerminal();
-        }
-    }
-
-    /** 终端抽屉是否已在 SplitPane 中展开（除消息区外还有第二个可拖拽项）。 */
-    private boolean terminalVisible() {
-        return chatSplit != null && chatSplit.getItems().size() > 1;
-    }
-
-    private void showTerminal() {
-        if (chatSplit == null) {
-            return;
-        }
-        if (!terminalVisible()) {
-            chatSplit.getItems().add(terminalView.getNode());
-        }
-        terminalView.ensureStarted();
-        chatSplit.setDividerPositions(0.68);
-    }
-
-    private void hideTerminal() {
-        if (chatSplit != null && terminalVisible()) {
-            chatSplit.getItems().remove(terminalView.getNode());
-        }
+        terminalDrawer.toggle();
     }
 
     // ===================== 侧栏顶部：智能体切换卡 =====================
@@ -1174,36 +1309,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         toolbar.showApprovalMenu();
     }
 
-    /**
-     * 点模板按钮：弹出启用中的提示词模板，选中把内容插入输入框光标处（不发送、不覆盖已有文本）。
-     * <p>无启用模板时仅显示一条禁用提示项。</p>
-     */
+    /** 点模板按钮：委托工具条模板菜单（实现见 {@code ToolbarPickers}）。 */
     @FXML
     public void showTemplateMenu() {
-        if (templateMenu == null) {
-            templateMenu = new ContextMenu();
-        } else {
-            templateMenu.getItems().clear();
-        }
-        List<PromptTemplate> templates = promptTemplateAdminService.listEnabled();
-        if (templates.isEmpty()) {
-            MenuItem empty = new MenuItem(I18n.t("chat.template.empty"));
-            empty.setDisable(true);
-            templateMenu.getItems().add(empty);
-        } else {
-            for (PromptTemplate t : templates) {
-                String name = t.getTemplateName() == null || t.getTemplateName().isBlank()
-                        ? t.getTemplateCode() : t.getTemplateName();
-                MenuItem item = new MenuItem(name, UiTheme.icon("\uE73A"));
-                String content = t.getContent() == null ? "" : t.getContent();
-                item.setOnAction(e -> {
-                    inputField.insertText(inputField.getCaretPosition(), content);
-                    inputField.requestFocus();
-                    inputField.positionCaret(inputField.getCaretPosition() + content.length());
-                });
-                templateMenu.getItems().add(item);
-            }
-        }
-        templateMenu.show(templateButton, javafx.geometry.Side.TOP, 0, 0);
+        toolbar.showTemplateMenu();
     }
 }

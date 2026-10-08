@@ -42,7 +42,7 @@ import java.util.Map;
 /**
  * 设置窗口：左侧分类菜单（含搜索）+ 右侧内容页（对标 Qoder 设置风格）。
  * <p>分页：个人资料 / 外观（主题·字体·语言，接入 {@link UiTheme}/{@link I18n}）/
- * 记忆（只读查看 workspace/MEMORY.md）/ 通用（数据与路径）/ 智能体 /
+ * 记忆（只读查看 workspace/MEMORY.md）/ 通用（数据与路径）/ 更新（检查·下载·安装）/ 智能体 /
  * 模型提供商 / 模型 / 默认模型 / 技能 / MCP 服务 / 安全（工具防护·文件防护·授权管理）。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
  * 外观页改动即时生效；语言切换时整窗重建以刷新全部文案。</p>
  * <p>本类为薄编排层：仅负责整窗骨架（菜单/页面容器/语言重建）与各设置页子面板的装配及整表刷新驱动，
@@ -68,6 +68,16 @@ public class SettingsWindow {
 
     @Autowired
     private DbBackupService dbBackupService;
+
+    /** 读应用级设置（月度用量预算键）；仅取 settingDao 用途 */
+    @Autowired
+    private com.gettyio.gim.agent.domain.GimDatabase database;
+
+    @Autowired
+    private com.gettyio.gim.agent.ui.sync.WebDavSyncService webDavSyncService;
+
+    @Autowired
+    private com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
 
     @Autowired
     private ExportService exportService;
@@ -106,9 +116,19 @@ public class SettingsWindow {
 
     private ProfileSettingsPanel profilePanel() {
         if (profilePanel == null) {
-            profilePanel = new ProfileSettingsPanel(this, gimPaths, updateChecker);
+            profilePanel = new ProfileSettingsPanel(gimPaths, updateChecker);
         }
         return profilePanel;
+    }
+
+    /** 更新子面板（独立菜单页）：懒加载单例，语言切换重建时复用同一实例。 */
+    private UpdateSettingsPanel updatePanel;
+
+    private UpdateSettingsPanel updatePanel() {
+        if (updatePanel == null) {
+            updatePanel = new UpdateSettingsPanel(this, updateChecker);
+        }
+        return updatePanel;
     }
 
     /** 外观子面板（抽自本类）：懒加载单例，无内部状态。 */
@@ -127,7 +147,7 @@ public class SettingsWindow {
     private GeneralSettingsPanel generalPanel() {
         if (generalPanel == null) {
             generalPanel = new GeneralSettingsPanel(this, gimPaths, appLifecycle, globalHotkeyService,
-                    dbBackupService, exportService);
+                    dbBackupService, exportService, database, webDavSyncService, voiceInputService);
         }
         return generalPanel;
     }
@@ -147,7 +167,7 @@ public class SettingsWindow {
 
     private AgentSettingsPanel agentPanel() {
         if (agentPanel == null) {
-            agentPanel = new AgentSettingsPanel(this, agentAdminService);
+            agentPanel = new AgentSettingsPanel(this, agentAdminService, database);
         }
         return agentPanel;
     }
@@ -315,6 +335,7 @@ public class SettingsWindow {
         addMenu(personal, "\uE790", I18n.t("settings.menu.appearance"), buildAppearancePage());
         addMenu(personal, "\uE7C3", I18n.t("settings.menu.memory"), buildMemoryPage());
         addMenu(personal, "\uE713", I18n.t("settings.menu.general"), buildGeneralPage());
+        addMenu(personal, "\uE777", I18n.t("settings.menu.update"), buildUpdatePage());
 
         Label model = addSection(I18n.t("settings.section.model"));
         addMenu(model, "\uE99A", I18n.t("settings.menu.agents"), buildAgentPage());
@@ -401,6 +422,10 @@ public class SettingsWindow {
 
     private VBox buildGeneralPage() {
         return generalPanel().build();
+    }
+
+    private VBox buildUpdatePage() {
+        return updatePanel().build();
     }
 
     private VBox buildMemoryPage() {

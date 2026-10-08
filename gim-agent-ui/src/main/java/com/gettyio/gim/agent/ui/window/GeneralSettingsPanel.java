@@ -1,18 +1,23 @@
 package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService;
 import com.gettyio.gim.agent.ui.export.ExportService;
+import com.gettyio.gim.agent.ui.sync.WebDavSyncService;
+import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.PasswordField;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -41,19 +46,27 @@ final class GeneralSettingsPanel {
     private final GlobalHotkeyService globalHotkeyService;
     private final DbBackupService dbBackupService;
     private final ExportService exportService;
+    /** 读应用级设置（月度用量预算键）；仅取 settingDao 用途 */
+    private final GimDatabase database;
+    private final WebDavSyncService webDavSyncService;
+    private final VoiceInputService voiceInputService;
 
     /** 通用页「最近备份」值标签：备份完成后就地刷新。 */
     private final Label lastBackupValueLabel = new Label("-");
 
     GeneralSettingsPanel(SettingsWindow host, GimPaths gimPaths, AppLifecycle appLifecycle,
                          GlobalHotkeyService globalHotkeyService, DbBackupService dbBackupService,
-                         ExportService exportService) {
+                         ExportService exportService, GimDatabase database,
+                         WebDavSyncService webDavSyncService, VoiceInputService voiceInputService) {
         this.host = host;
         this.gimPaths = gimPaths;
         this.appLifecycle = appLifecycle;
         this.globalHotkeyService = globalHotkeyService;
         this.dbBackupService = dbBackupService;
         this.exportService = exportService;
+        this.database = database;
+        this.webDavSyncService = webDavSyncService;
+        this.voiceInputService = voiceInputService;
     }
 
     VBox build() {
@@ -71,6 +84,9 @@ final class GeneralSettingsPanel {
         box.getChildren().add(SettingsLayout.groupCard(I18n.t("settings.group.paths"), rows));
         box.getChildren().add(behaviorCard());
         box.getChildren().add(dataMaintenanceCard());
+        box.getChildren().add(budgetCard());
+        box.getChildren().add(webDavCard());
+        box.getChildren().add(voiceCard());
         refreshLastBackupRow();
         return box;
     }
@@ -126,6 +142,189 @@ final class GeneralSettingsPanel {
         hotkey.setSelected(globalHotkeyService.isEnabled());
         hotkey.selectedProperty().addListener((obs, o, sel) -> globalHotkeyService.setEnabled(sel));
         return hotkey;
+    }
+
+    /**
+     * 用量预算卡片：月预算上限（元），失焦/回车保存。空或 ≤0 表示不启用告警；
+     * 非法输入回滚并提示。超限提醒由 {@code ModelRateGovernor} 流完成后触发。
+     */
+    private VBox budgetCard() {
+        TextField budgetField = new TextField();
+        budgetField.setText(database.settingDao()
+                .getValue(com.gettyio.gim.agent.ui.throttle.ModelRateGovernor.KEY_MONTHLY_BUDGET).orElse(""));
+        budgetField.setPromptText(I18n.t("usage.budget.prompt"));
+        budgetField.setMaxWidth(160);
+        Runnable save = () -> saveMonthlyBudget(budgetField);
+        budgetField.setOnAction(e -> save.run());
+        budgetField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                save.run();
+            }
+        });
+        return SettingsLayout.groupCard(I18n.t("usage.budget.group"), List.of(
+                SettingsLayout.settingRow(I18n.t("usage.budget.label"),
+                        I18n.t("usage.budget.desc"), budgetField)));
+    }
+
+    /** 校验并保存月预算输入：空串清零（不启用）、非负数入库，非法值回滚并提示。 */
+    private void saveMonthlyBudget(TextField budgetField) {
+        String raw = budgetField.getText() == null ? "" : budgetField.getText().trim();
+        String toSave = raw;
+        if (!raw.isEmpty()) {
+            try {
+                double d = Double.parseDouble(raw);
+                if (d < 0) {
+                    throw new NumberFormatException();
+                }
+                toSave = String.valueOf(d);
+            } catch (NumberFormatException e) {
+                budgetField.setText(database.settingDao()
+                        .getValue(com.gettyio.gim.agent.ui.throttle.ModelRateGovernor.KEY_MONTHLY_BUDGET).orElse(""));
+                host.notify("usage.budget", I18n.t("usage.budget.invalid"));
+                return;
+            }
+        }
+        database.settingDao().upsert(
+                com.gettyio.gim.agent.ui.throttle.ModelRateGovernor.KEY_MONTHLY_BUDGET, toSave, "月度用量预算上限（元）");
+    }
+
+    /**
+     * WebDAV 云同步卡片：地址/账号/密码（SecretCipher 加密存 settings）、自动同步周期、
+     * 测试连接与立即同步。文本框失焦/回车即保存，避免额外确认步骤。
+     */
+    private VBox webDavCard() {
+        TextField urlField = new TextField(webDavSyncService.url());
+        urlField.setPromptText(I18n.t("settings.sync.url.prompt"));
+        urlField.setMaxWidth(360);
+        TextField userField = new TextField(webDavSyncService.username());
+        userField.setMaxWidth(200);
+        PasswordField pwdField = new PasswordField();
+        pwdField.setText(webDavSyncService.passwordPlain());
+        pwdField.setMaxWidth(200);
+
+        String[] intervalOpts = {I18n.t("settings.sync.interval.off"), I18n.t("settings.sync.interval.6h"),
+                I18n.t("settings.sync.interval.12h"), I18n.t("settings.sync.interval.24h")};
+        ComboBox<String> intervalCombo = SettingsLayout.pillCombo(intervalOpts);
+        intervalCombo.setValue(intervalOpts[intervalIndex(webDavSyncService.intervalHours())]);
+
+        Runnable save = () -> webDavSyncService.save(urlField.getText(), userField.getText(),
+                pwdField.getText(), intervalHours(intervalCombo.getSelectionModel().getSelectedIndex()));
+        intervalCombo.setOnAction(e -> save.run());
+        urlField.setOnAction(e -> save.run());
+        urlField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                save.run();
+            }
+        });
+        userField.setOnAction(e -> save.run());
+        userField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                save.run();
+            }
+        });
+        pwdField.setOnAction(e -> save.run());
+        pwdField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                save.run();
+            }
+        });
+
+        Button test = SettingsLayout.iconTextButton("\uE895", I18n.t("settings.sync.test"), this::handleTestConnection);
+        Button syncNow = SettingsLayout.iconTextButton("\uE895", I18n.t("settings.sync.syncNow"), this::handleSyncNow);
+        FlowPane buttons = new FlowPane(8, 8, test, syncNow);
+
+        List<Node> rows = new ArrayList<>();
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.url"), I18n.t("settings.sync.url.desc"), urlField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.username"),
+                I18n.t("settings.sync.username.desc"), userField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.password"),
+                I18n.t("settings.sync.password.desc"), pwdField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.interval"),
+                I18n.t("settings.sync.interval.desc"), intervalCombo));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.actions"), null, buttons));
+        return SettingsLayout.groupCard(I18n.t("settings.sync.group"), rows);
+    }
+
+    /**
+     * 语音输入卡片：转写服务地址 / 模型 / API Key（SecretCipher 加密存 settings），
+     * 文本框失焦/回车即保存，改后按住说话按钮即生效。
+     */
+    private VBox voiceCard() {
+        TextField urlField = new TextField(voiceInputService.transcriptionBaseUrl());
+        urlField.setPromptText(I18n.t("settings.voice.url.prompt"));
+        urlField.setMaxWidth(360);
+        TextField modelField = new TextField(voiceInputService.transcriptionModel());
+        modelField.setPromptText(I18n.t("settings.voice.model.prompt"));
+        modelField.setMaxWidth(200);
+        PasswordField keyField = new PasswordField();
+        keyField.setText(voiceInputService.apiKeyPlain());
+        keyField.setMaxWidth(200);
+
+        Runnable save = () -> {
+            voiceInputService.saveTranscriptionBaseUrl(urlField.getText());
+            voiceInputService.saveTranscriptionModel(modelField.getText());
+            voiceInputService.saveApiKey(keyField.getText());
+        };
+        for (TextField f : List.of(urlField, modelField, keyField)) {
+            f.setOnAction(e -> save.run());
+            f.focusedProperty().addListener((obs, was, now) -> {
+                if (!now) {
+                    save.run();
+                }
+            });
+        }
+        List<Node> rows = new ArrayList<>();
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.voice.url"),
+                I18n.t("settings.voice.url.desc"), urlField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.voice.model"),
+                I18n.t("settings.voice.model.desc"), modelField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.voice.apiKey"),
+                I18n.t("settings.voice.apiKey.desc"), keyField));
+        return SettingsLayout.groupCard(I18n.t("settings.voice.group"), rows);
+    }
+
+    /** 周期小时数转下拉索引：0/6/12/24 → 0..3，未知值归关闭。 */
+    private static int intervalIndex(int hours) {
+        return switch (hours) {
+            case 6 -> 1;
+            case 12 -> 2;
+            case 24 -> 3;
+            default -> 0;
+        };
+    }
+
+    /** 下拉索引转周期小时数。 */
+    private static int intervalHours(int index) {
+        return switch (index) {
+            case 1 -> 6;
+            case 2 -> 12;
+            case 3 -> 24;
+            default -> 0;
+        };
+    }
+
+    /** 测试 WebDAV 连通性（后台线程 PROPFIND 列目录）。 */
+    private void handleTestConnection() {
+        runInBackground("settings.sync.test", () -> {
+            try {
+                webDavSyncService.testConnection();
+                return Optional.of(I18n.t("settings.sync.ok"));
+            } catch (Exception e) {
+                return Optional.of(I18n.t("settings.sync.fail", String.valueOf(e.getMessage())));
+            }
+        }, null);
+    }
+
+    /** 立即同步：VACUUM INTO 快照 + workspace 压缩包上传（后台线程）。 */
+    private void handleSyncNow() {
+        runInBackground("settings.sync.syncNow", () -> {
+            try {
+                Path p = webDavSyncService.syncNow();
+                return Optional.of(I18n.t("settings.sync.done", p.getFileName().toString()));
+            } catch (Exception e) {
+                return Optional.of(I18n.t("settings.sync.failShort", String.valueOf(e.getMessage())));
+            }
+        }, null);
     }
 
     /** 数据维护卡片：立即备份 / 导出会话 / 导出全库 / 打开备份目录 / 打开数据目录。 */

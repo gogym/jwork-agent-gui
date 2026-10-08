@@ -1,8 +1,10 @@
 package com.gettyio.gim.agent.ui.view;
 
+import com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService;
 import com.gettyio.gim.agent.core.knowledge.KnowledgeService;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -11,7 +13,9 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.OverrunStyle;
+import javafx.scene.control.PasswordField;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextField;
 import javafx.scene.control.Separator;
 import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
@@ -44,6 +48,9 @@ public class KnowledgeView {
     @Autowired
     private KnowledgeService knowledgeService;
 
+    @Autowired
+    private SecurityAdminService securityAdminService;
+
     private final VBox root = new VBox();
     private final ComboBox<AgentChoice> agentCombo = new ComboBox<>();
     private final VBox docBox = new VBox(6);
@@ -55,6 +62,15 @@ public class KnowledgeView {
     private final Label indexHeader = new Label();
     private final Button importBtn = new Button();
     private Button refreshBtn;
+    // 向量索引区：状态 + embedding 提供方配置 + 重建索引
+    private final Label vectorHeader = new Label();
+    private final Label vectorStatus = new Label();
+    private final Label vectorHint = new Label();
+    private final TextField baseUrlField = new TextField();
+    private final TextField modelField = new TextField();
+    private final PasswordField apiKeyField = new PasswordField();
+    private Button reindexBtn;
+    private HBox vectorHeadRow;
 
     private static final DateTimeFormatter DATE_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
@@ -147,7 +163,10 @@ public class KnowledgeView {
         indexArea.setPrefHeight(220);
         indexArea.setStyle("-fx-font-family: \"Cascadia Mono\", \"Consolas\", monospace; -fx-font-size: 12px;");
 
+        buildVectorSection();
+
         VBox content = new VBox(10, docsHeader, docEmpty, docBox,
+                new Separator(), vectorHeadRow, vectorHint, configGrid(), vectorStatus,
                 new Separator(), indexHeader, indexArea);
         content.setMaxWidth(Double.MAX_VALUE);
 
@@ -171,8 +190,124 @@ public class KnowledgeView {
             docEmpty.setText(I18n.t("knowledge.empty"));
             indexHeader.setText(I18n.t("knowledge.index"));
             refreshBtn.getTooltip().setText(I18n.t("common.refresh"));
+            applyVectorI18n();
             loadSelected();
         }
+    }
+
+    // ===================== 向量索引区 =====================
+
+    /** 向量索引区：标题行（重建按钮在右）+ embedding 提供方三字段（失焦/回车即存）+ 状态行。 */
+    private void buildVectorSection() {
+        vectorHeader.getStyleClass().add("section-title");
+        vectorStatus.getStyleClass().add("card-meta");
+        vectorStatus.setWrapText(true);
+        vectorHint.getStyleClass().add("card-meta");
+        vectorHint.setWrapText(true);
+
+        reindexBtn = new Button();
+        reindexBtn.getStyleClass().add("link-btn");
+        reindexBtn.setMinWidth(Region.USE_PREF_SIZE);
+        reindexBtn.setOnAction(e -> handleReindex());
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        vectorHeadRow = new HBox(10, vectorHeader, spacer, reindexBtn);
+        vectorHeadRow.setAlignment(Pos.CENTER_LEFT);
+
+        saveOnBlur(baseUrlField, () -> securityAdminService.setKnowledgeEmbeddingBaseUrl(baseUrlField.getText()));
+        saveOnBlur(modelField, () -> securityAdminService.setKnowledgeEmbeddingModel(modelField.getText()));
+        saveOnBlur(apiKeyField, () -> securityAdminService.setKnowledgeEmbeddingKey(apiKeyField.getText()));
+    }
+
+    /** 三字段横向配置栅格。 */
+    private HBox configGrid() {
+        baseUrlField.setPromptText("https://dashscope.aliyuncs.com/compatible-mode/v1");
+        modelField.setPromptText("text-embedding-v4");
+        baseUrlField.getStyleClass().add("vector-field");
+        modelField.getStyleClass().add("vector-field");
+        apiKeyField.getStyleClass().add("vector-field");
+        HBox.setHgrow(baseUrlField, Priority.ALWAYS);
+        HBox.setHgrow(modelField, Priority.SOMETIMES);
+        HBox.setHgrow(apiKeyField, Priority.SOMETIMES);
+        HBox row = new HBox(8, baseUrlField, modelField, apiKeyField);
+        row.setAlignment(Pos.CENTER_LEFT);
+        return row;
+    }
+
+    /** 字段失焦/回车保存 + 刷状态行（改配置后无需重启即生效）。 */
+    private void saveOnBlur(TextField field, Runnable save) {
+        field.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                save.run();
+                refreshVectorStatus();
+            }
+        });
+        field.setOnAction(e -> {
+            save.run();
+            refreshVectorStatus();
+        });
+    }
+
+    /** 选中智能体的索引状态行：未配置给引导，已配置给文档/块计数。 */
+    private void refreshVectorStatus() {
+        AgentChoice choice = agentCombo.getValue();
+        // 构造期（buildUi→applyI18n）字段注入尚未发生，此时代理回落为未开启文案
+        EmbeddingIndexService indexer = knowledgeService == null ? null : knowledgeService.embeddingIndexer();
+        if (choice == null || indexer == null || !indexer.isConfigured()) {
+            vectorStatus.setText(I18n.t("knowledge.vector.status.off"));
+            return;
+        }
+        vectorStatus.setText(I18n.t("knowledge.vector.status.on",
+                String.valueOf(indexer.docCount(choice.code)), String.valueOf(indexer.chunkCount(choice.code))));
+    }
+
+    /** 重建索引：逐文档读原文 → 分块嵌入整文档替换；未配置/失败给明确反馈。 */
+    private void handleReindex() {
+        AgentChoice choice = agentCombo.getValue();
+        if (choice == null) {
+            return;
+        }
+        EmbeddingIndexService indexer = knowledgeService.embeddingIndexer();
+        if (indexer == null || !indexer.isConfigured()) {
+            error(I18n.t("knowledge.vector.reindex.needConfig"));
+            return;
+        }
+        List<KnowledgeService.DocInfo> docs = knowledgeService.listDocs(choice.code);
+        if (docs.isEmpty()) {
+            info(I18n.t("knowledge.vector.section"), I18n.t("knowledge.empty"));
+            return;
+        }
+        int ok = 0;
+        int chunks = 0;
+        String lastError = null;
+        for (KnowledgeService.DocInfo d : docs) {
+            try {
+                int n = indexer.indexDocument(choice.code, d.name(), knowledgeService.readDoc(choice.code, d.name()));
+                if (n >= 0) {
+                    ok++;
+                    chunks += n;
+                }
+            } catch (RuntimeException e) {
+                lastError = e.getMessage();
+            }
+        }
+        refreshVectorStatus();
+        if (ok == 0) {
+            error(lastError);
+        } else {
+            info(I18n.t("knowledge.vector.section"),
+                    I18n.t("knowledge.vector.reindex.ok", String.valueOf(ok), String.valueOf(chunks)));
+        }
+    }
+
+    private void applyVectorI18n() {
+        vectorHeader.setText(I18n.t("knowledge.vector.section"));
+        vectorHint.setText(I18n.t("knowledge.vector.hint"));
+        baseUrlField.setPromptText(I18n.t("knowledge.vector.baseUrl"));
+        modelField.setPromptText(I18n.t("knowledge.vector.model"));
+        apiKeyField.setPromptText(I18n.t("knowledge.vector.apiKey"));
+        reindexBtn.setText(I18n.t("knowledge.vector.reindex"));
+        refreshVectorStatus();
     }
 
     /** 刷新智能体下拉（保留当前选中），再加载选中项内容。 */
@@ -210,6 +345,7 @@ public class KnowledgeView {
         renderDocs(choice.code);
         indexArea.setText(knowledgeService.readIndex(choice.code));
         indexArea.deselect();
+        refreshVectorStatus();
     }
 
     private void renderDocs(String code) {

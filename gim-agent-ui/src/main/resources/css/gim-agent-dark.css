@@ -63,6 +63,9 @@
     -gim-badge-red-bg: #442c2b;
     -gim-badge-red-fg: #e09a97;
 
+    /* 计划待确认横幅的信息蓝底色（深色覆盖） */
+    -gim-info-bg: #2a3644;
+
     /* 常驻提醒条的琥珀语义色（深色覆盖） */
     -gim-warn-bg: #3a2f1c;
     -gim-warn-border: #4d3f24;
@@ -100,3 +103,20 @@
 .input-card, .task-card, .skill-card, .context-menu, .content-panel {
     -fx-effect: none;
 }
+/* 着色代码块 token 深色值（浅色值在 gim-agent.css，变量 -gim-code-* 已在上方覆盖） */
+.md-code-kw  { -fx-fill: #c678dd; -fx-font-weight: bold; }
+.md-code-str { -fx-fill: #98c379; }
+.md-code-num { -fx-fill: #d19a66; }
+.md-code-com { -fx-fill: #7f848e; -fx-font-style: italic; }
+
+/* ---------- 启动画面（Preloader）：深色卡片 ---------- */
+.splash-root {
+    -fx-background-color: -gim-bg;
+    -fx-background-radius: 12;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 24;
+}
+.splash-title { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.splash-status { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }

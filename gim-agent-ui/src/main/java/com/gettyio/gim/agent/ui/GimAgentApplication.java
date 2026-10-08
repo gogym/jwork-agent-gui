@@ -36,10 +36,13 @@ public class GimAgentApplication extends Application {
 
     @Override
     public void init() {
+        // 阶段文案推送给启动画面（notifyPreloader 可从 init 线程调用）
+        notifyPreloader(new SplashPreloader.SplashProgress(I18n.t("splash.preparing")));
         springContext = new SpringApplicationBuilder(GimAgentApplication.class)
                 .web(WebApplicationType.NONE)
                 .headless(false)
                 .run();
+        notifyPreloader(new SplashPreloader.SplashProgress(I18n.t("splash.loading")));
     }
 
     @Override

@@ -5,6 +5,7 @@ import jakarta.annotation.PreDestroy;
 import com.gettyio.gim.agent.ui.I18n;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Component;
 
 import java.awt.GraphicsEnvironment;
@@ -22,6 +23,7 @@ import java.awt.image.BufferedImage;
  * 不阻塞 JavaFX 应用线程；平台不支持时 {@link #isAvailable()} 返回 false，由调用方回退到弹窗。
  */
 @Component
+@Lazy(false) // 全局 lazy-init 下保持 eager：@PostConstruct 需在启动期建托盘图标
 public class TrayNotifier {
 
     private static final Logger log = LoggerFactory.getLogger(TrayNotifier.class);

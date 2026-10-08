@@ -7,6 +7,9 @@ import com.gettyio.gim.agent.core.chat.StreamEvent;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.voice.MicHoldButton;
+import com.gettyio.gim.agent.ui.voice.VoiceInputService;
+import com.gettyio.gim.agent.ui.window.GimDialog;
 import io.agentscope.core.permission.PermissionMode;
 import jakarta.annotation.PreDestroy;
 import javafx.application.Platform;
@@ -50,10 +53,12 @@ public class QuickAskWindow {
     private static final Logger log = LoggerFactory.getLogger(QuickAskWindow.class);
 
     private final ChatService chatService;
+    private final VoiceInputService voiceInputService;
 
     @Autowired
-    public QuickAskWindow(ChatService chatService) {
+    public QuickAskWindow(ChatService chatService, VoiceInputService voiceInputService) {
         this.chatService = chatService;
+        this.voiceInputService = voiceInputService;
     }
 
     private Stage stage;
@@ -114,10 +119,19 @@ public class QuickAskWindow {
         Button shot = new Button(I18n.t("quickask.screenshot"));
         shot.getStyleClass().add("quickask-btn");
         shot.setOnAction(e -> capture());
+        // 按住说话：识别文本填入输入框，未配置/失败给提示弹窗
+        Button mic = new Button();
+        MicHoldButton.install(mic, voiceInputService,
+                text -> {
+                    input.appendText(text + " ");
+                    input.requestFocus();
+                },
+                () -> GimDialog.message(stage, I18n.t("voice.title"), null, I18n.t("voice.notConfigured")),
+                (errTitle, msg) -> GimDialog.message(stage, errTitle, null, msg));
         Button send = new Button(I18n.t("quickask.send"));
         send.getStyleClass().add("btn-primary");
         send.setOnAction(e -> sendNow());
-        HBox footer = new HBox(8, shot, attachLabel, spacer(), send);
+        HBox footer = new HBox(8, shot, mic, attachLabel, spacer(), send);
         footer.setAlignment(Pos.CENTER_LEFT);
 
         input = new TextArea();

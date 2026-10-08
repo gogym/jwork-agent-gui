@@ -419,6 +419,19 @@ public class ChatService {
         return db.conversationDao().findBySession(sessionId);
     }
 
+    /** 历史重放分页大小：切换会话只渲染最新一页，滚动到顶再加载更早，避免长会话全量上屏 */
+    public static final int HISTORY_PAGE_SIZE = 50;
+
+    /** 分页读历史首页：最新 {@code limit} 条（按 id 升序返回） */
+    public java.util.List<ChatConversation> recentHistory(String sessionId, int limit) {
+        return db.conversationDao().findRecentBySession(sessionId, limit);
+    }
+
+    /** 分页读历史上页：{@code beforeId} 之前的 {@code limit} 条（按 id 升序返回） */
+    public java.util.List<ChatConversation> historyBefore(String sessionId, long beforeId, int limit) {
+        return db.conversationDao().findPageBefore(sessionId, beforeId, limit);
+    }
+
     /** 消息全文检索（排除系统消息）：供搜索面板的「消息内容」分组。 */
     public java.util.List<com.gettyio.gim.agent.domain.entity.MessageHit> searchContent(String keyword, int limit) {
         return db.conversationDao().searchContent(keyword, limit);
@@ -522,6 +535,18 @@ public class ChatService {
      * 故分支点即源会话的最新状态。</p>
      */
     public String branchSession(String sessionId) {
+        return forkSession(sessionId, 0L);
+    }
+
+    /**
+     * 从指定消息分支：复制源会话至 {@code messageId}（含该条）为止的消息到新独立会话，返回新 sessionId。
+     * <p>新会话记录 {@code parent_session_id} 溯源，标题加「（分支）」，源会话原样保留；
+     * {@code messageId} 传非正数即 {@link #branchSession} 的整会话语义。
+     * 图片/文档引用仍指向源会话的附件目录（原件未清理时缩略图照常可见）。</p>
+     *
+     * @param messageId 截止的 conversations 主键（含）；找不到该主键时退化全量复制
+     */
+    public String forkSession(String sessionId, long messageId) {
         ChatSession src = db.sessionDao().findBySessionId(sessionId).orElse(null);
         if (src == null) {
             return sessionId;
@@ -539,28 +564,39 @@ public class ChatService {
         db.sessionDao().insert(copy);
 
         List<ChatConversation> messages = db.conversationDao().findBySession(sessionId);
+        int copied = 0;
         for (ChatConversation m : messages) {
-            ChatConversation c = new ChatConversation();
-            c.setSessionId(newId);
-            c.setAgentCode(m.getAgentCode());
-            c.setRole(m.getRole());
-            c.setContent(m.getContent());
-            c.setTokensInput(m.getTokensInput());
-            c.setTokensOutput(m.getTokensOutput());
-            c.setTokensCached(m.getTokensCached());
-            c.setLlmCalls(m.getLlmCalls());
-            c.setLlmElapsedMillis(m.getLlmElapsedMillis());
-            c.setModelCode(m.getModelCode());
-            c.setToolCalls(m.getToolCalls());
-            c.setMetadata(m.getMetadata());
-            c.setCreatedAt(LocalDateTime.now());
-            db.conversationDao().insert(c);
+            copyMessage(newId, m);
+            copied++;
+            if (messageId > 0 && m.getId() != null && m.getId() == messageId) {
+                break;
+            }
         }
-        if (!messages.isEmpty()) {
-            db.sessionDao().incrementMessageCount(newId, messages.size());
+        if (copied > 0) {
+            db.sessionDao().incrementMessageCount(newId, copied);
         }
-        log.info("分支会话: {} -> {}（复制 {} 条消息）", sessionId, newId, messages.size());
+        log.info("分支会话: {} -> {}（复制 {}/{} 条消息，截止 id={}）",
+                sessionId, newId, copied, messages.size(), messageId);
         return newId;
+    }
+
+    /** 单条消息跨会话复制：只拷会话内容与用量/元数据，主键与原时间戳不随行。 */
+    private void copyMessage(String newId, ChatConversation m) {
+        ChatConversation c = new ChatConversation();
+        c.setSessionId(newId);
+        c.setAgentCode(m.getAgentCode());
+        c.setRole(m.getRole());
+        c.setContent(m.getContent());
+        c.setTokensInput(m.getTokensInput());
+        c.setTokensOutput(m.getTokensOutput());
+        c.setTokensCached(m.getTokensCached());
+        c.setLlmCalls(m.getLlmCalls());
+        c.setLlmElapsedMillis(m.getLlmElapsedMillis());
+        c.setModelCode(m.getModelCode());
+        c.setToolCalls(m.getToolCalls());
+        c.setMetadata(m.getMetadata());
+        c.setCreatedAt(LocalDateTime.now());
+        db.conversationDao().insert(c);
     }
 
     /** 分支标题：原标题去空白后追加「（分支）」，仍受 {@link #TITLE_MAX_LEN} 截断。 */

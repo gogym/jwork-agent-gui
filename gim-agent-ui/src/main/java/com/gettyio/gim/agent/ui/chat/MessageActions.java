@@ -15,7 +15,7 @@ import java.util.function.Supplier;
 /**
  * 消息气泡的悬停操作条 + 右键菜单。
  * <p>操作条含「复制」常驻，以及默认隐藏的「重新生成」（仅最后一条助手）与「编辑重发」（仅最后一条用户）
- * 两个按需按钮；「删除」走右键菜单（对已落盘、有主键的消息生效）。原文与主键都通过 {@link Supplier}/
+ * 两个按需按钮；「从此消息分支」「删除」走右键菜单（对已落盘、有主键的消息生效）。原文与主键都通过 {@link Supplier}/
  * {@link LongSupplier} 现取，使实时流式气泡在收尾后也能读到最新文本。</p>
  */
 final class MessageActions {
@@ -76,18 +76,27 @@ final class MessageActions {
         editButton.setManaged(shown);
     }
 
-    /** 在气泡宿主节点上装右键「删除」菜单（无主键时菜单项禁用）。 */
+    /** 在气泡宿主节点上装右键菜单：「从此消息分支」+「删除」（无主键时菜单项禁用）。 */
     void installContextMenu(Node host) {
+        MenuItem fork = new MenuItem(I18n.t("chat.msg.fork"), UiTheme.icon("\uEBC9"));
+        fork.setOnAction(e -> {
+            long id = idSupplier.getAsLong();
+            if (id > 0) {
+                listener.onFork(id);
+            }
+        });
         MenuItem delete = new MenuItem(I18n.t("chat.msg.delete"), UiTheme.icon("\uE74D"));
-        ContextMenu menu = new ContextMenu(delete);
         delete.setOnAction(e -> {
             long id = idSupplier.getAsLong();
             if (id > 0) {
                 listener.onDelete(id);
             }
         });
+        ContextMenu menu = new ContextMenu(fork, delete);
         host.setOnContextMenuRequested(e -> {
-            delete.setDisable(idSupplier.getAsLong() <= 0);
+            boolean unsaved = idSupplier.getAsLong() <= 0;
+            fork.setDisable(unsaved);
+            delete.setDisable(unsaved);
             menu.show(host, e.getScreenX(), e.getScreenY());
         });
     }

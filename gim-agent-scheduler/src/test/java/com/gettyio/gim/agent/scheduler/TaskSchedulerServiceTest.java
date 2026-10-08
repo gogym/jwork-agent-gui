@@ -138,4 +138,43 @@ class TaskSchedulerServiceTest {
         assertInstanceOf(CronTrigger.class, triggerOf("a1"));
         assertInstanceOf(SimpleTrigger.class, triggerOf("b1"));
     }
+
+    @Test
+    @DisplayName("恢复容错：单个坏任务（缺触发定义）不阻断其余任务恢复")
+    void resumeSkipsBrokenTask() throws Exception {
+        ScheduledTask good = task("g1");
+        good.setCronExpression("0 0 7 * * ?");
+        ScheduledTask broken = task("x1"); // cron 与 run_at 均缺失
+        when(taskDao.findByStatus(eq(TaskStatus.READY.name()))).thenReturn(List.of(broken, good));
+
+        service.resumeReadyTasks(); // 不应抛出
+
+        assertTrue(!scheduler.checkExists(org.quartz.JobKey.jobKey("x1", JOB_GROUP)));
+        assertInstanceOf(CronTrigger.class, triggerOf("g1"));
+    }
+
+    @Test
+    @DisplayName("run_at 为过去时点：调度成功且维持 FireNow 补跑语义")
+    void runAtInThePastSchedules() throws Exception {
+        ScheduledTask t = task("past1");
+        t.setRunAt(LocalDateTime.now().minusHours(1));
+        service.schedule(t);
+        Trigger trigger = triggerOf("past1");
+        assertInstanceOf(SimpleTrigger.class, trigger);
+        assertEquals(SimpleTrigger.MISFIRE_INSTRUCTION_FIRE_NOW, trigger.getMisfireInstruction());
+    }
+
+    @Test
+    @DisplayName("重复调度同一 taskCode：先删旧再建新，触发器随最新定义更新")
+    void rescheduleReplacesExisting() throws Exception {
+        ScheduledTask t = task("dup1");
+        t.setCronExpression("0 0 9 * * ?");
+        service.schedule(t);
+        assertInstanceOf(CronTrigger.class, triggerOf("dup1"));
+
+        t.setCronExpression(null);
+        t.setRunAt(LocalDateTime.now().plusDays(1));
+        service.schedule(t); // 不应因旧作业存在而抛异常
+        assertInstanceOf(SimpleTrigger.class, triggerOf("dup1"));
+    }
 }

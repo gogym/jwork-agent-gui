@@ -2,9 +2,11 @@ package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
+import com.gettyio.gim.agent.domain.entity.PromptTemplate;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import io.agentscope.core.permission.PermissionMode;
@@ -48,8 +50,11 @@ public class ToolbarPickers {
     private final Button themeMenuButton;
     private final Button modelButton;
     private final Button approvalButton;
+    private final Button templateButton;
+    private final javafx.scene.control.TextArea inputField;
     private final ProviderAdminService providerAdminService;
     private final SecurityAdminService securityAdminService;
+    private final PromptTemplateAdminService promptTemplateAdminService;
     private final ChatHost host;
 
     /** 当前审批档位（权限模式 + 是否自动通过）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
@@ -70,15 +75,22 @@ public class ToolbarPickers {
     private ContextMenu themeMenu;
     /** 齿轮菜单最近一次关闭的时间戳（毫秒） */
     private long themeMenuHiddenAt;
+    /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
+    private ContextMenu templateMenu;
 
     public ToolbarPickers(Button themeMenuButton, Button modelButton, Button approvalButton,
+                          Button templateButton, javafx.scene.control.TextArea inputField,
                           ProviderAdminService providerAdminService, SecurityAdminService securityAdminService,
+                          PromptTemplateAdminService promptTemplateAdminService,
                           ChatHost host) {
         this.themeMenuButton = themeMenuButton;
         this.modelButton = modelButton;
         this.approvalButton = approvalButton;
+        this.templateButton = templateButton;
+        this.inputField = inputField;
         this.providerAdminService = providerAdminService;
         this.securityAdminService = securityAdminService;
+        this.promptTemplateAdminService = promptTemplateAdminService;
         this.host = host;
     }
 
@@ -103,6 +115,11 @@ public class ToolbarPickers {
     /** 规划模式是否被勾选：为真时发送流程把本轮标记为只读计划轮（进入/退出包在流两端）。 */
     public boolean planModeRequested() {
         return planModeRequested;
+    }
+
+    /** 程序化开关规划模式：计划确认横幅「确认执行」后自动关闭，下一条消息不再走计划轮。 */
+    public void setPlanModeRequested(boolean requested) {
+        this.planModeRequested = requested;
     }
 
     /** 审批初始档：读设置「安全」页持久化的全局默认（未设置回退询问）。 */
@@ -536,5 +553,39 @@ public class ToolbarPickers {
         public String toString() {
             return label;
         }
+    }
+
+    // ===================== 模板下拉 =====================
+
+    /**
+     * 点模板按钮：弹出启用中的提示词模板，选中把内容插入输入框光标处（不发送、不覆盖已有文本）。
+     * <p>无启用模板时仅显示一条禁用提示项。</p>
+     */
+    public void showTemplateMenu() {
+        if (templateMenu == null) {
+            templateMenu = new ContextMenu();
+        } else {
+            templateMenu.getItems().clear();
+        }
+        List<PromptTemplate> templates = promptTemplateAdminService.listEnabled();
+        if (templates.isEmpty()) {
+            MenuItem empty = new MenuItem(I18n.t("chat.template.empty"));
+            empty.setDisable(true);
+            templateMenu.getItems().add(empty);
+        } else {
+            for (PromptTemplate t : templates) {
+                String name = t.getTemplateName() == null || t.getTemplateName().isBlank()
+                        ? t.getTemplateCode() : t.getTemplateName();
+                MenuItem item = new MenuItem(name, UiTheme.icon("\uE73A"));
+                String content = t.getContent() == null ? "" : t.getContent();
+                item.setOnAction(e -> {
+                    inputField.insertText(inputField.getCaretPosition(), content);
+                    inputField.requestFocus();
+                    inputField.positionCaret(inputField.getCaretPosition() + content.length());
+                });
+                templateMenu.getItems().add(item);
+            }
+        }
+        templateMenu.show(templateButton, javafx.geometry.Side.TOP, 0, 0);
     }
 }

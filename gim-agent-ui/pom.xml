@@ -46,6 +46,11 @@
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-fxml</artifactId>
         </dependency>
+        <!-- Mermaid 图表离线渲染（WebView 内嵌打包的 mermaid.min.js） -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-web</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.github.mkpaz</groupId>
             <artifactId>atlantafx-base</artifactId>
@@ -58,7 +63,7 @@
             <groupId>com.techsenger.jeditermfx</groupId>
             <artifactId>jeditermfx-ui</artifactId>
             <exclusions>
-                <!-- 该库自带 JavaFX 19 传递依赖，项目统一用 17.0.12，排除以免版本冲突 -->
+                <!-- 该库自带 JavaFX 19 传递依赖，项目统一用主 pom 管理的 JavaFX 版本，排除以免版本冲突 -->
                 <exclusion>
                     <groupId>org.openjfx</groupId>
                     <artifactId>*</artifactId>
@@ -74,6 +79,13 @@
         <dependency>
             <groupId>org.commonmark</groupId>
             <artifactId>commonmark-ext-gfm-tables</artifactId>
+        </dependency>
+
+        <!-- WebDAV 云同步客户端（put/list/exists） -->
+        <dependency>
+            <groupId>com.github.lookfirst</groupId>
+            <artifactId>sardine</artifactId>
+            <version>5.10</version>
         </dependency>
     </dependencies>
 

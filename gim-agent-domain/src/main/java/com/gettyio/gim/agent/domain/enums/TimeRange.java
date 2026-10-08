@@ -17,6 +17,13 @@ public enum TimeRange {
     LAST_7_DAYS(7),
     /** 近 30 天（含今天，往前数 30 个自然日）。 */
     LAST_30_DAYS(30),
+    /** 本自然月：自当月 1 日 00:00 起（预算告警按月对齐用）。 */
+    THIS_MONTH(0) {
+        @Override
+        public Optional<LocalDateTime> since() {
+            return Optional.of(LocalDate.now().withDayOfMonth(1).atStartOfDay());
+        }
+    },
     /** 全部时间，不设下界。 */
     ALL(0);
 

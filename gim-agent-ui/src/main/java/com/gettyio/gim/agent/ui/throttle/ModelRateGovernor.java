@@ -2,13 +2,16 @@ package com.gettyio.gim.agent.ui.throttle;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
+import com.gettyio.gim.agent.domain.enums.TimeRange;
 import com.gettyio.gim.agent.ui.I18n;
 import org.springframework.stereotype.Component;
 
+import java.time.LocalDate;
 import java.util.ArrayDeque;
 import java.util.Deque;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 模型速率治理：按 {@code models.rate_limit_rpm}/{@code rate_limit_tpm} 做发送节流与配额提醒。
@@ -24,11 +27,16 @@ public class ModelRateGovernor {
     /** 滚动窗口长度：一分钟。 */
     private static final long WINDOW_MS = 60_000L;
 
+    /** 应用级设置键：月度用量预算上限（元），空或 ≤0 表示不启用告警。 */
+    public static final String KEY_MONTHLY_BUDGET = "usage.monthlyBudget";
+
     private final GimDatabase db;
     /** 每模型最近请求时刻（毫秒），升序入队、超出窗口即出队。 */
     private final Map<String, Deque<Long>> requestTimes = new HashMap<>();
     /** 每模型最近 token 回报：{@code {时刻毫秒, token 数}}，窗口内求和判断 TPM。 */
     private final Map<String, Deque<long[]>> tokenWindows = new HashMap<>();
+    /** 月预算告警当日已提醒标记：一天最多提醒一次，跨月自然重置。 */
+    private LocalDate lastBudgetWarnDate;
 
     public ModelRateGovernor(GimDatabase db) {
         this.db = db;
@@ -66,6 +74,37 @@ public class ModelRateGovernor {
             }
         }
         return null;
+    }
+
+    /**
+     * 月度预算告警：设置键 {@link #KEY_MONTHLY_BUDGET} 配了正数且当月估算费用（JOIN models 单价）
+     * 已达上限时，返回本地化提醒文案；否则返回 {@code empty}。同一天只提醒一次（内存去重，
+     * 重启后最多再提醒一次），预算未配置或未超时零开销返回。
+     */
+    public synchronized Optional<String> budgetWarningIfExceeded() {
+        double budget;
+        try {
+            budget = db.settingDao().getValue(KEY_MONTHLY_BUDGET)
+                    .filter(s -> !s.isBlank())
+                    .map(Double::parseDouble)
+                    .orElse(0d);
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+        if (budget <= 0) {
+            return Optional.empty();
+        }
+        double spent = db.conversationDao().aggregateGlobal(TimeRange.THIS_MONTH).estCost();
+        if (spent < budget) {
+            return Optional.empty();
+        }
+        LocalDate today = LocalDate.now();
+        if (today.equals(lastBudgetWarnDate)) {
+            return Optional.empty();
+        }
+        lastBudgetWarnDate = today;
+        return Optional.of(I18n.t("usage.budget.exceeded",
+                String.format("%.2f", spent), String.format("%.2f", budget)));
     }
 
     /** 记一次发送（RPM 计数），发送确认后调用。 */
