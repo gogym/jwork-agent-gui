@@ -57,7 +57,7 @@ public class ToolbarPickers {
     private final Button approvalButton;
     private final Button templateButton;
     private final Button compareButton;
-    private final javafx.scene.control.TextArea inputField;
+    private final com.gettyio.gim.agent.ui.jcef.JcefComposer inputField;
     private final ProviderAdminService providerAdminService;
     private final SecurityAdminService securityAdminService;
     private final PromptTemplateAdminService promptTemplateAdminService;
@@ -91,7 +91,7 @@ public class ToolbarPickers {
     private long compareMenuHiddenAt;
 
     public ToolbarPickers(Button themeMenuButton, Button modelButton, Button approvalButton,
-                          Button templateButton, Button compareButton, javafx.scene.control.TextArea inputField,
+                          Button templateButton, Button compareButton, com.gettyio.gim.agent.ui.jcef.JcefComposer inputField,
                           ProviderAdminService providerAdminService, SecurityAdminService securityAdminService,
                           PromptTemplateAdminService promptTemplateAdminService,
                           ChatHost host) {

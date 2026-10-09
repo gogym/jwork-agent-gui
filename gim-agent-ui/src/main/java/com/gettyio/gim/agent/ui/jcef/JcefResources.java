@@ -33,9 +33,13 @@ public final class JcefResources {
     private static final String CHAT_JS = "/web/chat.js";
     private static final String CHAT_CSS = "/web/chat.css";
     private static final String MERMAID_JS = "/js/mermaid.min.js";
+    private static final String COMPOSER_JS = "/web/composer.js";
+    private static final String COMPOSER_CSS = "/web/composer.css";
 
     /** 提取并生成的聊天页 file:// URL（进程内只落地一次）。 */
     private static volatile String chatShellUrl;
+    /** 提取并生成的输入框页 file:// URL（进程内只落地一次）。 */
+    private static volatile String composerShellUrl;
     /** Mermaid 图表页序号：同一目录内每次生成唯一页面名，供多个 {@code CefBrowser} 并发加载。 */
     private static final AtomicInteger MERMAID_SEQ = new AtomicInteger();
 
@@ -99,19 +103,77 @@ public final class JcefResources {
     }
 
     /**
+     * 生成输入框页并返回其 {@code file:///} URL（CSS/JS 全内联，单文件页面）。
+     *
+     * <p>页面只有一个 {@code contenteditable} 编辑区：字符插入 / IME 组合渲染 / 状态上报全部由
+     * {@code composer.js} 承载，经 {@code CefMessageRouter} 注入的 {@code window.<queryFn>} 与
+     * Java 侧 {@code JcefComposer} 通信（无 javaBridge 垫片，JS 直调注入函数）。</p>
+     *
+     * @param queryFn {@code CefMessageRouter} 注入 JS 的请求函数名
+     */
+    public static synchronized String composerShell(String queryFn) throws IOException {
+        if (composerShellUrl != null) {
+            return composerShellUrl;
+        }
+        Path dir = workDir("composer");
+        // 全量内联为单文件页面：CEF 默认禁止 file:// 页面装载 file:// 子资源（同 chatShell）
+        String html = """
+                <!DOCTYPE html>
+                <html lang="zh" data-theme="light">
+                <head>
+                <meta charset="utf-8">
+                <style>
+                %s
+                </style>
+                </head>
+                <body>
+                <div id="editor" contenteditable="true" spellcheck="false"></div>
+                <script>
+                window.onerror = function (m, s, l, c, e) {
+                    try { console.error('GIM_COMPOSER_PAGE_ERROR: ' + m + ' @' + s + ':' + l); } catch (x) {}
+                };
+                console.log('GIM_COMPOSER_QUERY=' + typeof window['%s']);
+                </script>
+                <script>
+                %s
+                </script>
+                </body>
+                </html>
+                """.formatted(readText(COMPOSER_CSS), queryFn, readText(COMPOSER_JS));
+        Files.writeString(dir.resolve("index.html"), html, StandardCharsets.UTF_8);
+        String url = dir.resolve("index.html").toUri().toString();
+        log.info("输入框 JCEF 页面已落地（CSS/JS 全内联）: {}", url);
+        composerShellUrl = url;
+        return url;
+    }
+
+    /**
      * 生成 {@code bridge-shim.js}：以 {@code window.javaBridge} 形态复刻旧 {@code JSObject} 桥的 10 个方法，
      * 每次调用把 {@code {fn,args}} 序列化为 JSON 经 {@code window.<queryFn>} 发往 Java。
+     *
+     * <p>JSON 在发送前把非 ASCII 字符转义为 <code>&#92;uXXXX</code>（与 Java 侧 {@code executeScript}
+     * 的 {@code asciiEscape} 对称）：JNI 的 {@code NewStringUTF} 按 Modified UTF-8 解码，astral emoji
+     * 会被误解码为乱码字节甚至截断整串——如 {@code onAction} 的 raw 消息原文、{@code onCopyCode}
+     * 的代码文本含 emoji 时，操作会带乱码数据或整条事件被丢弃。</p>
      */
     private static String shim(String queryFn) {
         return """
                 (function () {
                     'use strict';
                     var Q = '%s';
+                    /* JSON 文本 ASCII 化：JS→Java 的 JNI 桥（NewStringUTF）承载不了标准 UTF-8 的
+                       四字节序列（astral emoji 会乱码甚至截断整串），非 ASCII 全转反斜杠-uXXXX
+                       （JSON 合法转义，Java 侧 Jackson 解析时还原），与 Java→JS 的 asciiEscape 对称。 */
+                    function asciiJson(s) {
+                        return s.replace(/[^\\x20-\\x7e]/g, function (ch) {
+                            return '\\\\u' + ('0000' + ch.charCodeAt(0).toString(16)).slice(-4);
+                        });
+                    }
                     function send(fn, args) {
                         try {
                             if (typeof window[Q] === 'function') {
                                 window[Q]({
-                                    request: JSON.stringify({ fn: fn, args: args || [] }),
+                                    request: asciiJson(JSON.stringify({ fn: fn, args: args || [] })),
                                     onSuccess: function () {},
                                     onFailure: function () {}
                                 });

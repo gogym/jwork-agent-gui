@@ -7,7 +7,6 @@
 <?import javafx.scene.control.ScrollPane?>
 <?import javafx.scene.control.Separator?>
 <?import javafx.scene.control.SplitPane?>
-<?import javafx.scene.control.TextArea?>
 <?import javafx.scene.control.ToggleButton?>
 <?import javafx.scene.control.ToggleGroup?>
 <?import javafx.scene.layout.BorderPane?>
@@ -188,9 +187,9 @@
                                 <VBox styleClass="input-wrap">
                                     <VBox styleClass="input-card">
                                         <FlowPane fx:id="attachChipsBox" styleClass="attach-chips"/>
-                                        <TextArea fx:id="inputField" styleClass="input-field"
-                                                  promptText="描述任务，Enter 发送 / Shift+Enter 换行"
-                                                  wrapText="true" prefRowCount="2" minHeight="52.0"/>
+                                        <!-- 输入框占位：控制器在此挂入 JcefComposer（contenteditable，彩色 emoji）；占位高度对齐原 TextArea 两行 -->
+                                        <StackPane fx:id="inputFieldHost" styleClass="input-field"
+                                                   prefHeight="52.0" minHeight="52.0"/>
                                         <HBox styleClass="card-footer">
                                             <Button fx:id="attachButton" styleClass="attach-button" onAction="#handleAttach">
                                                 <graphic>
@@ -202,7 +201,6 @@
                                                     <Label styleClass="icon" text="&#xE73A;"/>
                                                 </graphic>
                                             </Button>
-                                            <Button fx:id="micButton" styleClass="attach-button"/>
                                             <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
                                             <Button fx:id="compareButton" styleClass="compare-button" onAction="#showCompareMenu"/>
                                             <Region HBox.hgrow="ALWAYS"/>
@@ -211,6 +209,7 @@
                                                 <Label fx:id="contextBar" styleClass="context-bar" managed="false" visible="false"/>
                                             </HBox>
                                             <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
+                                            <Button fx:id="micButton" styleClass="attach-button"/>
                                             <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSendOrStop">
                                                 <graphic>
                                                     <Label styleClass="send-icon" text="&#xE74A;"/>

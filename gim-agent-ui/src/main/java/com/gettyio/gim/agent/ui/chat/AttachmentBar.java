@@ -6,6 +6,7 @@ import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.jcef.JcefComposer;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -13,7 +14,6 @@ import javafx.scene.control.Button;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
 import javafx.scene.control.MenuItem;
-import javafx.scene.control.TextArea;
 import javafx.scene.control.Tooltip;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
@@ -66,7 +66,7 @@ public class AttachmentBar {
     private static final long MAX_DOC_BYTES = 10L * 1024 * 1024;
 
     private final FlowPane attachChipsBox;
-    private final TextArea inputField;
+    private final JcefComposer inputField;
     private final Button attachButton;
     private final GimPaths gimPaths;
     private final ChatHost host;
@@ -82,7 +82,7 @@ public class AttachmentBar {
     /** 附件菜单最近一次关闭的时间戳（毫秒）：把「再点按钮」识别为关闭手势 */
     private long attachMenuHiddenAt;
 
-    public AttachmentBar(FlowPane attachChipsBox, TextArea inputField, Button attachButton,
+    public AttachmentBar(FlowPane attachChipsBox, JcefComposer inputField, Button attachButton,
                          GimPaths gimPaths, ChatHost host) {
         this.attachChipsBox = attachChipsBox;
         this.inputField = inputField;

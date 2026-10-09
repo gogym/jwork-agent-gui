@@ -33,8 +33,9 @@ try {
 # 版本号单一来源：从构建产物中 Maven 过滤后的 version.properties 读取，去掉 -SNAPSHOT 供 jpackage 使用
 $VersionFile = Join-Path $TargetDir "classes\version.properties"
 if (-not (Test-Path $VersionFile)) { throw "未找到过滤后的 version.properties: $VersionFile" }
-$RawVersion = (Get-Content $VersionFile | Where-Object { $_ -match '^app\.version=' } | Select-Object -First 1) -replace '^app\.version=', ''
-$AppVersion = ($RawVersion -replace '-SNAPSHOT$', '').Trim()
+# 显式 UTF-8 读取（文件含中文注释无 BOM，PS 5.1 默认按 ANSI 读会乱码致行匹配失败）；@(...)[0] 强制取首匹配行
+$verLine = @(Get-Content $VersionFile -Encoding UTF8 | Where-Object { $_ -match '^app\.version=' })[0]
+$AppVersion = (($verLine -replace '^app\.version=', '') -replace '-SNAPSHOT$', '').Trim()
 if (-not $AppVersion) { throw "无法从 version.properties 解析版本号" }
 Write-Host ("应用版本: " + $AppVersion)
 
@@ -59,6 +60,20 @@ $FinalType = if ($Type -eq "msi" -and $WixOk) { "msi" } else { "app-image" }
 
 Write-Host "== 4/4 jpackage ($FinalType) ==" -ForegroundColor Cyan
 if (-not (Test-Path $OutDir)) { New-Item -ItemType Directory -Force -Path $OutDir | Out-Null }
+
+# jpackage 不覆盖已存在的产物（目标已存在即报错）：重复打包前清理旧产物
+# （应用需已退出，否则 Jwork.exe 被占用会清理失败）
+$OldAppDir = Join-Path $OutDir $AppName
+if (Test-Path $OldAppDir) {
+    Write-Host ("清理旧 app-image 目录: " + $OldAppDir) -ForegroundColor Yellow
+    Remove-Item -Recurse -Force $OldAppDir
+}
+$OldMsi = Join-Path $OutDir ($AppName + "-" + $AppVersion + ".msi")
+if (Test-Path $OldMsi) {
+    Write-Host ("清理旧 msi: " + $OldMsi) -ForegroundColor Yellow
+    Remove-Item -Force $OldMsi
+}
+
 $jpackage = Join-Path $env:JAVA_HOME "bin\jpackage.exe"
 if (-not (Test-Path $jpackage)) { $jpackage = "jpackage" }
 

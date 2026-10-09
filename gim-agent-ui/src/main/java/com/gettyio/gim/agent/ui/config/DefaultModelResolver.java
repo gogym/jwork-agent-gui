@@ -99,8 +99,15 @@ public class DefaultModelResolver {
     /**
      * 主模型故障时的备用模型：与主模型同提供商，按 {@code priority} 升序取下一个启用且非主模型的模型；
      * 生成参数沿用智能体定义与主模型一致。无候选或主模型自身解析失败时返回 {@code null}（不启用 failover）。
+     * <p><b>消息级显式指定模型的轮次不提供备用</b>：用户在会话里选定了具体模型（对额度/资费/能力
+     * 有明确偏好，对比链路的目标也是所选模型），失败时直接报错比静默换模型更符合预期。</p>
      */
     public ModelSpec resolveFallback(AgentDefinition agent, String providerCode, String modelCode) {
+        // 消息级覆盖即「已指定」：与 resolveFor 同一谓词，不降级（失败经流错误原样显示给用户）
+        if (providerCode != null && !providerCode.isBlank()
+                && modelCode != null && !modelCode.isBlank()) {
+            return null;
+        }
         try {
             ModelSpec primary = resolveFor(agent, providerCode, modelCode);
             for (ModelConfig candidate : db.modelConfigDao().findEnabledByProvider(primary.providerCode())) {

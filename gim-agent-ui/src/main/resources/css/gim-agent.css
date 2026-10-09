@@ -1032,10 +1032,15 @@
 /* 压缩结果/失败回显行（默认中性灰，失败转红） */
 .context-popup-status { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; -fx-line-spacing: 1; }
 .context-popup-status-error { -fx-text-fill: -gim-badge-red-fg; }
+/* 单图标按钮：固定正方形（30×30），图标居中，与左侧附件组按钮行高一致 */
 .send-button {
     -fx-background-color: -gim-accent;
     -fx-background-radius: 10;
-    -fx-padding: 6 14 6 14;
+    -fx-min-width: 30;
+    -fx-pref-width: 30;
+    -fx-min-height: 30;
+    -fx-pref-height: 30;
+    -fx-padding: 0;
     -fx-cursor: hand;
 }
 .send-button:hover    { -fx-background-color: -gim-accent-hover; }
@@ -1043,7 +1048,7 @@
 .send-button:disabled { -fx-background-color: -gim-accent-disabled; }
 .send-icon {
     -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
-    -fx-font-size: 14px;
+    -fx-font-size: 12px;
     -fx-text-fill: -gim-bg;
 }
 /* 流式停止态：图标换成 Segoe Stop 字形(E71A)，与发送箭头同源故天然居中对齐；

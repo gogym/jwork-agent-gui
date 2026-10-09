@@ -56,7 +56,6 @@ import javafx.scene.control.RadioMenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
-import javafx.scene.control.TextArea;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
@@ -72,12 +71,10 @@ import javafx.scene.layout.VBox;
 import javafx.scene.image.Image;
 import javafx.scene.image.ImageView;
 import javafx.scene.shape.Rectangle;
-import javafx.scene.input.KeyCode;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
-import javafx.scene.input.KeyEvent;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Side;
@@ -150,7 +147,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @FXML
     private Button scrollBottomBtn;
     @FXML
-    private TextArea inputField;
+    private StackPane inputFieldHost;
+    /** 输入框组件：JCEF contenteditable（支持彩色 emoji），替代旧 JavaFX TextArea */
+    private com.gettyio.gim.agent.ui.jcef.JcefComposer inputField;
     @FXML
     private Button sendButton;
     @FXML
@@ -406,6 +405,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         StackPane.setAlignment(scrollBottomBtn, javafx.geometry.Pos.BOTTOM_CENTER);
         StackPane.setMargin(scrollBottomBtn, new javafx.geometry.Insets(0, 0, 16, 0));
         scrollBottomBtn.setOnAction(e -> chatView.scrollToBottom());
+        // 输入框：JCEF contenteditable 组件挂入 FXML 占位（彩色 emoji）；Enter 提交在组件内接线
+        inputField = new com.gettyio.gim.agent.ui.jcef.JcefComposer();
+        inputFieldHost.getChildren().add(inputField.node());
+        inputField.setOnSubmit(this::handleSend);
         attachmentBar = new com.gettyio.gim.agent.ui.chat.AttachmentBar(
                 attachChipsBox, inputField, attachButton, gimPaths, this);
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
@@ -432,13 +435,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         // 无消息时展示居中欢迎页：Java 侧在发送/重放/清空时直接置位，JS 就绪时亦经桥回抛 onEmpty 校准
         welcomePane.visibleProperty().bind(chatEmpty);
         welcomePane.managedProperty().bind(welcomePane.visibleProperty());
-        // 多行输入框：Enter 发送、Shift+Enter 换行（事件过滤器抢在 TextArea 默认插换行之前拦截）
-        inputField.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
-            if (e.getCode() == KeyCode.ENTER && !e.isShiftDown()) {
-                e.consume();
-                handleSend();
-            }
-        });
         // 输入变化即时刷新上下文占用条（预估下一轮的提示词体量）
         inputField.textProperty().addListener((obs, o, nv) -> statusBar.updateContext());
         // 按住说话：松开后转写文本插入输入框（QuickAsk 小窗同一套安装逻辑）
@@ -740,7 +736,15 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             GimDialog.message(ownerWindow(), I18n.t("context.compact.title"), null, I18n.t("context.compact.wait"));
             return;
         }
-        String text = inputField.getText();
+        // 输入框 DOM 是文本真相源：先经桥取回最新全文（键盘转发链路的异步窗口内镜像可能滞后）
+        inputField.requestSend(this::doSendWithText);
+    }
+
+    /** 发送主体：拿到输入框最新文本后执行发送（桥回期间忙态可能变化，复查后放行）。 */
+    private void doSendWithText(String text) {
+        if (isBusy()) {
+            return;
+        }
         boolean hasText = text != null && !text.isBlank();
         boolean hasImages = attachmentBar.hasImages();
         boolean hasRefs = attachmentBar.hasRefs();

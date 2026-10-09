@@ -547,6 +547,30 @@ public final class JcefOsrView {
         dispatchToBrowser(ev);
     }
 
+    // ---------- 键盘转发（JavaFX → 合成 AWT KeyEvent → CefBrowserOsr 的 KeyListener → Chromium） ----------
+
+    /**
+     * 键盘事件转发：供可输入视图（如 {@code JcefComposer}）的平台键盘事件直转 Chromium。
+     *
+     * <p>路径与鼠标转发一致：合成 AWT {@link java.awt.event.KeyEvent} 派发给浏览器组件，
+     * {@code CefBrowserOsr} 已在其画布上注册 KeyListener（keyTyped/keyPressed/keyReleased →
+     * {@code sendKeyEvent}），JNI 会把 AWT 事件转为 CEF KeyEvent 送达 Chromium。</p>
+     *
+     * <p>调用方在 FX 线程调用；合成事件经 AWT EDT 派发（与鼠标转发同一队列），
+     * 天然保证「同一批键盘动作」的先后顺序。</p>
+     *
+     * @param e         JavaFX 键盘事件（提供修饰键状态）
+     * @param awtEventId {@link java.awt.event.KeyEvent#KEY_PRESSED}/{@code KEY_TYPED}/{@code KEY_RELEASED}
+     * @param awtKeyCode AWT 键码（Windows 平台码＝VK 码，JavaFX {@code KeyCode.getCode()} 可直接使用）
+     * @param keyChar    按键字符（KEY_TYPED 用；其余传 0）
+     */
+    public void forwardKeyEvent(javafx.scene.input.KeyEvent e, int awtEventId, int awtKeyCode, char keyChar) {
+        final int mods = awtModifiers(e.isShiftDown(), e.isControlDown(), e.isAltDown(), e.isMetaDown());
+        final java.awt.event.KeyEvent ev = new java.awt.event.KeyEvent(
+                browser.getUIComponent(), awtEventId, System.currentTimeMillis(), mods, awtKeyCode, keyChar);
+        dispatchToBrowser(ev);
+    }
+
     private static int awtModifiers(boolean shift, boolean ctrl, boolean alt, boolean meta) {
         int m = 0;
         if (shift) m |= InputEvent.SHIFT_DOWN_MASK;

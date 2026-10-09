@@ -1,0 +1,76 @@
+/* 输入框（JCEF contenteditable）页面样式：视觉对齐 JavaFX 侧 .input-field（14px / 深色变量同源）。
+   字体链与 chat.css 同策略：Segoe UI Emoji 排在 Segoe UI Symbol 之前，彩色 emoji 字形优先命中。 */
+:root {
+    --text: #1d1d1b;
+    --placeholder: #a8a8a0;
+    --bg: #ffffff;
+    --scrollbar: rgba(0, 0, 0, 0.18);
+    --scrollbar-hover: rgba(0, 0, 0, 0.30);
+}
+
+html[data-theme="dark"] {
+    --text: #ececea;
+    --placeholder: #80807a;
+    --bg: #1e1e1d;
+    --scrollbar: rgba(255, 255, 255, 0.20);
+    --scrollbar-hover: rgba(255, 255, 255, 0.34);
+}
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    overflow: hidden;
+}
+
+body {
+    background: var(--bg);
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+    font-size: 14px;
+    line-height: 1.35;
+    color: var(--text);
+}
+
+#editor {
+    box-sizing: border-box;
+    height: 100%;
+    padding: 0 2px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    outline: none;
+    caret-color: var(--text);
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    user-select: text;
+}
+
+/* 空态占位符：JS 维护 is-empty 类（:empty 在残留 <br> 时不可靠） */
+#editor.is-empty::before {
+    content: attr(data-placeholder);
+    color: var(--placeholder);
+    pointer-events: none;
+}
+
+/* IME 组合预编辑文本：下划线提示（对齐 Windows 拼音原生样式） */
+#editor .composing {
+    text-decoration: underline dotted;
+    text-underline-offset: 2px;
+}
+
+/* 细滚动条：内容超过两行时出现（对齐原 TextArea 内部滚动） */
+#editor::-webkit-scrollbar {
+    width: 8px;
+}
+
+#editor::-webkit-scrollbar-thumb {
+    background: var(--scrollbar);
+    border-radius: 4px;
+}
+
+#editor::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-hover);
+}
+
+#editor::-webkit-scrollbar-corner {
+    background: transparent;
+}

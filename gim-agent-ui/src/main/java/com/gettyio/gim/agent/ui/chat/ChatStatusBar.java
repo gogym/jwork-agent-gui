@@ -11,13 +11,13 @@ import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.jcef.JcefComposer;
 import com.gettyio.gim.agent.ui.throttle.ModelRateGovernor;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
-import javafx.scene.control.TextArea;
 import javafx.scene.layout.HBox;
 import javafx.stage.Window;
 import reactor.core.publisher.Mono;
@@ -60,7 +60,7 @@ public final class ChatStatusBar {
     private final Label usageBar;
     private final Label contextBar;
     private final ProgressBar contextGauge;
-    private final TextArea inputField;
+    private final JcefComposer inputField;
     private final ChatService chatService;
     private final ModelRateGovernor rateGovernor;
     private final GimDatabase database;
@@ -82,7 +82,7 @@ public final class ChatStatusBar {
     private String popoverSessionId;
 
     public ChatStatusBar(Label usageBar, Label contextBar, ProgressBar contextGauge, HBox contextStats,
-                         TextArea inputField, ChatService chatService,
+                         JcefComposer inputField, ChatService chatService,
                          ModelRateGovernor rateGovernor, GimDatabase database,
                          Supplier<String> selectedModelCode, Supplier<String> currentSessionId,
                          ContextCompactor compactor) {
