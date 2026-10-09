@@ -78,6 +78,10 @@ if ($FinalType -eq "msi") {
     @MsiExtras `
     --java-options "-Xmx512m" `
     --java-options "-Dfile.encoding=UTF-8" `
+    --java-options "--add-exports=java.base/java.lang=ALL-UNNAMED" `
+    --java-options "--add-exports=java.desktop/sun.awt=ALL-UNNAMED" `
+    --java-options "--add-exports=java.desktop/sun.java2d=ALL-UNNAMED" `
+    --java-options "--add-opens=java.desktop/sun.awt=ALL-UNNAMED" `
     --dest $OutDir
 
 if ($LASTEXITCODE -ne 0) { throw "jpackage 执行失败" }

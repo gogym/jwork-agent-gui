@@ -537,7 +537,33 @@
     }
 
     // 滚动状态上报（回到底部按钮显隐 + 触顶补页）
+    // 节流 120ms：窗口内的中间事件合并，但必须「尾随补报」最后一次状态——否则滚动停止前
+    // 落进窗口的最终状态被直接丢弃（滑到底部的最后一次 scroll 事件大概率如此，且停止后
+    // 再无 scroll 事件修正），回到底部按钮便一直不隐藏。
     var lastReport = 0;
+    var reportTimer = null;
+    var pendingReport = null;
+    function reportScrollState(atBottom, scrollable) {
+        if (!bridge()) { return; }
+        var now = Date.now();
+        if (now - lastReport > 120) {
+            lastReport = now;
+            if (reportTimer) { clearTimeout(reportTimer); reportTimer = null; }
+            pendingReport = null;
+            bridge().onScrollState(atBottom, scrollable);
+            return;
+        }
+        pendingReport = [atBottom, scrollable];
+        if (!reportTimer) {
+            reportTimer = setTimeout(function () {
+                reportTimer = null;
+                lastReport = Date.now();
+                var p = pendingReport;
+                pendingReport = null;
+                if (p && bridge()) { bridge().onScrollState(p[0], p[1]); }
+            }, lastReport + 120 - now);
+        }
+    }
     window.addEventListener('scroll', function () {
         var y = window.pageYOffset || document.documentElement.scrollTop;
         var h = document.documentElement.scrollHeight;
@@ -547,8 +573,7 @@
         followBottom = atBottom || (h - ch - y) <= 120;
         if (bridge()) {
             if (y <= 4) { bridge().onScrollTop(); }
-            var now = Date.now();
-            if (now - lastReport > 120) { lastReport = now; bridge().onScrollState(atBottom, scrollable); }
+            reportScrollState(atBottom, scrollable);
         }
     }, { passive: true });
 

@@ -91,9 +91,10 @@
                 <artifactId>javafx-fxml</artifactId>
                 <version>${javafx.version}</version>
             </dependency>
+            <!-- JavaFX Media：语音播报 TtsService 用 javafx.scene.media.MediaPlayer（旧由 javafx-web 传递引入，web 移除后显式声明） -->
             <dependency>
                 <groupId>org.openjfx</groupId>
-                <artifactId>javafx-web</artifactId>
+                <artifactId>javafx-media</artifactId>
                 <version>${javafx.version}</version>
             </dependency>
             <!-- JCEF（Chromium 嵌入）：聊天区整页 OSR 渲染，彩色 emoji 无方块（me.friwi 版含自动下载 natives） -->

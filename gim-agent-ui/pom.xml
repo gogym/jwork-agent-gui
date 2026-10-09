@@ -46,12 +46,12 @@
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-fxml</artifactId>
         </dependency>
-        <!-- Mermaid 图表离线渲染（WebView 内嵌打包的 mermaid.min.js） -->
+        <!-- 语音播报：TtsService 依赖 javafx.scene.media（MediaPlayer） -->
         <dependency>
             <groupId>org.openjfx</groupId>
-            <artifactId>javafx-web</artifactId>
+            <artifactId>javafx-media</artifactId>
         </dependency>
-        <!-- JCEF（Chromium OSR）：聊天区彩色 emoji 渲染引擎 -->
+        <!-- JCEF（Chromium OSR）：聊天区彩色 emoji 渲染引擎（全面取代旧 javafx-web） -->
         <dependency>
             <groupId>me.friwi</groupId>
             <artifactId>jcefmaven</artifactId>
@@ -119,6 +119,13 @@
                 <artifactId>javafx-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>com.gettyio.gim.agent.ui.GimAgentApplication</mainClass>
+                    <!-- JCEF OSR（JOGL）在 JDK16+ 需要的模块开放参数，否则聊天区 GLCanvas 无法确定 GraphicsConfiguration -->
+                    <options>
+                        <option>--add-exports=java.base/java.lang=ALL-UNNAMED</option>
+                        <option>--add-exports=java.desktop/sun.awt=ALL-UNNAMED</option>
+                        <option>--add-exports=java.desktop/sun.java2d=ALL-UNNAMED</option>
+                        <option>--add-opens=java.desktop/sun.awt=ALL-UNNAMED</option>
+                    </options>
                 </configuration>
             </plugin>
         </plugins>

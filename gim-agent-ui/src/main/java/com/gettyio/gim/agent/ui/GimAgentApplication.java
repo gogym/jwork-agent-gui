@@ -84,7 +84,11 @@ public class GimAgentApplication extends Application {
         Scene scene = new Scene(shell.getNode(), 1080, 760, Color.TRANSPARENT);
         UiTheme.apply(scene);
         StageResizer.attach(scene, stage);
-        stage.setMinWidth(980);
+        // 最小宽度按聊天内容列兜底：聊天限宽列 #list max-width 800px + 滚动条 10px（web/chat.css），
+        // 窗口→聊天视口固定差约 290px（左侧栏/内容边距 261 + 右缘 29），1100 = 810 + 290。
+        // 低于此值视口不足 810，内容列被迫随视口收缩（气泡贴边/位移）——窗口缩到最小即内容列
+        // 最完整状态，保证「内容区域始终保持一致」。
+        stage.setMinWidth(1100);
         stage.setMinHeight(620);
         stage.setScene(scene);
         stage.show();

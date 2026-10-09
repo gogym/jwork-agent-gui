@@ -1,22 +1,23 @@
 package com.gettyio.gim.agent.ui.chat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gettyio.gim.agent.ui.UiTheme;
-import javafx.concurrent.Worker;
+import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
+import com.gettyio.gim.agent.ui.jcef.JcefResources;
 import javafx.scene.Parent;
-import javafx.scene.web.WebEngine;
-import javafx.scene.web.WebView;
-import netscape.javascript.JSObject;
+import javafx.scene.layout.StackPane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Mermaid 图表视图：内嵌 {@link WebView} 加载打包进应用资源的 mermaid.min.js 离线渲染。
- * <p>HTML 骨架内联在本类中：{@code <pre class="mermaid">} 放图表源码，mermaid 初始化时
- * 自动渲染；渲染完成后 JS 经 {@code JavaBridge} 回调文档高度，把 WebView 的 prefHeight
- * 调到刚好包住图形（外层滚动由消息区的 ScrollPane 统一处理，图内不出现双层滚动条）。
- * 主题跟随 {@link UiTheme}：亮色 {@code default}、暗色 {@code dark}。</p>
- * <p>资源缺失或渲染引擎初始化失败时返回 {@code null}（调用方回退普通代码块渲染），
- * 保证没有打包 mermaid.min.js 的构建产物也能正常显示对话。</p>
+ * Mermaid 图表视图：以 JCEF(Chromium OSR) 加载打包进应用资源的 {@code mermaid.min.js} 离线渲染。
+ * <p>页面由 {@link JcefResources#mermaidShell} 落地到临时目录（{@code mermaid.min.js} 与图表 HTML 同目录，
+ * 相对脚本引用为同源）；图表源码放入 {@code <pre class="mermaid">}，mermaid 初始化时自动渲染。渲染/重排后
+ * JS 经 {@code reportHeight} 垫片回抛文档高度，本类据此把宿主节点高度对齐到刚好包住图形
+ * （外层滚动由消息区/阅读区统一处理，图内不出现双层滚动条）。主题跟随 {@link UiTheme}。</p>
+ * <p>资源缺失或页面生成失败时 {@link #tryCreate} 仍按旧约定工作：资源不在 classpath 直接返回 {@code null}
+ * （调用方回退普通代码块渲染）。</p>
  */
 public class MermaidView {
 
@@ -25,30 +26,33 @@ public class MermaidView {
     /** 打包在资源目录里的 mermaid 离线脚本。 */
     public static final String MERMAID_JS = "/js/mermaid.min.js";
 
-    private final WebView webView = new WebView();
-    private final WebEngine engine = webView.getEngine();
+    private static final String QUERY_FN = "gimQuery";
+    private static final String CANCEL_FN = "gimCancel";
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+    /** 宿主节点默认宽度（CSS 像素）：容器未定宽前的初始视口宽度。 */
+    private static final double DEFAULT_WIDTH = 640;
+
+    private final JcefOsrView view;
+    private final StackPane host;
     /** 渲染完成后由 JS 回调写入的文档高度（像素）。 */
-    private volatile double docHeight = 80;
+    private volatile double docHeight = 120;
 
     private MermaidView(String code) {
-        webView.setPrefSize(640, 120);
-        webView.getStyleClass().add("md-mermaid");
-        engine.getLoadWorker().stateProperty().addListener((obs, o, state) -> {
-            if (state == Worker.State.SUCCEEDED) {
-                try {
-                    JSObject bridge = (JSObject) engine.executeScript("window");
-                    bridge.setMember("javaBridge", new JavaBridge());
-                    engine.executeScript(
-                            "new MutationObserver(function(){ window.javaBridge.reportHeight("
-                                    + "document.body.scrollHeight); }).observe(document.body,"
-                                    + "{childList:true,subtree:true,attributes:true});"
-                                    + "window.javaBridge.reportHeight(document.body.scrollHeight);");
-                } catch (Throwable t) {
-                    log.warn("Mermaid 高度桥接失败，退回默认高度", t);
-                }
-            }
-        });
-        engine.loadContent(buildHtml(code), "text/html");
+        this.view = new JcefOsrView(QUERY_FN, CANCEL_FN, this::onRequest);
+        this.host = view.node();
+        this.host.setPrefSize(DEFAULT_WIDTH, 120);
+        this.view.syncSize(DEFAULT_WIDTH, 120);
+        this.view.loadUrl(mermaidUrl(code));
+    }
+
+    private static String mermaidUrl(String code) {
+        try {
+            boolean dark = UiTheme.mode() == UiTheme.Mode.DARK;
+            return JcefResources.mermaidShell(code, dark, QUERY_FN);
+        } catch (Exception e) {
+            log.warn("Mermaid 页面生成失败，回退空白页", e);
+            return "about:blank";
+        }
     }
 
     /** 尝试渲染；mermaid 资源不在 classpath 时返回 {@code null} 交由调用方回退。 */
@@ -60,45 +64,31 @@ public class MermaidView {
         return new MermaidView(code);
     }
 
-    /** 渲染出的节点（WebView 已按内容高度自适应）。 */
+    /** 渲染出的节点（宿主已按内容高度自适应）。 */
     public Parent node() {
-        return webView;
+        return host;
     }
 
-    /** 组装内联 HTML：脚本从 classpath 取（resource URL），主题跟随应用。 */
-    private static String buildHtml(String code) {
-        boolean dark = UiTheme.mode() == UiTheme.Mode.DARK;
-        String src = MermaidView.class.getResource(MERMAID_JS).toExternalForm();
-        String escaped = code == null ? "" : code
-                .replace("&", "&amp;")
-                .replace("<", "&lt;")
-                .replace(">", "&gt;");
-        return """
-                <!DOCTYPE html>
-                <html><head><meta charset="utf-8">
-                <style>
-                  html,body { margin:0; padding:4px; background:transparent; overflow:hidden; }
-                  .mermaid svg { max-width: 100%%; height: auto; }
-                </style>
-                <script src="%s"></script>
-                </head><body>
-                <pre class="mermaid">%s</pre>
-                <script>
-                  mermaid.initialize({ startOnLoad: true, theme: '%s', securityLevel: 'strict' });
-                </script>
-                </body></html>
-                """.formatted(src, escaped, dark ? "dark" : "default");
-    }
-
-    /** JS→Java 高度回调：渲染/重排完成时把 WebView 高度对齐到文档实际高度。 */
-    private class JavaBridge {
-        public void reportHeight(double height) {
-            if (height > 0 && height < 4096) {
-                javafx.application.Platform.runLater(() -> {
-                    docHeight = height + 8;
-                    webView.setPrefHeight(docHeight);
-                });
+    /**
+     * JS→Java 高度回调：渲染/重排完成时把宿主高度对齐到文档实际高度。
+     * <p>已在 FX 线程触发（{@link JcefOsrView} 的 {@code onQuery} 经 {@code Platform.runLater} 派发）。</p>
+     */
+    private void onRequest(String json) {
+        try {
+            JsonNode root = MAPPER.readTree(json);
+            if (!"reportHeight".equals(root.path("fn").asText(""))) {
+                return;
             }
+            JsonNode a = root.path("args");
+            double h = a.isArray() && a.size() > 0 ? a.get(0).asDouble(0) : 0;
+            if (h > 0 && h < 4096) {
+                docHeight = h + 8;
+                host.setPrefHeight(docHeight);
+                double w = host.getWidth() > 0 ? host.getWidth() : DEFAULT_WIDTH;
+                view.syncSize(w, docHeight);
+            }
+        } catch (Throwable t) {
+            log.warn("Mermaid 高度回调解析失败", t);
         }
     }
 

@@ -75,10 +75,12 @@ public final class ChatWebView {
     /** 页面主框架装载完成：置就绪并按序重放挂起脚本（对齐旧 {@code installBridge} 语义）。 */
     private void onPageReady() {
         ready = true;
+        int n = pending.size();
         String script;
         while ((script = pending.pollFirst()) != null) {
             view.executeScript(script);
         }
+        log.info("聊天页面 load 完成，重放挂起脚本 {} 条", n);
     }
 
     /**
@@ -92,7 +94,10 @@ public final class ChatWebView {
             String fn = root.path("fn").asText("");
             JsonNode a = root.path("args");
             switch (fn) {
-                case "onReady" -> bridge.onReady();
+                case "onReady" -> {
+                    log.info("收到 JS onReady（CefMessageRouter 桥已连通）");
+                    bridge.onReady();
+                }
                 case "onAction" -> bridge.onAction(str(a, 0), lng(a, 1), str(a, 2));
                 case "onContext" -> bridge.onContext(lng(a, 0), dbl(a, 1), dbl(a, 2));
                 case "onScrollTop" -> bridge.onScrollTop();
@@ -101,7 +106,11 @@ public final class ChatWebView {
                 case "onImage" -> bridge.onImage(str(a, 0));
                 case "onCopyCode" -> bridge.onCopyCode(str(a, 0));
                 case "onPreviewCode" -> bridge.onPreviewCode(str(a, 0), str(a, 1));
-                case "onEmpty" -> bridge.onEmpty(bool(a, 0));
+                case "onEmpty" -> {
+                    boolean empty = bool(a, 0);
+                    log.info("收到 JS onEmpty={}", empty);
+                    bridge.onEmpty(empty);
+                }
                 default -> log.debug("忽略未知聊天桥方法: {}", fn);
             }
         } catch (Throwable t) {

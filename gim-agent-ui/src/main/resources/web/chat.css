@@ -129,10 +129,12 @@ html, body {
 }
 
 body {
-    /* 纯系统字体：WebView(WebKit) 只认操作系统已装字体，看不到 JavaFX 随包注册的 Noto Sans SC，
-       故不引用任何外置/随包字体。中文用微软雅黑 UI、拉丁用 Segoe UI，末尾补系统 emoji/符号
-       字体兜底（模型输出的 📋、① 等缺字形时不致变豆腐块）。 */
-    font-family: "Microsoft YaHei UI", "Segoe UI", "Segoe UI Symbol", "Segoe UI Emoji", sans-serif;
+    /* 纯系统字体：Chromium(JCEF) 只认操作系统已装字体，看不到 JavaFX 随包注册的 Noto Sans SC，
+       故不引用任何外置/随包字体。中文用微软雅黑 UI、拉丁用 Segoe UI；emoji 必须排在
+       "Segoe UI Symbol" 之前——Symbol 也覆盖增补平面 emoji 码位但只有单色字形，
+       排在前面会把 😁🎉 等彩色 emoji 拖成黑色单色（带 VS16 的 ❤️⚠️ 除外）；
+       符号类字符（①、★ 等）仍由 Symbol 尾随兜底，不致变豆腐块。 */
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
     font-size: var(--chat-font);
     line-height: 1.7;
     overflow-x: hidden;

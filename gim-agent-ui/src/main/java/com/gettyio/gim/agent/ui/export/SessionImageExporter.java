@@ -1,17 +1,12 @@
 package com.gettyio.gim.agent.ui.export;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
-import javafx.concurrent.Worker;
-import javafx.scene.Group;
-import javafx.scene.Scene;
-import javafx.scene.SnapshotParameters;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
-import javafx.scene.paint.Color;
-import javafx.scene.web.WebView;
-import javafx.stage.Stage;
-import javafx.stage.StageStyle;
 import javafx.stage.Window;
 import javafx.util.Duration;
 
@@ -24,18 +19,22 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * 会话长图导出：把 {@link SessionHtmlRenderer} 生成的 HTML 放进隐藏窗口内的 WebView 离屏渲染
- * （内容宽度固定 900 CSS 像素），按全内容高度一次性快照后编码为 PNG。
- * <p>隐藏窗口为 {@link StageStyle#UNDECORATED} + {@code opacity=0} + {@code initOwner}，
- * 不可见且不占任务栏；超长会话超过 8000 像素时按比例整体缩小（zoom），保证内容完整不截断、
- * 不触及 WebKit 纹理上限。zoom 缩放的是渲染内容，因此视口像素尺寸需同乘 zoom，逻辑视口
- * 始终保持 900 宽，快照恰好铺满内容不留空白。像素经 {@code PixelReader} 转为
- * {@code BufferedImage}（项目无 javafx-swing 依赖，不走 SwingFXUtils），PNG 编码在后台
- * 线程完成。必须在 JavaFX 应用线程调用。</p>
+ * 会话长图导出：把 {@link SessionHtmlRenderer} 生成的 HTML 交给 JCEF(Chromium OSR) 离屏渲染，
+ * 按全内容高度定尺寸后取最近一帧位图（{@link JcefOsrView#lastImage()}）编码为 PNG。
+ * <p>OSR 浏览器独立于 JavaFX 场景出帧（其自身以屏幕外 {@code Frame} realize），故无需挂 Stage：
+ * 页面加载后经 {@code reportHeight} 垫片回报文档高度，据此把 OSR 视口撑到全高（超上限则整体
+ * {@code zoom} 缩小），稳定后取位图。像素经 {@code PixelReader} 转为 {@code BufferedImage}
+ * （项目无 javafx-swing，不走 SwingFXUtils），PNG 编码在后台线程完成。必须在 JavaFX 应用线程调用。</p>
+ * <p>与聊天区同源用 Chromium 渲染，导出长图的 emoji/排版与界面一致。</p>
  */
 public final class SessionImageExporter {
 
     private static final Logger LOG = Logger.getLogger(SessionImageExporter.class.getName());
+    private static final ObjectMapper MAPPER = new ObjectMapper();
+
+    /** {@code CefMessageRouter} 注入 JS 的请求/取消函数名（与内联回报脚本一致）。 */
+    private static final String QUERY_FN = "gimQuery";
+    private static final String CANCEL_FN = "gimCancel";
 
     /** 长图内容宽度（CSS 像素）：与话题卡片 max-width 860px 匹配，两侧留边。 */
     private static final int CAPTURE_WIDTH = 900;
@@ -50,8 +49,25 @@ public final class SessionImageExporter {
     private static final int HEIGHT_PADDING = 2;
 
     /** 注入样式：隐藏滚动条，避免其出现在快照边缘。 */
-    private static final String SCROLLBAR_SUPPRESS =
-            "<style>::-webkit-scrollbar{width:0 !important;height:0 !important;}</style>";
+    private static final String STYLE_SUPPRESS =
+            "<style>::-webkit-scrollbar{width:0 !important;height:0 !important;}"
+                    + "html,body{margin:0;padding:0;}</style>";
+
+    /** 内联回报脚本：装载后经 {@code CefMessageRouter} 请求函数持续上报文档全高（图片解码/重排会多次触发）。 */
+    private static final String HEIGHT_REPORTER =
+            "<script>(function(){'use strict';var Q='" + QUERY_FN + "';"
+                    + "function rep(){try{if(typeof window[Q]==='function'){"
+                    + "window[Q]({request:JSON.stringify({fn:'height',args:[Math.max(document.body.scrollHeight,"
+                    + "document.documentElement.scrollHeight)]}),onSuccess:function(){},onFailure:function(){}});}}catch(e){}}"
+                    + "var mo=new MutationObserver(rep);"
+                    + "window.addEventListener('load',function(){mo.observe(document.body,{childList:true,subtree:true,attributes:true});rep();});"
+                    + "setTimeout(rep,60);setTimeout(rep,240);})();</script>";
+
+    /** 主动测量脚本：装载稳定后触发一次高度上报。 */
+    private static final String HEIGHT_POLL =
+            "try{window['" + QUERY_FN + "']({request:JSON.stringify({fn:'height',args:[Math.max("
+                    + "document.body.scrollHeight,document.documentElement.scrollHeight)]}),"
+                    + "onSuccess:function(){},onFailure:function(){}});}catch(e){}";
 
     private SessionImageExporter() {
     }
@@ -60,96 +76,106 @@ public final class SessionImageExporter {
      * 异步导出长图：在 FX 线程调用；成功后 FX 线程回调 {@code onSuccess}（落盘路径），
      * 失败回调 {@code onError}（用户可读原因）。
      */
+    @SuppressWarnings("unused")
     public static void export(Window owner, String html, Path target,
                               Consumer<Path> onSuccess, Consumer<String> onError) {
-        WebView view = new WebView();
-        view.setContextMenuEnabled(false);
-        view.setPrefWidth(CAPTURE_WIDTH);
-        view.setPrefHeight(PROBE_HEIGHT);
-        view.setZoom(1.0);
+        final Object[] latestHeight = new Object[1];
+        final boolean[] finished = new boolean[1];
+        final PauseTransition[] debounce = new PauseTransition[1];
+        final JcefOsrView[] holder = new JcefOsrView[1];
 
-        Stage stage = new Stage(StageStyle.UNDECORATED);
-        if (owner != null) {
-            stage.initOwner(owner);
-        }
-        stage.setOpacity(0);
-        Scene scene = new Scene(new Group(view), CAPTURE_WIDTH, PROBE_HEIGHT);
-        scene.setFill(Color.WHITE);
-        stage.setScene(scene);
-
-        boolean[] finished = new boolean[1];
-        view.getEngine().getLoadWorker().stateProperty().addListener((obs, old, state) -> {
-            if (state == Worker.State.SUCCEEDED) {
-                // 双 runLater 等布局落定，再留一小段延迟让内嵌图片完成解码
-                Platform.runLater(() -> Platform.runLater(() -> {
-                    PauseTransition settle = new PauseTransition(Duration.millis(200));
-                    settle.setOnFinished(e -> capture(view, stage, target, onSuccess, onError, finished));
-                    settle.play();
-                }));
-            } else if (state == Worker.State.FAILED) {
-                finish(stage, onError, finished, "网页渲染失败，无法导出长图");
+        JcefOsrView view = new JcefOsrView(QUERY_FN, CANCEL_FN, req -> {
+            try {
+                JsonNode n = MAPPER.readTree(req);
+                if (!"height".equals(n.path("fn").asText(""))) {
+                    return;
+                }
+                JsonNode a = n.path("args");
+                double h = a.isArray() && a.size() > 0 ? a.get(0).asDouble(0) : 0;
+                if (h <= 1) {
+                    return;
+                }
+                latestHeight[0] = h;
+                if (debounce[0] != null) {
+                    debounce[0].stop();
+                }
+                PauseTransition t = new PauseTransition(Duration.millis(400));
+                t.setOnFinished(e -> sizeAndCapture(holder[0], latestHeight[0], target, onSuccess, onError, finished));
+                debounce[0] = t;
+                t.play();
+            } catch (Throwable ignored) {
+                // 单个脏高度事件忽略，由后续上报或超时兜底
             }
         });
+        holder[0] = view;
 
-        stage.show();
-        view.getEngine().loadContent(withScrollbarSuppressed(html), "text/html");
+        view.setOnLoadEnd(() -> {
+            PauseTransition settle = new PauseTransition(Duration.millis(200));
+            settle.setOnFinished(e -> {
+                view.executeScript(HEIGHT_POLL);
+                if (!finished[0] && latestHeight[0] == null) {
+                    // 装载完成但尚未收到高度：稍后仍无则报错
+                    PauseTransition guard = new PauseTransition(Duration.millis(1500));
+                    guard.setOnFinished(e2 -> {
+                        if (!finished[0] && latestHeight[0] == null) {
+                            fail(view, onError, finished, "页面高度测量失败，无法导出长图");
+                        }
+                    });
+                    guard.play();
+                }
+            });
+            settle.play();
+        });
+
+        view.syncSize(CAPTURE_WIDTH, PROBE_HEIGHT);
+        view.loadData(withReporter(html));
     }
 
-    /** 测量页面全高 → 计算缩放 → 调整视口尺寸 → 延迟快照。 */
-    private static void capture(WebView view, Stage stage, Path target,
-                                Consumer<Path> onSuccess, Consumer<String> onError, boolean[] finished) {
-        if (finished[0]) {
+    /** 测量到全高 → 计算缩放 → 撑高 OSR 视口 → 稳定后取帧。 */
+    private static void sizeAndCapture(JcefOsrView view, Object heightObj, Path target,
+                                       Consumer<Path> onSuccess, Consumer<String> onError, boolean[] finished) {
+        if (finished[0] || view == null) {
             return;
         }
-        double cssHeight;
-        try {
-            Object result = view.getEngine().executeScript(
-                    "Math.max(document.body.scrollHeight, document.documentElement.scrollHeight)");
-            cssHeight = result instanceof Number n ? n.doubleValue() : 0;
-        } catch (Exception e) {
-            cssHeight = 0;
-        }
+        double cssHeight = heightObj instanceof Double d ? d : 0;
         if (cssHeight <= 1) {
-            finish(stage, onError, finished, "页面高度测量失败，无法导出长图");
+            fail(view, onError, finished, "页面高度测量失败，无法导出长图");
             return;
         }
-
         double totalCss = cssHeight + HEIGHT_PADDING;
-        double zoom = Math.min(1.0, MAX_OUTPUT_HEIGHT / totalCss);
-        double pixelWidth = Math.ceil(CAPTURE_WIDTH * zoom);
-        double pixelHeight = Math.ceil(totalCss * zoom);
+        double zoom = Math.min(1.0, (double) MAX_OUTPUT_HEIGHT / totalCss);
+        int pixelWidth = (int) Math.ceil(CAPTURE_WIDTH * zoom);
+        int pixelHeight = (int) Math.ceil(totalCss * zoom);
 
-        // zoom 缩放渲染内容：视口像素尺寸乘以 zoom 后，逻辑视口仍为 CAPTURE_WIDTH 宽，
-        // 快照恰好铺满内容（否则 zoom<1 时图右侧会留白）
-        view.setZoom(zoom);
-        view.setPrefWidth(pixelWidth);
-        view.setPrefHeight(pixelHeight);
-        stage.setWidth(pixelWidth);
-        stage.setHeight(pixelHeight);
+        if (zoom < 1.0) {
+            view.executeScript("document.body.style.zoom='" + zoom + "';");
+        }
+        view.syncSize(pixelWidth, pixelHeight);
 
-        PauseTransition settle = new PauseTransition(Duration.millis(150));
-        settle.setOnFinished(e -> snapshot(view, stage, (int) pixelWidth, (int) pixelHeight,
-                target, onSuccess, onError, finished));
+        PauseTransition settle = new PauseTransition(Duration.millis(320));
+        settle.setOnFinished(e -> snapshot(view, target, onSuccess, onError, finished));
         settle.play();
     }
 
-    /** 整节点快照 → BufferedImage → 关窗 → 后台线程写 PNG。 */
-    private static void snapshot(WebView view, Stage stage, int width, int height, Path target,
+    /** 取最近一帧位图 → {@code BufferedImage} → 关浏览器 → 后台线程写 PNG。 */
+    private static void snapshot(JcefOsrView view, Path target,
                                  Consumer<Path> onSuccess, Consumer<String> onError, boolean[] finished) {
         if (finished[0]) {
             return;
         }
         try {
-            SnapshotParameters params = new SnapshotParameters();
-            params.setFill(Color.WHITE);
-            WritableImage image = new WritableImage(width, height);
-            view.snapshot(params, image);
-
+            WritableImage image = view.lastImage();
+            if (image == null) {
+                fail(view, onError, finished, "长图渲染为空，请稍后重试");
+                return;
+            }
+            int width = (int) image.getWidth();
+            int height = (int) image.getHeight();
             int[] pixels = new int[width * height];
             image.getPixelReader().getPixels(0, 0, width, height,
                     PixelFormat.getIntArgbInstance(), pixels, 0, width);
             if (looksBlank(pixels)) {
-                finish(stage, onError, finished, "长图渲染为空，请稍后重试");
+                fail(view, onError, finished, "长图渲染为空，请稍后重试");
                 return;
             }
 
@@ -157,7 +183,7 @@ public final class SessionImageExporter {
             buffered.setRGB(0, 0, width, height, pixels, 0, width);
 
             finished[0] = true;
-            stage.close();
+            view.dispose();
 
             Thread worker = new Thread(() -> {
                 try {
@@ -176,12 +202,12 @@ public final class SessionImageExporter {
             worker.start();
         } catch (Exception e) {
             LOG.log(Level.WARNING, "会话长图快照失败", e);
-            finish(stage, onError, finished, "长图渲染失败：" + e.getMessage());
+            fail(view, onError, finished, "长图渲染失败：" + e.getMessage());
         }
     }
 
-    /** 抽样校验：整图近乎同色视为渲染异常（隐藏窗口未出图的典型表现），宁可报错也不输出空白图。 */
-    private static boolean looksBlank(int[] pixels) {
+    /** 抽样校验：整图近乎同色视为渲染异常（未出图的典型表现），宁可报错也不输出空白图。 */
+    static boolean looksBlank(int[] pixels) {
         int step = Math.max(1, pixels.length / 4096);
         int probe = pixels[0];
         for (int i = step; i < pixels.length; i += step) {
@@ -192,21 +218,31 @@ public final class SessionImageExporter {
         return true;
     }
 
-    private static String withScrollbarSuppressed(String html) {
+    /** 注入隐藏滚动条样式与高度回报脚本：优先插入 {@code </head>} 前，否则前置/追加。 */
+    static String withReporter(String html) {
         String safe = html == null ? "" : html;
-        return safe.contains("</head>")
-                ? safe.replace("</head>", SCROLLBAR_SUPPRESS + "</head>")
-                : SCROLLBAR_SUPPRESS + safe;
+        String head = STYLE_SUPPRESS;
+        if (safe.contains("</head>")) {
+            safe = safe.replace("</head>", head + "</head>");
+        } else {
+            safe = head + safe;
+        }
+        if (safe.contains("</body>")) {
+            safe = safe.replace("</body>", HEIGHT_REPORTER + "</body>");
+        } else {
+            safe = safe + HEIGHT_REPORTER;
+        }
+        return safe;
     }
 
-    /** 幂等的失败收尾：仅第一次生效，关闭隐藏窗口并回调错误。 */
-    private static void finish(Stage stage, Consumer<String> onError, boolean[] finished, String message) {
+    /** 幂等失败收尾：仅第一次生效，关闭浏览器并回调错误。 */
+    private static void fail(JcefOsrView view, Consumer<String> onError, boolean[] finished, String message) {
         if (finished[0]) {
             return;
         }
         finished[0] = true;
-        if (stage != null) {
-            stage.close();
+        if (view != null) {
+            view.dispose();
         }
         if (onError != null) {
             onError.accept(message);

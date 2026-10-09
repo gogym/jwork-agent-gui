@@ -429,7 +429,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                         return chatService.compact(agentOfSession(sessionId), sessionId);
                     }
                 });
-        // 无消息时展示居中欢迎页，有消息后自动隐藏（由 WebView 经桥回抛 onEmpty 驱动）
+        // 无消息时展示居中欢迎页：Java 侧在发送/重放/清空时直接置位，JS 就绪时亦经桥回抛 onEmpty 校准
         welcomePane.visibleProperty().bind(chatEmpty);
         welcomePane.managedProperty().bind(welcomePane.visibleProperty());
         // 多行输入框：Enter 发送、Shift+Enter 换行（事件过滤器抢在 TextArea 默认插换行之前拦截）
@@ -782,7 +782,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         inputField.clear();
         List<StoredAttachment> liveFiles = attachmentBar.previewDocRefs();
         attachmentBar.clearPending();
-        // 先以无主键(0)上屏，收尾后统一从库重放补齐主键与操作能力
+        // 先以无主键(0)上屏，收尾后统一从库重放补齐主键与操作能力；一旦上屏即非空态
+        chatEmpty.set(false);
         chatView.appendMessage(payload.userLive(0, body, images, liveFiles));
         String sessionId = currentSessionId;
         String agentCode = agentOfSession(sessionId);
@@ -846,6 +847,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         List<StoredAttachment> liveFiles = attachmentBar.previewDocRefs();
         attachmentBar.clearPending();
         // 与普通发送一致：用户气泡先上屏（不落库，主键 0）
+        chatEmpty.set(false);
         chatView.appendMessage(payload.userLive(0, body, images, liveFiles));
         runCompare(body, images, targets);
         statusBar.updateContext();
@@ -1046,6 +1048,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         String sid = currentSessionId;
         String agent = agentOfSession(sid);
+        chatEmpty.set(false);
         chatView.appendMessage(payload.userLive(0, prompt, List.of(), List.of()));
         final long genId = --streamSeq;
         chatView.streamStart(genId);
@@ -1098,6 +1101,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
      */
     private void runStream(Flux<StreamEvent> flux, String sessionId, boolean planTurn) {
         final long streamId = --streamSeq;
+        chatEmpty.set(false);
         chatView.streamStart(streamId);
         StringBuilder acc = new StringBuilder();
         enterStreamingUi(sessionId);
@@ -1329,6 +1333,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         chatView.renderHistory(com.gettyio.gim.agent.ui.chat.ChatMessagePayload.toJson(msgs));
         chatView.setFlags(lastAssistantId, lastUserId);
+        // 欢迎页显隐跟 Java 侧真实数据走，不依赖 JS 桥存活
+        chatEmpty.set(history.isEmpty());
         hasMoreOlder = history.size() >= ChatService.HISTORY_PAGE_SIZE;
         if (!history.isEmpty() && history.get(0).getId() != null) {
             oldestLoadedId = history.get(0).getId();
@@ -1539,6 +1545,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         currentSessionId = null;
         hidePlanBanner();
         chatView.clear();
+        chatEmpty.set(true);
         updateHeaderTitle();
     }
 

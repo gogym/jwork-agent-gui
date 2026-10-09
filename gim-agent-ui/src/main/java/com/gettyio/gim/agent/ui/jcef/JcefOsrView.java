@@ -7,12 +7,15 @@ import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.StackPane;
 import org.cef.CefClient;
+import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
 import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
 import org.cef.callback.CefQueryCallback;
+import org.cef.handler.CefDisplayHandlerAdapter;
 import org.cef.handler.CefLoadHandlerAdapter;
 import org.cef.handler.CefMessageRouterHandlerAdapter;
+import org.cef.handler.CefRenderHandler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +24,7 @@ import java.awt.Component;
 import java.awt.Dimension;
 import java.awt.EventQueue;
 import java.awt.Frame;
+import java.awt.event.InputEvent;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -52,6 +56,100 @@ public final class JcefOsrView {
     private final CefMessageRouter router;
     private volatile Frame realize;
     private volatile Runnable loadEnd;
+    /** native browser 创建前到达的装载请求暂存（native 在 GLCanvas 首次 paint 时才真正创建）。 */
+    private String pendingUrl;
+    /** native browser 是否已创建：首个主框架 {@code onLoadStart} 即为其存在的确证。 */
+    private boolean nativeCreated;
+    /** {@link #pendingUrl}/{@link #nativeCreated} 的并发门闩（loadUrl 在 FX 线程、装载事件在 CEF 线程）。 */
+    private final Object loadGate = new Object();
+    /** 最近一次 {@code onPaint} 产出的位图（供离屏快照/导出直接读取，无需 FX 场景）。 */
+    private volatile WritableImage lastFrame;
+    /** 最近一帧「可信完整」帧：非重排期到达的帧（或重排平静后上屏的那帧）。拖动过渡重绘与
+     *  常规上屏只用它——重排窗口期内 lastFrame 会被「半新半旧」的分块半成品刷新，若拖动重绘
+     *  直接读取，会把拼贴画面画上屏（实测：快速连续拉大时出现上半旧布局+下半新布局的错位画面）。 */
+    private WritableImage stableFrame;
+    /** OSR 帧双缓冲槽（仅 FX 线程读写）：写入总是选「非 stableFrame」的槽，使 stableFrame 的
+     *  像素在下次更新前保持冻结（setPixels 会立刻改写缓冲，单缓冲复用会让「稳定帧」被覆写）。 */
+    private WritableImage frameBufA;
+    private WritableImage frameBufB;
+    /** 首帧诊断日志只打一次。 */
+    private volatile boolean firstFrameLogged;
+    /** syncSize 首次日志只打一次。 */
+    private volatile boolean syncLogged;
+    /** syncSize 最新目标尺寸（窗口拖动 resize 高频触发，合并去重只保留最新值，防 AWT 队列积压）。 */
+    private volatile int pendingSizeW = -1;
+    private volatile int pendingSizeH = -1;
+    /** 是否已有 setSize 任务在 AWT 队列中等待（保证队列中至多一个 resize 任务）。 */
+    private final java.util.concurrent.atomic.AtomicBoolean sizeTaskQueued =
+            new java.util.concurrent.atomic.AtomicBoolean();
+    /** 最近一次实际下发的组件尺寸（相同则跳过 setSize，免无谓的 wasResized 全页重排）。 */
+    private volatile int lastSetSizeW = -1;
+    private volatile int lastSetSizeH = -1;
+    /** 最近一次按下且未释放的按钮（AWT 码）：拖动修饰符的兜底来源（FX 线程读写）。 */
+    private int pressedButton = java.awt.event.MouseEvent.NOBUTTON;
+    /** resize 停止后的 trailing 下发器：保证最终尺寸一定送达 CEF（仅 FX 线程）。 */
+    private javafx.animation.PauseTransition sizeFlushDelay;
+    /** 「重排敏感期」截止（ns）：CEF 收到新尺寸后，在新布局光栅化完成前会持续输出「旧场景+新场景」
+     *  的分块拼贴半成品帧（实测：快速拉大时出现上半旧布局+下半新布局的错位画面；CEF 官方
+     *  issue #4166 确认 OnPaint 会间歇给出「全幅但视觉不完整的中间合成帧」且无就绪信号）。
+     *  期内帧一律不上屏，待「连续两帧内容一致」或超时兜底后收尾（见 handleFrameInResizeSensitive）。
+     *  写于 AWT(setSize) 侧与 FX 侧。 */
+    private volatile long resizeGuardUntilNs = 0L;
+    /** 本次重排敏感期起始（ns，写于 AWT setSize 侧）：连续帧流的兜底基准 {@link #RESIZE_HARD_MAX_MS}。 */
+    private volatile long resizeGuardStartNs = 0L;
+    /** 本代际（本轮 setSize 后）是否已收到过帧：false 时任何帧都不得即时上屏（防首帧晚到绕开敏感期）。 */
+    private volatile boolean resizeFirstFrameSeen = true;
+    /** 敏感期内上一帧的采样签名（FX 线程）：连续两帧签名一致 = 画面已稳定（重排完成）。 */
+    private byte[] prevFrameSig;
+    private int prevFrameSigW = -1;
+    private int prevFrameSigH = -1;
+    /** 本轮验证已请求的重绘次数（FX 线程）：未达成「连续帧一致」或耗尽前，用 invalidate 主动取帧比对。 */
+    private int invalidateRetries = 0;
+    /** CefBrowser_N#invalidate 的反射句柄（无公共 API）：请求一次强制重绘用于收尾验证。 */
+    private java.lang.reflect.Method invalidateMethod;
+    /** 重排收尾的「帧流平静」定时器（仅 FX 线程）：每帧续期；平静后发起 invalidate 取验证帧。 */
+    private javafx.animation.PauseTransition resizeHold;
+    /** 重排收尾平静阈值（ms）：跨过 Chromium 分块光栅化的批次间隙（间隙内的半成品帧不得上屏）。 */
+    private static final long RESIZE_QUIET_MS = 500;
+    /** 敏感期/冷却长度（ms）：setSize 后及收尾后各延长一次——防拖后滚动帧误即时上屏、防收尾过早。 */
+    private static final long RESIZE_GUARD_MS = 1200;
+    /** 连续帧流兜底（ms）：帧流不断（页面动画/流式叠加拖动）时放弃攒帧保护回到即时，防画面冻结。 */
+    private static final long RESIZE_HARD_MAX_MS = 3000;
+    /** 收尾验证最多请求的重绘帧数：每次「平静→invalidate→比对」为一轮，最多 3 轮。 */
+    private static final int RESIZE_VERIFY_MAX = 3;
+
+    // ===== 合成拖动兜底（远程桌面等环境：按住拖动期间移动事件不进入 JavaFX） =====
+    /** 最近一次真实指针事件（move/drag/press）时间戳（ns）：兜底轮询据此避免与真实事件重复。 */
+    private volatile long lastRealPointerNs = 0L;
+    /** 兜底轮询器（仅 FX 线程操作）。 */
+    private javafx.animation.Timeline dragPoll;
+    /** AWT 屏幕坐标 → JavaFX 屏幕坐标 校准偏移（press 时刻双源采样）。 */
+    private double screenCalX = Double.NaN;
+    private double screenCalY = Double.NaN;
+    /** 上一次轮询到的 JavaFX 屏幕坐标。 */
+    private double pollLastX = Double.NaN;
+    private double pollLastY = Double.NaN;
+    /** 兜底轮询启动时间（防幽灵拖动的总时长上限）。 */
+    private long pollStartNs = 0L;
+    /** JNA 可用性探测结果（null=未探测）。 */
+    private static volatile Boolean jnaOk = null;
+
+    /** user32 的 GetAsyncKeyState：读取全局左键物理状态（兜底轮询判定「真实松开」）。 */
+    private interface User32 extends com.sun.jna.Library {
+        short GetAsyncKeyState(int vKey);
+        User32 INSTANCE = com.sun.jna.Native.load("user32", User32.class);
+    }
+    /** 滚轮一格（JavaFX 的 deltaY=±40）对应 AWT wheelRotation=±1。 */
+    private static final double WHEEL_NOTCH = 40.0;
+    /**
+     * CEF 世界的滚轮“一格”= WHEEL_DELTA = 120（Qt‑CEF 等主流集成的标准值）。
+     * JCEF 的 JNI（CefBrowser_N.cpp SendMouseWheelEvent）把 {@code getUnitsToScroll()}
+     * （= scrollAmount × wheelRotation）原样作为 delta 传给 CEF、无额外放大，
+     * 故这里把 scrollAmount 定为 120，使 JavaFX 一格 → delta=120，与原生窗口滚轮同速。
+     */
+    private static final int WHEEL_DELTA_UNITS = 120;
+    /** 帧右缘「滚动条搬运带」宽度（px）：拖动过渡期间把该带复制到画布右缘实现滚动条贴边。 */
+    private static final int EDGE_BAR = 20;
 
     private final String queryFn;
     private final String cancelFn;
@@ -64,6 +162,10 @@ public final class JcefOsrView {
     public JcefOsrView(String queryFn, String cancelFn, Consumer<String> requestHandler) {
         this.queryFn = queryFn;
         this.cancelFn = cancelFn;
+        // 尺寸完全由 CEF 帧驱动，脱离父布局计算：Canvas 属非 resizable 节点，其宽高会被 StackPane
+        // 计入 min/pref 尺寸——窗口拉宽后 canvas 变大并把宿主的最小宽度撑大，窗口缩小时布局被卡住
+        // 缩不回（表现为内容不缩回、画布被居中偏移）。取消托管后宿主尺寸完全随容器，画布定位固定左上。
+        canvas.setManaged(false);
         this.client = JcefRuntime.get().createClient();
 
         CefMessageRouter.CefMessageRouterConfig cfg = new CefMessageRouter.CefMessageRouterConfig();
@@ -93,47 +195,392 @@ public final class JcefOsrView {
 
         this.client.addLoadHandler(new CefLoadHandlerAdapter() {
             @Override
+            public void onLoadStart(CefBrowser b, CefFrame f, org.cef.network.CefRequest.TransitionType tt) {
+                if (f != null && f.isMain()) {
+                    log.info("JCEF 主框架开始装载: {}", abbrev(f.getURL()));
+                    // 首个主框架装载事件 = GLCanvas 首次 paint 已触发、native browser 已创建。
+                    // 此前 loadUrl 若被过早调用（native 未创建时 JCEF 会静默丢弃 loadURL），此刻补发。
+                    String p = null;
+                    synchronized (loadGate) {
+                        if (!nativeCreated) {
+                            nativeCreated = true;
+                            p = pendingUrl;
+                            pendingUrl = null;
+                        }
+                    }
+                    if (p != null) {
+                        log.info("JCEF native browser 就绪，补发生效此前暂存的装载请求: {}", abbrev(p));
+                        b.loadURL(p);
+                    }
+                }
+            }
+
+            @Override
             public void onLoadEnd(CefBrowser b, CefFrame f, int httpStatusCode) {
-                if (f != null && f.isMain() && loadEnd != null) {
-                    Runnable r = loadEnd;
-                    Platform.runLater(r);
+                if (f != null && f.isMain()) {
+                    String url = f.getURL();
+                    log.info("JCEF 主框架装载完成: url={} http={}", abbrev(url), httpStatusCode);
+                    // 初始 about:blank（或被补发导航中断的它）不是真实页面：不得用它触发就绪/快照回调，
+                    // 否则挂起脚本会在空白页上下文重放（ChatAPI 未定义）。
+                    if (loadEnd != null && url != null && !url.startsWith("about:")) {
+                        Runnable r = loadEnd;
+                        Platform.runLater(r);
+                    }
+                }
+            }
+
+            @Override
+            public void onLoadError(CefBrowser b, CefFrame f,
+                                    org.cef.handler.CefLoadHandler.ErrorCode ec, String text, String url) {
+                if (f != null && f.isMain()) {
+                    if (url != null && url.startsWith("about:")) {
+                        log.debug("JCEF 初始空白页装载被补发导航中断（正常）: {}", abbrev(url));
+                        return;
+                    }
+                    log.error("JCEF 主框架装载失败: {} {} url={}", ec, text, abbrev(url));
                 }
             }
         });
 
-        this.client.setOnPaintListener(evt -> {
-            ByteBuffer bf = evt.getRenderedFrame();
-            final int w = evt.getWidth(), h = evt.getHeight();
-            if (bf == null || w <= 0 || h <= 0) return;
-            final byte[] arr = new byte[w * h * 4];
-            bf.rewind();
-            bf.get(arr, 0, Math.min(arr.length, bf.remaining()));
-            final int stride = w * 4;
-            Platform.runLater(() -> {
-                WritableImage img = new WritableImage(w, h);
-                img.getPixelWriter().setPixels(0, 0, w, h,
-                        PixelFormat.getByteBgraPreInstance(), arr, 0, stride);
-                GraphicsContext gc = canvas.getGraphicsContext2D();
-                gc.clearRect(0, 0, canvas.getWidth(), canvas.getHeight());
-                gc.drawImage(img, 0, 0);
-                canvas.setWidth(w);
-                canvas.setHeight(h);
-            });
+        // 页面 JS 的 console 输出与未捕获错误转进应用日志：诊断「不出气泡/桥未连通」时可直接看到 GIM_* 标记。
+        this.client.addDisplayHandler(new CefDisplayHandlerAdapter() {
+            @Override
+            public boolean onConsoleMessage(CefBrowser b, CefSettings.LogSeverity level,
+                                            String message, String source, int line) {
+                boolean notable = level == CefSettings.LogSeverity.LOGSEVERITY_ERROR
+                        || level == CefSettings.LogSeverity.LOGSEVERITY_WARNING
+                        || level == CefSettings.LogSeverity.LOGSEVERITY_FATAL
+                        || (message != null && message.contains("GIM_"));
+                if (notable) {
+                    log.info("JS console [{}] {} ({}:{})", level, message, source, line);
+                }
+                return false;
+            }
         });
 
         this.browser = client.createBrowser("about:blank", true, false);
         this.browser.setWindowlessFrameRate(30);
 
+        // OSR 出帧回调必须注册到「浏览器的渲染处理器」上：CefClient.setOnPaintListener 在本 build 里是
+        // 空实现（no-op），真正的帧监听在 CefBrowserOsr（实现 CefRenderHandler）内，经 browser.getRenderHandler() 取。
+        CefRenderHandler renderHandler = browser.getRenderHandler();
+        if (renderHandler == null) {
+            log.error("browser.getRenderHandler() 为空，无法注册 OSR 帧监听，本视图不会产帧");
+        } else {
+            renderHandler.setOnPaintListener(evt -> {
+                ByteBuffer bf = evt.getRenderedFrame();
+                final int w = evt.getWidth(), h = evt.getHeight();
+                if (!firstFrameLogged) {
+                    firstFrameLogged = true;
+                    log.info("OSR onPaint 首次回调: buffer={}, {}x{}", (bf == null ? "null" : "ok"), w, h);
+                }
+                if (bf == null || w <= 0 || h <= 0) return;
+                final byte[] arr = new byte[w * h * 4];
+                bf.rewind();
+                bf.get(arr, 0, Math.min(arr.length, bf.remaining()));
+                final int stride = w * 4;
+                Platform.runLater(() -> {
+                    // 双缓冲轮换写入「非 stableFrame」的槽：稳定帧像素在下次更新前保持冻结；
+                    // 同尺寸重复使用，避免每帧新建全幅缓冲（4MB/帧 × 30fps）拖累 GC。
+                    final WritableImage img;
+                    if (stableFrame == frameBufA) {
+                        if (frameBufB == null || frameBufB.getWidth() != w || frameBufB.getHeight() != h) {
+                            frameBufB = new WritableImage(w, h);
+                        }
+                        img = frameBufB;
+                    } else {
+                        if (frameBufA == null || frameBufA.getWidth() != w || frameBufA.getHeight() != h) {
+                            frameBufA = new WritableImage(w, h);
+                        }
+                        img = frameBufA;
+                    }
+                    img.getPixelWriter().setPixels(0, 0, w, h,
+                            PixelFormat.getByteBgraPreInstance(), arr, 0, stride);
+                    lastFrame = img;
+                    // 重排敏感期（或本代际首帧尚未到达）内的帧多为「旧场景+新场景」的拼贴半成品，
+                    // 一律不上屏——保持稳定帧过渡绘制，直至验证出稳定（见 handleFrameInResizeSensitive）。
+                    final long nowNs = System.nanoTime();
+                    if (nowNs < resizeGuardUntilNs || !resizeFirstFrameSeen) {
+                        handleFrameInResizeSensitive(img, w, h, nowNs);
+                    } else {
+                        stableFrame = img; // 非重排期帧 = 完整帧，同步为「拖动重绘可用的可信帧」
+                        paintFrameNow();
+                    }
+                });
+            });
+        }
+
         // 宿主尺寸变化 → 同步 OSR native 尺寸，令 Chromium 按真实视口重排重绘
         host.widthProperty().addListener((obs, o, n) -> syncSize(n.doubleValue(), host.getHeight()));
         host.heightProperty().addListener((obs, o, n) -> syncSize(host.getWidth(), n.doubleValue()));
 
+        // OSR 下浏览器组件（GLCanvas）藏在屏幕外帧里，收不到任何真实输入；把 JavaFX 画布上的鼠标
+        // 事件合成为 AWT 事件并 dispatch 给浏览器组件（CefBrowserOsr 已在其中注册 Mouse/Wheel 监听器，
+        // 会转成 sendMouse*Event 送达 Chromium）——否则滚轮、拖动滚动条、点击、悬停全部失效。
+        installInputForwarding();
+
         EventQueue.invokeLater(this::realizeOffscreen);
+    }
+
+    // ---------- 输入转发（JavaFX → 合成 AWT 事件 → CefBrowserOsr 监听器 → Chromium） ----------
+
+    /** 在画布上安装鼠标/滚轮转发（事件坐标取画布本地坐标，与 OSR 位图 1:1 对齐）。 */
+    private void installInputForwarding() {
+        canvas.setPickOnBounds(true);
+        // 平台对「按住移动」的事件类型上报存在差异：部分设备/驱动（触摸板手势拖动等）在按住
+        // 拖动期间只发 MOUSE_MOVED 而非 MOUSE_DRAGGED（实测日志：按住拖动 160px 期间零 DRAGGED）。
+        // 若按普通移动合成，Chromium 收不到按钮位，滚动条/选区拖动状态被打断——表现为「滚轮能滚、
+        // 按住拖不动」。故此处依据「事件按钮标志 或 本地跟踪的按下未释放按钮」把移动升级为拖动；
+        // 无按钮的纯悬停仍走 MOUSE_MOVED（此时 pressedButton 为空，不影响正常悬停）。
+        canvas.setOnMouseMoved(e -> {
+            final boolean buttonHeld = e.isPrimaryButtonDown() || e.isMiddleButtonDown()
+                    || e.isSecondaryButtonDown()
+                    || pressedButton != java.awt.event.MouseEvent.NOBUTTON;
+            forwardMouse(e, buttonHeld
+                    ? java.awt.event.MouseEvent.MOUSE_DRAGGED
+                    : java.awt.event.MouseEvent.MOUSE_MOVED);
+        });
+        canvas.setOnMouseDragged(e -> forwardMouse(e, java.awt.event.MouseEvent.MOUSE_DRAGGED));
+        canvas.setOnMousePressed(e -> forwardMouse(e, java.awt.event.MouseEvent.MOUSE_PRESSED));
+        canvas.setOnMouseReleased(e -> forwardMouse(e, java.awt.event.MouseEvent.MOUSE_RELEASED));
+        canvas.setOnMouseExited(e -> forwardMouse(e, java.awt.event.MouseEvent.MOUSE_EXITED));
+        canvas.setOnScroll(this::forwardScroll);
+    }
+
+    private void forwardMouse(javafx.scene.input.MouseEvent e, int awtId) {
+        // 记录真实指针事件时刻：合成拖动兜底轮询据此判断真实事件是否活跃，避免重复合成
+        lastRealPointerNs = System.nanoTime();
+        // 除 Shift/Ctrl/Alt/Meta 外还必须合成「按钮按下」位：JCEF 的 JNI（N_SendMouseEvent →
+        // GetCefModifiers）仅从 getModifiersEx() 提取 BUTTONx_DOWN_MASK 转成 CEF 的
+        // EVENTFLAG_LEFT/MIDDLE/RIGHT_MOUSE_BUTTON；MOUSE_DRAGGED 走 SendMouseMoveEvent 时
+        // 不再携带 getButton()，Chromium 完全依赖该位维持滚动条/选区拖动——缺了它，
+        // 滚轮能滚但拖动滚动条、拖选文本全部失效。JavaFX 的 isXxxButtonDown 是事件发生时
+        // 各键的物理按下状态（press 起 true、release 后 false），与真实 AWT 修饰符语义一致。
+        final int button = awtButton(e.getButton());
+        if (awtId == java.awt.event.MouseEvent.MOUSE_PRESSED) {
+            pressedButton = button;
+            startDragFallbackPoll(e);
+        }
+        int buttonBits = buttonDownMask(e);
+        if (buttonBits == 0 && awtId == java.awt.event.MouseEvent.MOUSE_DRAGGED) {
+            // 兜底：个别平台/版本未在拖动事件回填按钮状态时，用最后一次按下的按钮补齐
+            buttonBits = buttonDownMaskOf(pressedButton);
+        }
+        final int mods = awtModifiers(e.isShiftDown(), e.isControlDown(), e.isAltDown(), e.isMetaDown())
+                | buttonBits;
+        // Windows 习惯：右键释放才是弹出触发（与真实 AWT 事件一致）
+        final boolean popup = button == java.awt.event.MouseEvent.BUTTON3
+                && awtId == java.awt.event.MouseEvent.MOUSE_RELEASED;
+        final java.awt.event.MouseEvent ev = new java.awt.event.MouseEvent(
+                browser.getUIComponent(), awtId, System.currentTimeMillis(), mods,
+                (int) e.getX(), (int) e.getY(), Math.max(1, e.getClickCount()), popup, button);
+        dispatchToBrowser(ev);
+        if (awtId == java.awt.event.MouseEvent.MOUSE_RELEASED) {
+            pressedButton = java.awt.event.MouseEvent.NOBUTTON;
+            stopDragFallbackPoll();
+        }
+    }
+
+    // ---------- 合成拖动兜底实现 ----------
+
+    /**
+     * 真实 PRESS 到达画布后启动兜底轮询：以「全局光标位置 + 全局左键状态」为信号源，
+     * 在「真实移动事件持续缺席」（远程桌面输入路径在某些组合下整段吞掉按住移动，实测日志：
+     * 按住 518ms 位移 115px 期间 scene/canvas 零事件）时，合成 MOUSE_DRAGGED/MOUSE_RELEASED
+     * 送达 Chromium，恢复滚动条拖动。普通环境下真实事件照常到达——轮询因「真实事件新鲜」
+     * 而从不合成，只做无害监听。
+     */
+    private void startDragFallbackPoll(javafx.scene.input.MouseEvent e) {
+        // 双源校准：JavaFX 屏幕坐标（事件自带）与 AWT 屏幕坐标（MouseInfo）的差值，
+        // 用于把轮询到的 AWT 坐标换算回 JavaFX 屏幕坐标系（同一会话内偏移稳定）。
+        try {
+            java.awt.PointerInfo pi = java.awt.MouseInfo.getPointerInfo();
+            if (pi == null) return;
+            java.awt.Point awt = pi.getLocation();
+            screenCalX = awt.getX() - e.getScreenX();
+            screenCalY = awt.getY() - e.getScreenY();
+        } catch (Throwable t) {
+            log.warn("合成拖动兜底：屏幕坐标校准失败，本设备不启用兜底: {}", t.toString());
+            screenCalX = Double.NaN;
+            return;
+        }
+        pollLastX = Double.NaN;
+        pollLastY = Double.NaN;
+        pollStartNs = System.nanoTime();
+        if (dragPoll == null) {
+            dragPoll = new javafx.animation.Timeline(
+                    new javafx.animation.KeyFrame(javafx.util.Duration.millis(25), ev -> dragFallbackTick()));
+            dragPoll.setCycleCount(javafx.animation.Animation.INDEFINITE);
+        }
+        dragPoll.playFromStart();
+        log.debug("合成拖动兜底: 已启动（普通环境因真实事件新鲜自动跳过合成，无感）");
+    }
+
+    /** 停止兜底轮询（真实 RELEASE、全局左键已松开或超时）。 */
+    private void stopDragFallbackPoll() {
+        if (dragPoll != null) dragPoll.stop();
+    }
+
+    /** 兜底轮询单次执行（FX 线程）：读全局光标/左键，按需合成拖动事件。 */
+    private void dragFallbackTick() {
+        if (pressedButton == java.awt.event.MouseEvent.NOBUTTON) {
+            stopDragFallbackPoll();
+            return;
+        }
+        // 总时长上限 120s：极端环境下若「真实松开检测」失效，防止永久轮询
+        if (System.nanoTime() - pollStartNs > 120_000_000_000L) {
+            log.info("合成拖动兜底: 超过时长上限，自动停止");
+            stopDragFallbackPoll();
+            return;
+        }
+        java.awt.Point awt;
+        try {
+            java.awt.PointerInfo pi = java.awt.MouseInfo.getPointerInfo();
+            if (pi == null) return;
+            awt = pi.getLocation();
+        } catch (Throwable t) {
+            return; // 读取失败：下一帧再试
+        }
+        final boolean leftDown = globalLeftButtonDown();
+        final double jx = awt.getX() - screenCalX;
+        final double jy = awt.getY() - screenCalY;
+        final boolean moved = Double.isNaN(pollLastX)
+                || Math.abs(jx - pollLastX) > 0.5 || Math.abs(jy - pollLastY) > 0.5;
+        if (moved) {
+            // 真实移动事件在 60ms 内出现过 → 正常输入链路健在，轮询不合成（避免事件重复）
+            final boolean realFlow = System.nanoTime() - lastRealPointerNs < 60_000_000L;
+            if (!realFlow) {
+                final javafx.geometry.Point2D local = canvas.screenToLocal(jx, jy);
+                if (local != null) {
+                    log.debug("合成拖动兜底: 合成 DRAG x={} y={}（全局光标 {},{}）",
+                            (int) local.getX(), (int) local.getY(), awt.x, awt.y);
+                    synthDragToBrowser((int) local.getX(), (int) local.getY());
+                }
+            }
+            pollLastX = jx;
+            pollLastY = jy;
+        }
+        if (!leftDown) {
+            // 真实松开：远程桌面下 RELEASE 可能未送达，这里补发一次再收尾
+            if (!Double.isNaN(pollLastX)) {
+                final javafx.geometry.Point2D local = canvas.screenToLocal(pollLastX, pollLastY);
+                if (local != null) {
+                    log.debug("合成拖动兜底: 全局左键已松开，补发 RELEASE x={} y={}",
+                            (int) local.getX(), (int) local.getY());
+                    synthReleaseToBrowser((int) local.getX(), (int) local.getY());
+                }
+            }
+            pressedButton = java.awt.event.MouseEvent.NOBUTTON;
+            stopDragFallbackPoll();
+        }
+    }
+
+    /** 合成 MOUSE_DRAGGED 事件（按钮位=当前按下按钮）送达浏览器组件。 */
+    private void synthDragToBrowser(int x, int y) {
+        final int mods = buttonDownMaskOf(pressedButton);
+        final java.awt.event.MouseEvent ev = new java.awt.event.MouseEvent(
+                browser.getUIComponent(), java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                System.currentTimeMillis(), mods, x, y, 1, false, java.awt.event.MouseEvent.NOBUTTON);
+        dispatchToBrowser(ev);
+    }
+
+    /** 合成 MOUSE_RELEASED 事件送达浏览器组件。 */
+    private void synthReleaseToBrowser(int x, int y) {
+        final java.awt.event.MouseEvent ev = new java.awt.event.MouseEvent(
+                browser.getUIComponent(), java.awt.event.MouseEvent.MOUSE_RELEASED,
+                System.currentTimeMillis(), 0, x, y, 1, false, pressedButton);
+        dispatchToBrowser(ev);
+    }
+
+    /** 全局左键物理状态（JNA GetAsyncKeyState）；读取不可用时假定按住（保守不误断）。 */
+    private static boolean globalLeftButtonDown() {
+        try {
+            if (jnaOk == null) {
+                try {
+                    User32.INSTANCE.GetAsyncKeyState(0x01);
+                    jnaOk = Boolean.TRUE;
+                } catch (Throwable t) {
+                    jnaOk = Boolean.FALSE;
+                    log.warn("GetAsyncKeyState 不可用（JNA 加载失败），兜底轮询不做松开合成: {}", t.toString());
+                }
+            }
+            if (jnaOk) {
+                return (User32.INSTANCE.GetAsyncKeyState(0x01) & 0x8000) != 0;
+            }
+        } catch (Throwable ignored) {}
+        return true;
+    }
+
+    /** 当下按下中的按钮集合 → AWT DOWN_MASK 位（JNI 不读这个就认不出拖动）。 */
+    private static int buttonDownMask(javafx.scene.input.MouseEvent e) {
+        int m = 0;
+        if (e.isPrimaryButtonDown()) m |= InputEvent.BUTTON1_DOWN_MASK;
+        if (e.isMiddleButtonDown()) m |= InputEvent.BUTTON2_DOWN_MASK;
+        if (e.isSecondaryButtonDown()) m |= InputEvent.BUTTON3_DOWN_MASK;
+        return m;
+    }
+
+    /** AWT 按钮码 → 对应 DOWN_MASK 位。 */
+    private static int buttonDownMaskOf(int button) {
+        if (button == java.awt.event.MouseEvent.BUTTON1) return InputEvent.BUTTON1_DOWN_MASK;
+        if (button == java.awt.event.MouseEvent.BUTTON2) return InputEvent.BUTTON2_DOWN_MASK;
+        if (button == java.awt.event.MouseEvent.BUTTON3) return InputEvent.BUTTON3_DOWN_MASK;
+        return 0;
+    }
+
+    private void forwardScroll(javafx.scene.input.ScrollEvent e) {
+        // JavaFX +Y = 向上；AWT 向上为负 rotation，故取反。
+        final double notches = -e.getDeltaY() / WHEEL_NOTCH;
+        final int rotation;
+        if (Math.abs(notches) >= 1.0) {
+            rotation = (int) Math.round(notches);
+        } else if (notches != 0) {
+            rotation = notches > 0 ? 1 : -1; // 触控板平滑小值：每事件按一格
+        } else {
+            return; // 纯水平滚动事件（AWT 无对应语义）
+        }
+        final int mods = awtModifiers(e.isShiftDown(), e.isControlDown(), e.isAltDown(), e.isMetaDown());
+        final java.awt.event.MouseWheelEvent ev = new java.awt.event.MouseWheelEvent(
+                browser.getUIComponent(), java.awt.event.MouseEvent.MOUSE_WHEEL,
+                System.currentTimeMillis(), mods, (int) e.getX(), (int) e.getY(), 0, false,
+                java.awt.event.MouseWheelEvent.WHEEL_UNIT_SCROLL, WHEEL_DELTA_UNITS, rotation);
+        dispatchToBrowser(ev);
+    }
+
+    private static int awtModifiers(boolean shift, boolean ctrl, boolean alt, boolean meta) {
+        int m = 0;
+        if (shift) m |= InputEvent.SHIFT_DOWN_MASK;
+        if (ctrl) m |= InputEvent.CTRL_DOWN_MASK;
+        if (alt) m |= InputEvent.ALT_DOWN_MASK;
+        if (meta) m |= InputEvent.META_DOWN_MASK;
+        return m;
+    }
+
+    private static int awtButton(javafx.scene.input.MouseButton b) {
+        if (b == javafx.scene.input.MouseButton.SECONDARY) return java.awt.event.MouseEvent.BUTTON3;
+        if (b == javafx.scene.input.MouseButton.MIDDLE) return java.awt.event.MouseEvent.BUTTON2;
+        if (b == javafx.scene.input.MouseButton.NONE) return java.awt.event.MouseEvent.NOBUTTON;
+        return java.awt.event.MouseEvent.BUTTON1;
+    }
+
+    /** 合成事件在 AWT EDT 上派发给浏览器组件（其监听器继续送往 Chromium）。 */
+    private void dispatchToBrowser(java.awt.event.InputEvent ev) {
+        EventQueue.invokeLater(() -> {
+            try {
+                browser.getUIComponent().dispatchEvent(ev);
+            } catch (Throwable t) {
+                log.debug("输入事件转发失败: {}", t.toString());
+            }
+        });
     }
 
     /** 屏幕外可见 Frame 承载 OSR 画布：让 AWT 判为 showing，触发 CefBrowserOsr 尺寸同步与 OnPaint。 */
     private void realizeOffscreen() {
         try {
+            // 本方法跑在 AWT EDT 上：给当前线程挂一个专属未捕获异常处理器，捕获 realize 之后在 EDT
+            // 后续事件（GL 上下文创建/绘制）里抛出的异常并写入日志（带完整堆栈）。
+            Thread.currentThread().setUncaughtExceptionHandler(
+                    (th, e) -> log.error("AWT EDT 后续事件未捕获异常（OSR 渲染链可能已中断）", e));
             Component ui = browser.getUIComponent();
             ui.setSize(new Dimension(1, 1));
             Frame f = new Frame("jcef-osr-realizer");
@@ -146,8 +593,11 @@ public final class JcefOsrView {
             realize = f;
             browser.setWindowVisibility(true);
             browser.setFocus(true);
+            log.info("JCEF OSR realize 成功，等待 onPaint 首帧");
         } catch (Throwable t) {
-            log.error("JCEF OSR realize 失败（该会话可能无桌面/AWT 显示设备），本视图不会产帧", t);
+            log.error("JCEF OSR realize 失败，本视图不会产帧（JDK16+ 跑 OSR 必须带 JOGL 模块开放参数："
+                    + "--add-exports java.base/java.lang=ALL-UNNAMED --add-exports java.desktop/sun.awt=ALL-UNNAMED "
+                    + "--add-exports java.desktop/sun.java2d=ALL-UNNAMED，否则 GLCanvas 无法确定 GraphicsConfiguration）", t);
         }
     }
 
@@ -165,43 +615,395 @@ public final class JcefOsrView {
         return canvas;
     }
 
+    /** 最近一次 {@code onPaint} 的位图；尚未出帧时为 {@code null}。 */
+    public WritableImage lastImage() {
+        return lastFrame;
+    }
+
     public CefBrowser browser() {
         return browser;
     }
 
-    /** Java→JS：在页面上下文执行脚本（对齐旧 engine.executeScript）。 */
+    /**
+     * Java→JS：在页面上下文执行脚本（对齐旧 engine.executeScript）。
+     *
+     * <p>脚本先经 {@link #asciiEscape(String)} 转为纯 ASCII 再下发：CEF 的 JNI 桥
+     * （jni_util.cpp {@code GetJNIString}）用 {@code GetStringUTFChars} 读取 jstring
+     * 得到 Modified UTF-8（CESU-8）——仅 BMP 字符与标准 UTF-8 一致；增补平面字符
+     * （emoji，UTF-16 代理对）会被拆成两个三字节序列，CEF 侧按标准 UTF-8 解码失败，
+     * 渲染成 notdef 乱码。转义后 JS 源码纯 ASCII，两种编码下字节完全一致，绕开该缺陷。</p>
+     */
     public void executeScript(String js) {
         try {
-            browser.executeJavaScript(js, "about:blank", 0);
+            browser.executeJavaScript(asciiEscape(js), "about:blank", 0);
         } catch (Throwable t) {
             log.warn("JCEF executeScript 失败", t);
         }
+    }
+
+    /**
+     * 将字符串中所有非 ASCII 字符转义为 <code>&#92;uXXXX</code> 序列。
+     *
+     * <p>背景：JCEF 的 JNI（{@code GetJNIString} → {@code GetStringUTFChars}）产生
+     * Modified UTF-8/CESU-8，而 CEF 按标准 UTF-8 解码；ASCII 字符在两种编码下字节一致，
+     * 故让 JS 源码保持纯 ASCII 穿越桥路，由 JS 引擎在解析时还原转义序列
+     * （代理对写成两个 <code>&#92;uXXXX</code>，JS 字符串同为 UTF-16 码元序列，语义完全等价）。</p>
+     */
+    public static String asciiEscape(String js) {
+        int n = js.length();
+        StringBuilder sb = null;
+        for (int i = 0; i < n; i++) {
+            char c = js.charAt(i);
+            if (c <= 0x7F) {
+                if (sb != null) sb.append(c);
+                continue;
+            }
+            if (sb == null) {
+                sb = new StringBuilder(n + 32);
+                sb.append(js, 0, i);
+            }
+            sb.append('\\').append('u')
+                    .append(Character.forDigit((c >> 12) & 0xF, 16))
+                    .append(Character.forDigit((c >> 8) & 0xF, 16))
+                    .append(Character.forDigit((c >> 4) & 0xF, 16))
+                    .append(Character.forDigit(c & 0xF, 16));
+        }
+        return sb == null ? js : sb.toString();
     }
 
     /** 以 data: URL 装载内联 HTML（JCEF 不认 jar: URL；纯 ASCII 源，UTF-8 编码）。 */
     public void loadData(String html) {
         String url = "data:text/html;charset=utf-8,"
                 + URLEncoder.encode(html, StandardCharsets.UTF_8).replace("+", "%20");
-        browser.loadURL(url);
+        loadUrl(url);
     }
 
-    /** 装载任意 URL（http/file/data）。 */
+    /**
+     * 装载任意 URL（http/file/data）。
+     *
+     * <p>native browser 直到 GLCanvas 首次 paint（{@code realizeOffscreen} 之后）才真正创建，
+     * 在那之前 JCEF 的 {@code browser.loadURL} 会被静默丢弃（浏览器停留在初始 {@code about:blank}）。
+     * 因此此处把过早到达的请求暂存，等首个主框架装载事件（native 已创建的信号）到达时补发。</p>
+     */
     public void loadUrl(String url) {
+        synchronized (loadGate) {
+            if (!nativeCreated) {
+                pendingUrl = url;
+                log.info("JCEF native browser 尚未创建，暂存装载请求待补发: {}", abbrev(url));
+                return;
+            }
+        }
         browser.loadURL(url);
     }
 
-    /** 尺寸同步：驱动 OSR native resize，使 CEF 按新视口重排重绘。 */
+    /** 日志用 URL 截断（data: URL 可达数兆，直接打印会淹没日志）。 */
+    private static String abbrev(String s) {
+        if (s == null) return "null";
+        return s.length() <= 96 ? s : s.substring(0, 96) + "…(len=" + s.length() + ")";
+    }
+
+    /**
+     * 尺寸同步：驱动 OSR native resize，使 CEF 按新视口重排重绘。
+     *
+     * <p>「视觉跟手」与「CEF 重排」解耦：画布立即对齐新尺寸并把现有帧原尺寸居中重绘（拖动
+     * 即刻跟手且内容零变形，不等 CEF 大图重排）；真实重排只在尺寸停止变化 150ms 后（trailing）
+     * 一次性下发——拖动期间不让 CEF 对中间尺寸重排（其分块中间态帧会造成内容短暂错位/漂移）。</p>
+     */
     public void syncSize(double w, double h) {
+        if (w < 2 || h < 2) {
+            return; // 极小/零尺寸（布局未定、最小化等瞬态）不参与同步，避免 1×1 视口污染
+        }
         final int iw = (int) Math.max(1, Math.floor(w));
         final int ih = (int) Math.max(1, Math.floor(h));
-        EventQueue.invokeLater(() -> {
-            try {
-                browser.getUIComponent().setSize(new Dimension(iw, ih));
-            } catch (Throwable ignored) {}
-        });
+        if (!syncLogged) {
+            syncLogged = true;
+            log.info("OSR syncSize 首次: 入参 {}x{} → 下发 {}x{}", w, h, iw, ih);
+        }
+        pendingSizeW = iw;
+        pendingSizeH = ih;
+        // 画布操作与定时器必须在 FX 线程；调用方可能来自任意线程（导出流程等）
+        if (Platform.isFxApplicationThread()) {
+            onSyncSizeFx();
+        } else {
+            Platform.runLater(this::onSyncSizeFx);
+        }
+    }
+
+    /** syncSize 的 FX 侧主体：画布跟手 + 真实尺寸节流下发 + trailing 兜底定时器。 */
+    private void onSyncSizeFx() {
+        final int iw = pendingSizeW;
+        final int ih = pendingSizeH;
+        if (iw <= 0 || ih <= 0) {
+            return;
+        }
+        // 1) 视觉跟手：画布立即对齐槽位尺寸，现有帧原尺寸居中重绘（不等 CEF 重排）
+        applyCanvasLayout(iw, ih);
+        // 2) 真实重排仅 trailing：停止变化 150ms 后一次性下发最终尺寸。拖动期间绝不下发——
+        //    CEF 对中间尺寸的分块重排会产出「半新半旧」的布局中间态帧，实测快速缩小时
+        //    内容错位/漂移；拖动期间画面完全由现有稳定帧 + 留白伸缩表现（内容静止）。
+        if (sizeFlushDelay == null) {
+            sizeFlushDelay = new javafx.animation.PauseTransition(javafx.util.Duration.millis(150));
+            sizeFlushDelay.setOnFinished(e -> flushSizeToCef());
+        }
+        sizeFlushDelay.playFromStart();
+    }
+
+    /** 把最新目标尺寸真实下发 CEF（AWT 侧执行时读取最新 pending；与上次相同则跳过重排）。 */
+    private void flushSizeToCef() {
+        if (sizeTaskQueued.compareAndSet(false, true)) {
+            EventQueue.invokeLater(() -> {
+                sizeTaskQueued.set(false);
+                final int tw = pendingSizeW;
+                final int th = pendingSizeH;
+                if (tw <= 0 || th <= 0 || (tw == lastSetSizeW && th == lastSetSizeH)) {
+                    return;
+                }
+                lastSetSizeW = tw;
+                lastSetSizeH = th;
+                // 进入「重排敏感期」：期内 CEF 输出的是「旧+新」分块拼贴半成品，由 onPaint 攒住
+                // 不上屏（保持稳定帧过渡绘制），验证稳定后收尾上屏。每轮 setSize 重置敏感期与
+                // 首帧标记（首帧无论多晚到达都必须走敏感路径，防其在保护窗外被当完整帧上屏）。
+                resizeFirstFrameSeen = false;
+                resizeGuardStartNs = System.nanoTime();
+                resizeGuardUntilNs = resizeGuardStartNs + RESIZE_GUARD_MS * 1_000_000L;
+                try {
+                    browser.getUIComponent().setSize(new Dimension(tw, th));
+                } catch (Throwable ignored) {}
+            });
+        }
+    }
+
+    /**
+     * 画布即时跟手：尺寸对齐槽位，并把现有帧按「原始像素尺寸居中」重绘。
+     * <p>不缩放不拉伸（内容零变形）；居中锚点与 CEF 重排后的居中列布局一致，过渡零跳变。
+     * 帧小于画布时四周留白以帧边缘色（页面背景）填充，避免露出异构底色。</p>
+     */
+    private void applyCanvasLayout(final int w, final int h) {
+        final Runnable r = () -> {
+            if (canvas.getWidth() == w && canvas.getHeight() == h) {
+                return;
+            }
+            canvas.setWidth(w);
+            canvas.setHeight(h);
+            drawFrameCentered(w, h);
+        };
+        if (Platform.isFxApplicationThread()) {
+            r.run();
+        } else {
+            Platform.runLater(r);
+        }
+    }
+
+    /**
+     * 把稳定帧以原始像素尺寸居中绘制到画布：绝不缩放拉伸（内容零变形）；目标坐标取整，
+     * 避免半像素偏移触发双线性重采样（整幅发虚）。水平/垂直统一锚定「帧心 = 画布心」——
+     * 与 CEF 重排后的「居中列」布局几何一致（列在视口居中），拖动全程内容渐进滑向最终位置、
+     * 收尾零跳变；帧超出画布的部分（两侧/上下）自然裁掉（minWidth 已保证居中列不超画布，
+     * 裁到的只是页边留白）。帧四周留白以「对应边缘 1px 列/行」延伸填充；另做滚动条搬运：
+     * 帧右缘 {@link #EDGE_BAR}px 带（滚动条所在）复制到画布右缘——帧右缘仍在画布内时原位
+     * 以边距背景列覆盖。全程不做 clear：各带/角/主帧几何全域覆盖且帧不透明。
+     */
+    private void drawFrameCentered(final double cw, final double ch) {
+        // 只用「稳定帧」：重排期 lastFrame 可能是分块半成品，画上屏即拼贴（首次帧尚无稳定帧时回退）
+        final WritableImage img = stableFrame != null ? stableFrame : lastFrame;
+        if (img == null || cw <= 0 || ch <= 0) {
+            return;
+        }
+        final GraphicsContext gc = canvas.getGraphicsContext2D();
+        final double iw = img.getWidth();
+        final double ih = img.getHeight();
+        // 水平/垂直统一居中（帧心对齐画布心）：与重排后的「居中列」布局几何一致，拖动全程
+        // 内容是「向中心汇拢/向外扩展」的连续渐变，收尾上屏零跳变（此前缩小走锚左——内容左端
+        // 静止而收尾瞬间跳回居中位；那是 minWidth 保底前的防裁切方案，现已不需要）。取整保证
+        // 像素对齐。
+        final double left = Math.round((cw - iw) / 2.0);
+        final double top = Math.round((ch - ih) / 2.0);
+        final double right = left + iw;
+        final double bottom = top + ih;
+        // 滚动条左侧的边距列（背景色源）：避开滚动条带本身
+        final double edgeX = iw - Math.min(EDGE_BAR, iw / 4.0) - 1;
+        if (left > 0) {
+            gc.drawImage(img, 0, 0, 1, ih, 0, top, left, ih);              // 左带：左缘 1px 列延伸
+        }
+        if (right < cw) {
+            gc.drawImage(img, edgeX, 0, 1, ih, right, top, cw - right, ih); // 右带：边距列延伸（背景色）
+        }
+        if (top > 0) {
+            gc.drawImage(img, 0, 0, iw, 1, left, 0, iw, top);              // 上带：顶缘 1px 行延伸
+        }
+        if (bottom < ch) {
+            gc.drawImage(img, 0, ih - 1, iw, 1, left, bottom, iw, ch - bottom); // 下带：底缘 1px 行延伸
+        }
+        if (left > 0 && top > 0) {
+            gc.drawImage(img, 0, 0, 1, 1, 0, 0, left, top);                // 左上角
+        }
+        if (right < cw && top > 0) {
+            gc.drawImage(img, edgeX, 0, 1, 1, right, 0, cw - right, top);  // 右上角
+        }
+        if (left > 0 && bottom < ch) {
+            gc.drawImage(img, 0, ih - 1, 1, 1, 0, bottom, left, ch - bottom); // 左下角
+        }
+        if (right < cw && bottom < ch) {
+            gc.drawImage(img, edgeX, ih - 1, 1, 1, right, bottom, cw - right, ch - bottom); // 右下角
+        }
+        gc.drawImage(img, left, top); // 主帧：原始像素 1:1，零变形零模糊
+        // 滚动条搬运：帧右缘带 → 画布右缘（帧右缘在画布内时先涂掉原位，防双滚动条；
+        // 缩小时帧右缘在画布外，原位不可见、只搬运即可——滚动条始终视觉贴画布右缘）
+        final double bar = Math.min(EDGE_BAR, iw / 4.0);
+        if (bar >= 2) {
+            if (right <= cw) {
+                gc.drawImage(img, edgeX, 0, 1, ih, iw - bar + left, top, bar, ih); // 覆盖原滚动条位置
+            }
+            gc.drawImage(img, iw - bar, 0, bar, ih, cw - bar, top, bar, ih);   // 搬至画布右缘
+        }
+    }
+
+    /**
+     * 用稳定帧按当前画布尺寸上屏：帧与画布一致 → 1:1 绘制（稳态/最终清晰帧）；不一致 = resize
+     * 过渡中（画布已先行跟手放大/缩小），把本帧原尺寸居中绘制（绝不缩放变形，与重排后的居中
+     * 布局对齐），后续匹配帧自然恢复 1:1。仅 FX 线程。
+     */
+    private void paintFrameNow() {
+        final WritableImage img = stableFrame != null ? stableFrame : lastFrame;
+        if (img == null) {
+            return;
+        }
+        final GraphicsContext gc = canvas.getGraphicsContext2D();
+        final double cw = canvas.getWidth();
+        final double ch = canvas.getHeight();
+        final int w = (int) img.getWidth();
+        final int h = (int) img.getHeight();
+        if ((int) cw == w && (int) ch == h) {
+            gc.drawImage(img, 0, 0); // 帧不透明且全幅覆盖，无需 clear（省每帧全幅清除）
+        } else if (cw > 0 && ch > 0) {
+            // resize 过渡（画布已先行跟手）：原尺寸居中，零变形
+            drawFrameCentered(cw, ch);
+        }
+    }
+
+    /**
+     * 重排敏感期内的帧处理：不直接上屏，先与上一帧做采样签名比对——「连续两帧一致」即画面已稳定
+     * （重排/光栅化完成的强信号；CEF 无原生就绪事件，官方 issue #4166 的可靠工作法也是「多帧比对
+     * 选稳定帧」），此时收尾上屏；不一致则仅续期「帧流平静」（{@link #RESIZE_QUIET_MS}）。平静后
+     * 帧流可能只是撞上光栅化批次间隙（间隙前最后一帧仍是半成品），故不立即上屏，而是主动 invalidate
+     * 请求一帧来验证（{@link #onResizeHoldElapsed()} 循环，最多 {@link #RESIZE_VERIFY_MAX} 轮）。
+     * 兜底：帧流持续不断（页面动画/流式叠加拖动）超过 {@link #RESIZE_HARD_MAX_MS} 时放弃攒帧保护
+     * 回到即时上屏，防画面永久冻结。
+     */
+    private void handleFrameInResizeSensitive(WritableImage img, int w, int h, long now) {
+        resizeFirstFrameSeen = true;
+        if (now - resizeGuardStartNs > RESIZE_HARD_MAX_MS * 1_000_000L) {
+            // 帧流持续超时（动画/流式叠加拖动）：无法等到平静，放弃保护回到即时，防画面冻结
+            resizeGuardUntilNs = 0L;
+            prevFrameSig = null;
+            prevFrameSigW = -1;
+            prevFrameSigH = -1;
+            invalidateRetries = 0;
+            stableFrame = img;
+            paintFrameNow();
+            return;
+        }
+        resizeGuardUntilNs = now + RESIZE_GUARD_MS * 1_000_000L; // 帧流续期敏感期
+        final byte[] sig = sampleFrameSignature(img, w, h);
+        if (prevFrameSig != null && prevFrameSigW == w && prevFrameSigH == h
+                && sigDiff(prevFrameSig, sig) <= 2) {
+            // 连续两帧一致：重排产出的画面已稳定，当前帧即完整帧——收尾上屏
+            settleShow(img);
+            return;
+        }
+        prevFrameSig = sig;
+        prevFrameSigW = w;
+        prevFrameSigH = h;
+        if (resizeHold == null) {
+            resizeHold = new javafx.animation.PauseTransition(javafx.util.Duration.millis(RESIZE_QUIET_MS));
+            resizeHold.setOnFinished(e -> onResizeHoldElapsed());
+        }
+        resizeHold.playFromStart();
+    }
+
+    /**
+     * 帧流平静后的收尾验证（FX 线程）：平静仅代表「这一批」光栅化产出结束，最后一帧仍可能是
+     * 批次间隙里的半成品——主动 invalidate 请求一次强制重绘，待其到达后与平静前最后一帧比对
+     * （走 {@link #handleFrameInResizeSensitive} 的签名路径）：一致则上屏；不一致说明仍在演进，
+     * 继续攒帧/验证。重试 {@link #RESIZE_VERIFY_MAX} 轮后或 invalidate 不可用时，按「尽力而为」
+     * 上屏当前帧并进入冷却，绝不让画面卡死。
+     */
+    private void onResizeHoldElapsed() {
+        if (invalidateRetries < RESIZE_VERIFY_MAX && invalidateForVerify()) {
+            invalidateRetries++;
+            resizeGuardUntilNs = System.nanoTime() + RESIZE_GUARD_MS * 1_000_000L; // 续期敏感期，保证验证帧走比对路径
+            resizeHold.playFromStart(); // 再等 RESIZE_QUIET_MS 收验证帧
+            return;
+        }
+        settleShow(lastFrame); // 验证耗尽/不可用：尽力上屏最后帧（含冷却，防后续批次漏出）
+    }
+
+    /** 收尾上屏（FX 线程）：设为稳定帧显示，清空比对状态，并延长敏感期作为「冷却」（防收尾过早漏出）。 */
+    private void settleShow(WritableImage img) {
+        prevFrameSig = null;
+        prevFrameSigW = -1;
+        prevFrameSigH = -1;
+        invalidateRetries = 0;
+        stableFrame = img != null ? img : lastFrame;
+        paintFrameNow();
+        resizeGuardUntilNs = System.nanoTime() + RESIZE_GUARD_MS * 1_000_000L;
+        if (resizeHold != null) {
+            resizeHold.stop();
+        }
+    }
+
+    /** 反射调用 CefBrowser_N#invalidate（protected，无公共 API）请求强制重绘；失败返回 false。 */
+    private boolean invalidateForVerify() {
+        try {
+            if (invalidateMethod == null) {
+                invalidateMethod = Class.forName("org.cef.browser.CefBrowser_N")
+                        .getDeclaredMethod("invalidate");
+                invalidateMethod.setAccessible(true);
+            }
+            invalidateMethod.invoke(browser);
+            return true;
+        } catch (Throwable t) {
+            log.warn("重排验证用的 invalidate 调用不可用，按平静收尾: {}", t.toString());
+            return false;
+        }
+    }
+
+    /** 16×16 网格采样帧的量化亮度构造签名（跨尺寸不可比）：用于「连续两帧是否同一画面」的判定。 */
+    private static byte[] sampleFrameSignature(WritableImage img, int w, int h) {
+        final byte[] sig = new byte[256];
+        final javafx.scene.image.PixelReader pr = img.getPixelReader();
+        int k = 0;
+        for (int j = 0; j < 16; j++) {
+            final int y = Math.min(h - 1, (j * 2 + 1) * h / 32);
+            for (int i = 0; i < 16; i++) {
+                final int x = Math.min(w - 1, (i * 2 + 1) * w / 32);
+                final int argb = pr.getArgb(x, y);
+                sig[k++] = (byte) (((argb >> 16 & 0xFF) + (argb >> 8 & 0xFF) + (argb & 0xFF)) / 3);
+            }
+        }
+        return sig;
+    }
+
+    /** 两个签名的差异点数（每点亮度差 > 6 记 1）：≤2 点即视作同一画面（容忍重绘的微小抗锯齿差）。 */
+    private static int sigDiff(byte[] a, byte[] b) {
+        int diff = 0;
+        for (int i = 0; i < a.length && i < b.length; i++) {
+            if (Math.abs((a[i] & 0xFF) - (b[i] & 0xFF)) > 6) {
+                diff++;
+            }
+        }
+        return diff;
     }
 
     public void dispose() {
+        final javafx.animation.PauseTransition fd = sizeFlushDelay;
+        if (fd != null) {
+            try { fd.stop(); } catch (Throwable ignored) {}
+        }
+        final javafx.animation.PauseTransition rh = resizeHold;
+        if (rh != null) {
+            try { rh.stop(); } catch (Throwable ignored) {}
+        }
         try { browser.close(true); } catch (Throwable ignored) {}
         try { router.dispose(); } catch (Throwable ignored) {}
         try { client.dispose(); } catch (Throwable ignored) {}

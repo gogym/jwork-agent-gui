@@ -28,6 +28,9 @@ public final class Launcher {
         Logger log = LoggerFactory.getLogger(Launcher.class);
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
                 log.error("未捕获异常 on thread {}", thread.getName(), throwable));
+        // 拦截 AWT EDT 未捕获异常（JCEF OSR 的 GLCanvas realize/绘制走 EDT），写入日志文件稳定取证，
+        // 避免只打到 IDE 控制台 stderr（并被 fast-throw 优化剥掉堆栈）。
+        System.setProperty("sun.awt.exception.handler", com.gettyio.gim.agent.ui.jcef.AwtExceptionHandler.class.getName());
         Application.launch(GimAgentApplication.class, args);
     }
 }

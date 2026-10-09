@@ -2,7 +2,7 @@
   <configuration default="false" name="Gim Agent (Debug)" type="Application" factoryName="Application">
     <option name="MAIN_CLASS_NAME" value="com.gettyio.gim.agent.ui.Launcher" />
     <module name="gim-agent-ui" />
-    <option name="VM_PARAMETERS" value="-Dfile.encoding=UTF-8" />
+    <option name="VM_PARAMETERS" value="-Dfile.encoding=UTF-8 -XX:-OmitStackTraceInFastThrow --add-exports=java.base/java.lang=ALL-UNNAMED --add-exports=java.desktop/sun.awt=ALL-UNNAMED --add-exports=java.desktop/sun.java2d=ALL-UNNAMED --add-opens=java.desktop/sun.awt=ALL-UNNAMED" />
     <shortName>gimAgentDebug</shortName>
     <Extension name="coverage" enabled="false" runner="idea" />
     <method v="2">

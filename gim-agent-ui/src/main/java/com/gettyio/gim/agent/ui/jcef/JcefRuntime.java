@@ -21,6 +21,13 @@ import java.nio.file.Paths;
  * <p>原生库解包目录：{@code ${user.home}/.jwork/cef}（首次启动 jcefmaven 从内置 jar 解包；
  * 离线随包场景由 jpackage 预置同路径后 {@link CefAppBuilder#setSkipInstallation(boolean)} 可跳过）。
  * 该目录在 Windows 用户目录下可写，与安装目录解耦，兼容 Program Files 只读环境。</p>
+ *
+ * <p>JDK 16+ 运行 OSR 必须附带 JOGL 的模块开放参数（否则 AWT {@code GLCanvas} 因无法访问
+ * {@code sun.awt}/{@code sun.java2d} 内部类而抛「Unable to determine GraphicsConfiguration」，OSR 不产帧）：
+ * {@code --add-exports java.base/java.lang=ALL-UNNAMED}、
+ * {@code --add-exports java.desktop/sun.awt=ALL-UNNAMED}、
+ * {@code --add-exports java.desktop/sun.java2d=ALL-UNNAMED}。这些参数须落在 java 命令行上，
+ * 已在 IDEA 运行配置、javafx-maven-plugin 与 package-windows.ps1 三处统一注入。</p>
  */
 public final class JcefRuntime {
 
@@ -44,6 +51,12 @@ public final class JcefRuntime {
             CefSettings s = b.getCefSettings();
             s.windowless_rendering_enabled = true;
             s.log_severity = CefSettings.LogSeverity.LOGSEVERITY_WARNING;
+            // 可选覆盖 CEF 用户数据目录（含单实例锁）：并行跑第二个 CEF 进程的测试/工具场景用
+            // -Djwork.cef.root=... 指向独立目录，避免与主应用争抢同一目录锁。
+            String rootOverride = System.getProperty("jwork.cef.root");
+            if (rootOverride != null && !rootOverride.isBlank()) {
+                s.root_cache_path = rootOverride;
+            }
             app = b.build();
             Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownQuietly, "jcef-shutdown"));
             log.info("JCEF CefApp 就绪 installDir={}", installDir().getAbsolutePath());
