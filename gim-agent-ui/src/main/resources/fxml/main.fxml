@@ -171,14 +171,8 @@
                         <items>
                             <VBox styleClass="chat-main">
                                 <StackPane VBox.vgrow="ALWAYS">
-                                    <ScrollPane fx:id="scrollPane" fitToWidth="true">
-                                        <content>
-                                            <!-- 消息列居中容器：窗口拉宽时内容列限宽 800 水平居中（而非随宽拉开），窄窗时随视口收缩 -->
-                                            <StackPane styleClass="messages-center">
-                                                <VBox fx:id="messagesContainer" styleClass="messages" minWidth="0.0" maxWidth="800.0"/>
-                                            </StackPane>
-                                        </content>
-                                    </ScrollPane>
+                                    <!-- 聊天整页 WebView 宿主：控制器注入 ChatWebView 并撑满，自带文档滚动 -->
+                                    <StackPane fx:id="chatHost"/>
                                     <VBox fx:id="welcomePane" styleClass="welcome" maxWidth="640.0" mouseTransparent="true">
                                         <Label fx:id="welcomeTitle" text="不止于对话" styleClass="welcome-title"/>
                                         <Label fx:id="welcomeSubtitle" text="用 Jwork 把日常事务交给 AI" styleClass="welcome-subtitle"/>

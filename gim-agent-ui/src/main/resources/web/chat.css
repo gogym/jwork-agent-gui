@@ -1,0 +1,458 @@
+/* ============================================================
+ * Jwork 聊天区 WebView 渲染样式：镜像 gim-agent*.css 的语义色 token。
+ * 主题与字号由 <html data-theme="light|dark" data-font="small|medium|large"> 驱动，
+ * Java 侧经 ChatAPI.setTheme 切换；颜色值与 JavaFX 侧 -gim-* 变量一一对应。
+ * ============================================================ */
+
+:root {
+    /* 语义色 token（浅色基线，与 gim-agent.css .root 对齐） */
+    --gim-accent: #2f9e5f;
+    --gim-bg: #ffffff;
+    --gim-canvas: #f2f2ef;
+    --gim-content: #ffffff;
+    --gim-hover: #ebebe7;
+    --gim-press: #e0e0db;
+    --gim-btn: #f2f2f0;
+    --gim-btn-hover: #e8e8e5;
+    --gim-border: #e6e6e2;
+    --gim-border-2: #dcdcd8;
+    --gim-text: #262626;
+    --gim-text-strong: #1a1a18;
+    --gim-text-title: #1d1d1b;
+    --gim-text-2: #3a3a3a;
+    --gim-text-3: #4d4d47;
+    --gim-text-4: #8a8a83;
+    --gim-text-5: #a8a8a0;
+    --gim-icon: #55554f;
+    --gim-tint: #e7f2ea;
+    --gim-tint-fg: #1f7142;
+    --gim-scrollbar: #cfcfca;
+    --gim-scrollbar-hover: #b5b5b0;
+    --gim-code-bg: #f4f4f1;
+    --gim-code-fg: #2a2a26;
+    --gim-code-border: #e2e2dd;
+    --gim-inline-code-bg: #ecece7;
+    --gim-quote-bar: #cfcfc8;
+    --gim-quote-fg: #5d5d56;
+    --gim-badge-green-bg: #e0f0e4;
+    --gim-badge-gray-bg: #efefec;
+    --gim-badge-gray-fg: #77776f;
+    --gim-badge-blue-bg: #e4eef9;
+    --gim-badge-blue-fg: #2f5f8a;
+    --gim-badge-red-bg: #f9e5e4;
+    --gim-badge-red-fg: #b3403f;
+    --gim-ok: #2f9e5f;
+    --gim-err: #c0403f;
+    --gim-hit: #fff3c4;
+
+    /* 字号档位（中档基线，与 JavaFX 气泡/Markdown 字号对齐：正文 14px，标题 +7/+4/+2/+1） */
+    --chat-font: 14px;
+    --h1-font: 21px;
+    --h2-font: 18px;
+    --h3-font: 16px;
+    --h4-font: 15px;
+    --code-font: 13px;
+    --inline-code-font: 12.5px;
+    --meta-font: 12px;
+}
+
+html[data-theme="dark"] {
+    --gim-accent: #3fb26f;
+    --gim-bg: #1e1e1d;
+    --gim-canvas: #1a1a19;
+    --gim-content: #262625;
+    --gim-hover: #313130;
+    --gim-press: #3a3a38;
+    --gim-btn: #333331;
+    --gim-btn-hover: #3d3d3b;
+    --gim-border: #3a3a38;
+    --gim-border-2: #454543;
+    --gim-text: #dededa;
+    --gim-text-strong: #f0f0ec;
+    --gim-text-title: #ececea;
+    --gim-text-2: #c9c9c4;
+    --gim-text-3: #b5b5b0;
+    --gim-text-4: #96968f;
+    --gim-text-5: #80807a;
+    --gim-icon: #a8a8a2;
+    --gim-tint: #2b3a2f;
+    --gim-tint-fg: #8fd0a5;
+    --gim-scrollbar: #4a4a48;
+    --gim-scrollbar-hover: #5c5c5a;
+    --gim-code-bg: #26262a;
+    --gim-code-fg: #dcdcd6;
+    --gim-code-border: #3a3a3c;
+    --gim-inline-code-bg: #34343a;
+    --gim-quote-bar: #4a4a48;
+    --gim-quote-fg: #bdbdb7;
+    --gim-badge-green-bg: #2b3a2f;
+    --gim-badge-gray-bg: #383836;
+    --gim-badge-gray-fg: #a8a8a2;
+    --gim-badge-blue-bg: #2a3644;
+    --gim-badge-blue-fg: #8fb8dc;
+    --gim-badge-red-bg: #442c2b;
+    --gim-badge-red-fg: #e09a97;
+    --gim-ok: #3fb26f;
+    --gim-err: #e09a97;
+    --gim-hit: #4d4424;
+}
+
+html[data-font="small"] {
+    --chat-font: 13px;
+    --h1-font: 20px;
+    --h2-font: 17px;
+    --h3-font: 15px;
+    --h4-font: 14px;
+    --code-font: 12px;
+    --inline-code-font: 11.5px;
+    --meta-font: 11px;
+}
+
+html[data-font="large"] {
+    --chat-font: 16px;
+    --h1-font: 23px;
+    --h2-font: 20px;
+    --h3-font: 18px;
+    --h4-font: 17px;
+    --code-font: 15px;
+    --inline-code-font: 13.5px;
+    --meta-font: 13px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--gim-content);
+    color: var(--gim-text);
+}
+
+body {
+    /* 纯系统字体：WebView(WebKit) 只认操作系统已装字体，看不到 JavaFX 随包注册的 Noto Sans SC，
+       故不引用任何外置/随包字体。中文用微软雅黑 UI、拉丁用 Segoe UI，末尾补系统 emoji/符号
+       字体兜底（模型输出的 📋、① 等缺字形时不致变豆腐块）。 */
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Segoe UI Symbol", "Segoe UI Emoji", sans-serif;
+    font-size: var(--chat-font);
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--gim-scrollbar); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--gim-scrollbar-hover); border: 2px solid transparent; background-clip: content-box; }
+
+#list {
+    max-width: 800px;
+    margin: 0 auto;
+    padding: 16px 12px 24px;
+}
+
+/* ---------- 消息行与气泡 ---------- */
+.bubble-row { display: flex; margin: 6px 0; }
+.bubble-row.user { justify-content: flex-end; }
+.bubble-row.assistant { justify-content: flex-start; }
+.bubble-host { max-width: 680px; min-width: 0; }
+
+.bubble-user {
+    background: var(--gim-tint);
+    color: var(--gim-text);
+    border-radius: 10px;
+    padding: 8px 14px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+}
+
+.bubble-assistant {
+    background: var(--gim-content);
+    border: 1px solid var(--gim-border);
+    border-radius: 10px;
+    padding: 10px 14px;
+    min-width: 0;
+    overflow-wrap: break-word;
+}
+
+.bubble-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; justify-content: flex-end; }
+.bubble-images img {
+    max-width: 180px;
+    max-height: 180px;
+    border-radius: 8px;
+    border: 1px solid var(--gim-border);
+    cursor: pointer;
+    display: block;
+    object-fit: cover;
+}
+.bubble-files { display: flex; flex-direction: column; gap: 4px; margin-bottom: 6px; align-items: flex-end; }
+.file-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--gim-btn);
+    border: 1px solid var(--gim-border);
+    border-radius: 8px;
+    padding: 4px 10px;
+    font-size: var(--meta-font);
+    color: var(--gim-text-2);
+    max-width: 100%;
+    cursor: pointer;
+}
+.file-row:hover { background: var(--gim-btn-hover); }
+.file-row .file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* 流式期间累加的纯文本视图与流式思考正文 */
+.bubble-live { white-space: pre-wrap; overflow-wrap: break-word; }
+.thinking-text { white-space: pre-wrap; overflow-wrap: break-word; margin: 0; font-family: inherit; }
+
+/* 流式「思考中…」占位：脉动 */
+.bubble-thinking { color: var(--gim-text-4); }
+@keyframes think-pulse { 0% { opacity: .4; } 50% { opacity: 1; } 100% { opacity: .4; } }
+.bubble-thinking.pulsing { animation: think-pulse 1.8s ease-in-out infinite; }
+
+/* ---------- 底部操作条（悬停浮现） ---------- */
+.bubble-footer {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 6px;
+    min-height: 24px;
+    opacity: 0;
+    transition: opacity .12s ease;
+}
+.bubble-host:hover .bubble-footer { opacity: 1; }
+.msg-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--gim-icon);
+    cursor: pointer;
+}
+.msg-action-btn:hover { background: var(--gim-hover); color: var(--gim-text-2); }
+.msg-action-btn:active { background: var(--gim-press); }
+.msg-action-btn svg { width: 14px; height: 14px; fill: currentColor; }
+.msg-action-btn.hidden { display: none; }
+.msg-time { font-size: var(--meta-font); color: var(--gim-text-5); margin-left: 2px; }
+.msg-ai-label { font-size: var(--meta-font); color: var(--gim-text-5); margin-left: auto; }
+
+/* ---------- Markdown 正文 ---------- */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 6px 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: 14px 0 8px;
+    line-height: 1.4;
+    color: var(--gim-text-title);
+    font-weight: 700;
+}
+.md h1 { font-size: var(--h1-font); }
+.md h2 { font-size: var(--h2-font); }
+.md h3 { font-size: var(--h3-font); }
+.md h4, .md h5, .md h6 { font-size: var(--h4-font); }
+.md a { color: var(--gim-accent); text-decoration: none; cursor: pointer; }
+.md a:hover { text-decoration: underline; }
+.md ul, .md ol { margin: 6px 0; padding-left: 24px; }
+.md li { margin: 2px 0; }
+.md li > p { margin: 0; }
+.md blockquote {
+    margin: 8px 0;
+    padding: 4px 12px;
+    border-left: 3px solid var(--gim-quote-bar);
+    color: var(--gim-quote-fg);
+}
+.md hr { border: none; border-top: 1px solid var(--gim-border); margin: 12px 0; }
+.md img { max-width: 100%; border-radius: 8px; display: block; margin: 8px 0; cursor: pointer; }
+.md table { border-collapse: collapse; margin: 8px 0; max-width: 100%; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--gim-border-2); padding: 6px 10px; text-align: left; }
+.md th { background: var(--gim-code-bg); color: var(--gim-text-strong); font-weight: 700; }
+.md del { color: var(--gim-text-4); }
+.md code {
+    background: var(--gim-inline-code-bg);
+    border: 1px solid var(--gim-border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: var(--inline-code-font);
+    color: var(--gim-text);
+}
+
+/* ---------- 代码块（含头部操作条） ---------- */
+.code-block {
+    margin: 10px 0;
+    border: 1px solid var(--gim-code-border);
+    border-radius: 8px;
+    background: var(--gim-code-bg);
+    overflow: hidden;
+}
+.code-head {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--gim-code-border);
+    font-size: var(--meta-font);
+    color: var(--gim-text-4);
+}
+.code-lang { margin-right: auto; }
+.code-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-left: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--gim-icon);
+    cursor: pointer;
+}
+.code-btn:hover { background: var(--gim-hover); color: var(--gim-text-2); }
+.code-btn svg { width: 13px; height: 13px; fill: currentColor; }
+.code-block pre { margin: 0; padding: 12px 14px; overflow-x: auto; }
+.code-block pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: var(--code-font);
+    line-height: 1.6;
+    color: var(--gim-code-fg);
+    white-space: pre;
+}
+
+/* mermaid 代码块在聊天区的简单呈现（真正的图渲染仍由卡片化扩展处理） */
+.code-block.is-mermaid pre { overflow-x: auto; }
+
+/* ---------- 思考卡 ---------- */
+.thinking-card {
+    margin: 0 0 8px;
+    border-radius: 8px;
+    background: var(--gim-panel, var(--gim-code-bg));
+    border: 1px solid var(--gim-border);
+    overflow: hidden;
+}
+html[data-theme="dark"] .thinking-card { background: var(--gim-code-bg); }
+.thinking-header {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: var(--meta-font);
+    color: var(--gim-text-3);
+    user-select: none;
+}
+.thinking-header:hover { background: var(--gim-hover); }
+.thinking-icon { color: var(--gim-ok); display: inline-flex; }
+.thinking-icon svg { width: 13px; height: 13px; fill: currentColor; }
+.thinking-live-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--gim-ok); animation: think-pulse 1.4s ease-in-out infinite; }
+.thinking-title { font-weight: 700; }
+.thinking-summary { color: var(--gim-text-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.thinking-body { padding: 6px 10px 10px; font-size: var(--meta-font); line-height: 1.65; color: var(--gim-text-3); }
+.thinking-body.md { }
+.thinking-body pre { white-space: pre-wrap; }
+
+/* ---------- 工具组卡 ---------- */
+.tool-group {
+    margin: 0 0 8px;
+    border-radius: 8px;
+    border: 1px solid var(--gim-border);
+    background: var(--gim-code-bg);
+    overflow: hidden;
+}
+.tool-group-header {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 6px 10px;
+    cursor: pointer;
+    font-size: var(--meta-font);
+    color: var(--gim-text-3);
+    user-select: none;
+}
+.tool-group-header:hover { background: var(--gim-hover); }
+.tool-group-chevron { display: inline-flex; transition: transform .15s ease; color: var(--gim-text-4); }
+.tool-group-chevron svg { width: 11px; height: 11px; fill: currentColor; }
+.tool-group.open > .tool-group-header .tool-group-chevron { transform: rotate(90deg); }
+.tool-group-body { display: none; padding: 2px 10px 8px; }
+.tool-group.open .tool-group-body { display: block; }
+.tool-group-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 2px;
+    cursor: pointer;
+    font-size: var(--meta-font);
+    min-width: 0;
+}
+.tool-group-row:hover { background: var(--gim-hover); border-radius: 5px; }
+.tool-group-icon { display: inline-flex; flex: none; }
+.tool-group-icon svg { width: 12px; height: 12px; fill: currentColor; }
+.tool-group-icon.ok { color: var(--gim-ok); }
+.tool-group-icon.err { color: var(--gim-err); }
+.tool-group-name { font-weight: 700; color: var(--gim-text-2); white-space: nowrap; }
+.tool-group-summary { color: var(--gim-text-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
+.tool-group-detail { display: none; margin: 2px 0 6px 18px; }
+.tool-group-item.open .tool-group-detail { display: block; }
+.tool-detail-label { font-size: var(--meta-font); color: var(--gim-text-4); margin: 4px 0 2px; }
+.tool-detail-text {
+    display: block;
+    background: var(--gim-content);
+    border: 1px solid var(--gim-border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: var(--meta-font);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    max-height: 240px;
+    overflow-y: auto;
+    color: var(--gim-text-2);
+    margin: 0;
+}
+
+/* ---------- 对比卡 ---------- */
+.compare-card { display: flex; gap: 10px; margin: 8px 0; align-items: stretch; }
+.compare-col {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--gim-content);
+    border: 1px solid var(--gim-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.compare-col-head { display: flex; align-items: center; gap: 8px; }
+.compare-col-title { font-weight: 700; color: var(--gim-text-strong); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.badge { flex: none; font-size: var(--meta-font); padding: 1px 8px; border-radius: 999px; }
+.badge-blue { background: var(--gim-badge-blue-bg); color: var(--gim-badge-blue-fg); }
+.badge-green { background: var(--gim-badge-green-bg); color: var(--gim-tint-fg); }
+.badge-gray { background: var(--gim-badge-gray-bg); color: var(--gim-badge-gray-fg); }
+.badge-red { background: var(--gim-badge-red-bg); color: var(--gim-badge-red-fg); }
+.compare-col-scroll {
+    height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--gim-border);
+    border-radius: 8px;
+    background: var(--gim-code-bg);
+    padding: 8px 10px;
+    font-size: var(--chat-font);
+}
+.compare-col-text { white-space: pre-wrap; overflow-wrap: break-word; color: var(--gim-text); }
+.compare-col-foot { font-size: var(--meta-font); color: var(--gim-text-4); }
+
+/* ---------- 命中高亮（搜索跳转） ---------- */
+@keyframes hit-fade { 0% { background: var(--gim-hit); } 100% { background: transparent; } }
+.bubble-row.hit { animation: hit-fade 1.6s ease forwards; border-radius: 10px; }
+
+/* 平滑滚动（补页/回底由 JS 控制） */
+html { scroll-behavior: smooth; }

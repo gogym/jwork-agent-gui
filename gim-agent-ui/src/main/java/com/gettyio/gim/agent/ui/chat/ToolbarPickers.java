@@ -130,11 +130,15 @@ public class ToolbarPickers {
         return planModeRequested;
     }
 
+    /** 对比目标：一个模型（由工具条多选勾选产生），供发送流程组装并行请求。 */
+    public record CompareTarget(String providerCode, String modelCode, String label) {
+    }
+
     /** 已勾选的对比目标（按模型菜单顺序、排除「跟随默认」）；发送流程据此组装并行请求。 */
-    public List<CompareCard.Target> compareTargets() {
+    public List<CompareTarget> compareTargets() {
         return modelOptions().stream()
                 .filter(o -> !o.followDefault() && compareSelection.contains(modelKey(o)))
-                .map(o -> new CompareCard.Target(o.providerCode(), o.modelCode(), o.label()))
+                .map(o -> new CompareTarget(o.providerCode(), o.modelCode(), o.label()))
                 .toList();
     }
 

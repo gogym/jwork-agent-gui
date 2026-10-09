@@ -9,6 +9,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * UI 主题中心：浅色/深色模式 + 字体大小档位。
@@ -32,6 +34,8 @@ public final class UiTheme {
     private static FontSize fontSize = FontSize.MEDIUM;
     private static boolean loaded;
     private static boolean chatFontLoaded;
+    /** 主题/字号变更监听器：WebView 渲染层（chat.css 无法直接吃 JavaFX token）据此同步 data-theme/data-font。 */
+    private static final List<Runnable> THEME_LISTENERS = new CopyOnWriteArrayList<>();
 
     private UiTheme() {
     }
@@ -52,6 +56,7 @@ public final class UiTheme {
             mode = m;
             UserPrefs.put("mode", m.name());
             applyAll();
+            notifyTheme();
         }
     }
 
@@ -61,6 +66,18 @@ public final class UiTheme {
             fontSize = f;
             UserPrefs.put("font", f.name());
             applyAll();
+            notifyTheme();
+        }
+    }
+
+    /** 注册主题/字号变更监听（弱语义：随进程存活）；注册方应立即自行同步一次当前值。 */
+    public static void addThemeListener(Runnable listener) {
+        THEME_LISTENERS.add(listener);
+    }
+
+    private static void notifyTheme() {
+        for (Runnable r : THEME_LISTENERS) {
+            r.run();
         }
     }
 
