@@ -77,6 +77,11 @@ public class GimPaths {
         return workspaceDir().resolve("attachments");
     }
 
+    /** AI 生成图片等产物目录：{@code generated/}，供 generate_image 工具与聊天页生图入口落盘引用。 */
+    public Path generatedDir() {
+        return workspaceDir().resolve("generated");
+    }
+
     public Path agentsMd() {
         return workspaceDir().resolve("AGENTS.md");
     }

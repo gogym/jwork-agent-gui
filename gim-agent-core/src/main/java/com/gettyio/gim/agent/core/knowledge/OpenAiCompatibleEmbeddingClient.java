@@ -64,6 +64,12 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         return out;
     }
 
+    /** 配置身份：协议端点 + 模型名；端点或模型变更都会使既有索引指纹失配而触发重建。 */
+    @Override
+    public String cacheKey() {
+        return endpoint + "#" + model;
+    }
+
     private float[][] embedBatch(List<String> batch) {
         try {
             ObjectNode body = MAPPER.createObjectNode();

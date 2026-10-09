@@ -9,9 +9,14 @@ import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -19,8 +24,8 @@ import java.util.Locale;
 import java.util.stream.Stream;
 
 /**
- * 应用级知识库管理（原生 knowledge 文件树路线）：把用户导入的资料抽取为纯文本、落盘到该智能体工作区的
- * {@code knowledge/} 目录，并据此重建 {@code knowledge/KNOWLEDGE.md} 目录索引。
+ * 应用级知识库管理（原生 knowledge 文件树路线）：把用户导入的资料（本地文件 / 网页 URL）抽取为纯文本、
+ * 落盘到该智能体工作区的 {@code knowledge/} 目录，并据此重建 {@code knowledge/KNOWLEDGE.md} 目录索引。
  * <p>Harness 的 WorkspaceContextMiddleware 每轮会把 {@code KNOWLEDGE.md} 与 {@code knowledge/} 文件清单注入
  * 上下文，智能体再按需 {@code read}/{@code grep} 具体文件——因此这里<b>不建向量库</b>，只维护「可检索的纯文本文件
  * + 人读目录」。导入统一转 {@code .md} 纯文本（原件的 pdf/docx/xlsx 由 {@link FileTextExtractor} 抽取），
@@ -38,6 +43,13 @@ public class KnowledgeService {
     private static final String SUMMARY_MARK = "<!-- jwork:summary=";
     /** 单份入库文本正文上限（字符）：入库文档可长，但索引回读与注入只需头部。 */
     private static final int SUMMARY_CHARS = 120;
+    /** URL 导入正文截断上限（字符）：网页可能超长，防单页撑爆索引与上下文。 */
+    private static final int MAX_URL_TEXT_CHARS = 200_000;
+    /** URL 抓取的共享 HTTP 客户端（跟随重定向；单请求超时在请求侧设置）。 */
+    private static final HttpClient HTTP = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(8))
+            .followRedirects(HttpClient.Redirect.NORMAL)
+            .build();
 
     private final GimDatabase db;
     private final MultiAgentGateway gateway;
@@ -139,19 +151,57 @@ public class KnowledgeService {
             throw new UncheckedIOException("写入知识文件失败", e);
         }
         rebuildIndex(agentCode);
-        indexVectors(agentCode, target, text);
+        indexVectors(agentCode, target, content);
         log.info("知识入库: agent={}, file={}, summaryLen={}", agentCode, target.getFileName(), trimmedSummary.length());
         return target.getFileName().toString();
     }
 
-    /** 导入/重建后向量索引：embedding 未配置或调用失败仅记日志，不阻断文件树入库。 */
-    private void indexVectors(String agentCode, Path docFile, String text) {
+    /**
+     * 从 URL 导入网页资料：抓取 → 去标签转纯文本 → 走与文件导入一致的链路
+     * （命名清洗、摘要派生、落盘 .md、重建索引、向量索引）。
+     *
+     * @param summary 一句话摘要；留空则自动取正文首个有效行
+     * @return 入库后的文件名（.md）
+     * @throws IllegalArgumentException 非 http/https 地址、抓取非 2xx 或正文抽取为空
+     */
+    public String importFromUrl(String agentCode, String url, String summary) {
+        String target = url == null ? "" : url.trim();
+        if (!target.startsWith("http://") && !target.startsWith("https://")) {
+            throw new IllegalArgumentException("仅支持 http/https 地址：" + target);
+        }
+        String text = htmlToText(fetch(target));
+        if (text.isBlank()) {
+            throw new IllegalArgumentException("未能从该网页抽取到正文内容（可能是纯脚本渲染页面）");
+        }
+        if (text.length() > MAX_URL_TEXT_CHARS) {
+            text = text.substring(0, MAX_URL_TEXT_CHARS);
+        }
+        Path dir = knowledgeDirFor(agentCode);
+        Path file = uniquePath(dir, sanitizeBase(urlBaseName(target)));
+        String trimmedSummary = summary == null ? "" : summary.replaceAll("\\s+", " ").trim();
+        if (trimmedSummary.isEmpty()) {
+            trimmedSummary = deriveSummary(text);
+        }
+        String content = buildDoc(target, trimmedSummary, text);
+        try {
+            Files.writeString(file, content, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            throw new UncheckedIOException("写入知识文件失败", e);
+        }
+        rebuildIndex(agentCode);
+        indexVectors(agentCode, file, content);
+        log.info("网页入库: agent={}, url={}, file={}", agentCode, target, file.getFileName());
+        return file.getFileName().toString();
+    }
+
+    /** 导入/重建后向量索引：索引文本取「落盘全文」口径（与重建索引 readDoc 一致，保证增量指纹可比）；embedding 未配置或调用失败仅记日志，不阻断文件树入库。 */
+    private void indexVectors(String agentCode, Path docFile, String docContent) {
         if (embeddingIndexer == null) {
             return;
         }
         String name = docFile.getFileName().toString();
         try {
-            int chunks = embeddingIndexer.indexDocument(agentCode, name, text);
+            int chunks = embeddingIndexer.indexDocument(agentCode, name, docContent);
             if (chunks < 0) {
                 log.info("embedding 未配置，跳过向量索引: agent={}, doc={}", agentCode, name);
             }
@@ -344,5 +394,71 @@ public class KnowledgeService {
             return "text/plain";
         }
         return null;
+    }
+
+    // ---- URL 导入 ----
+
+    /** 抓取网页文本（非 2xx / IO 失败 / 中断均以明确异常外抛，由 UI 层呈现）。 */
+    private static String fetch(String url) {
+        URI uri;
+        try {
+            uri = URI.create(url);
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("无效的 URL：" + url, e);
+        }
+        try {
+            HttpRequest req = HttpRequest.newBuilder(uri)
+                    .timeout(Duration.ofSeconds(20))
+                    .header("User-Agent", "Mozilla/5.0 (Jwork Desktop)")
+                    .header("Accept", "text/html,application/xhtml+xml,text/plain")
+                    .GET()
+                    .build();
+            HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() / 100 != 2) {
+                throw new IllegalStateException("抓取失败：HTTP " + resp.statusCode());
+            }
+            return resp.body();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("抓取被中断", e);
+        } catch (IOException e) {
+            throw new IllegalStateException("抓取失败：" + e.getMessage(), e);
+        }
+    }
+
+    /**
+     * 粗略 HTML→文本：去 script/style 等、边标签转行、剥标签、解码常见实体、折叠空白。
+     * 与 web_fetch 工具同口径的轻量实现（core 不依赖 tools 模块，此处独立维护）。
+     */
+    private static String htmlToText(String html) {
+        if (html == null) {
+            return "";
+        }
+        String s = html
+                .replaceAll("(?is)<(script|style|noscript|svg|template)[^>]*>.*?</\\1>", " ")
+                .replaceAll("(?is)<br\\s*/?>", "\n")
+                .replaceAll("(?is)</(p|div|li|h[1-6]|tr|section|article)>", "\n")
+                .replaceAll("(?is)<[^>]+>", " ");
+        s = s.replace("&nbsp;", " ")
+                .replace("&amp;", "&")
+                .replace("&lt;", "<")
+                .replace("&gt;", ">")
+                .replace("&quot;", "\"")
+                .replace("&#39;", "'");
+        return s.replaceAll("[ \\t\\x0B\\f\\r]+", " ")
+                .replaceAll("\\n{3,}", "\n\n")
+                .trim();
+    }
+
+    /** URL 基名：主机名（点折为连字符，避免与扩展名裁剪混淆）+ 路径；解析失败回退 url。 */
+    private static String urlBaseName(String url) {
+        try {
+            URI u = URI.create(url);
+            String host = u.getHost() == null ? "url" : u.getHost().replace('.', '-');
+            String path = u.getPath() == null ? "" : u.getPath();
+            return host + path;
+        } catch (IllegalArgumentException e) {
+            return "url";
+        }
     }
 }

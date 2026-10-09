@@ -147,8 +147,8 @@ public class UpdateChecker {
         return normalize(p.getProperty("app.version", "0.0.0"));
     }
 
-    /** 归一化版本串：去空白、去前导 v、截断 {@code -}/{@code +} 预发布后缀。 */
-    static String normalize(String raw) {
+    /** 归一化版本串：去空白、去前导 v、截断 {@code -}/{@code +} 预发布后缀。供市场「可更新」检测复用。 */
+    public static String normalize(String raw) {
         if (raw == null) {
             return "0.0.0";
         }
@@ -167,8 +167,8 @@ public class UpdateChecker {
         return s.isEmpty() ? "0.0.0" : s;
     }
 
-    /** 语义化版本点分数值比较：a &gt; b 返回正，缺位补 0，非数字段按 0。 */
-    static int compareVersions(String a, String b) {
+    /** 语义化版本点分数值比较：a &gt; b 返回正，缺位补 0，非数字段按 0。供市场「可更新」检测复用。 */
+    public static int compareVersions(String a, String b) {
         String[] pa = normalize(a).split("\\.");
         String[] pb = normalize(b).split("\\.");
         int n = Math.max(pa.length, pb.length);

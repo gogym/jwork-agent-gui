@@ -16,7 +16,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 /**
  * 全局热键服务（仅 Windows）：基于 JNA {@code User32.RegisterHotKey} 注册系统级快捷键，
- * 即使应用未获焦点也能唤起「快速问答小窗」与「截屏提问」。
+ * 即使应用未获焦点也能唤起「快速问答小窗」「截屏提问」与「划词助手」。
  * <p>实现要点：以 {@code hWnd=NULL} 注册，WM_HOTKEY 投递到注册所在线程的消息队列；故注册、消息泵、
  * 反注册全部收敛在同一条守护线程上完成（{@link #loop()}）。注册/反注册不直接调用，而是把动作
  * {@code offer} 到 {@link #commands} 队列由该线程串行消费，杜绝跨线程调用 Win32 热键 API。</p>
@@ -35,10 +35,12 @@ public class GlobalHotkeyService {
 
     private static final int ID_QUICK_ASK = 1;
     private static final int ID_SCREENSHOT = 2;
+    private static final int ID_SELECTION = 3;
     /** Ctrl+Alt 组合 */
     private static final int MOD_CTRL_ALT = WinUser.MOD_CONTROL | WinUser.MOD_ALT;
     private static final int VK_Q = 0x51;
     private static final int VK_A = 0x41;
+    private static final int VK_D = 0x44;
 
     /** 热键总开关的持久化键（默认开） */
     public static final String KEY_ENABLED = "app.hotkey.enabled";
@@ -52,6 +54,7 @@ public class GlobalHotkeyService {
 
     private volatile Runnable onQuickAsk;
     private volatile Runnable onScreenshot;
+    private volatile Runnable onSelection;
     private volatile boolean enabled;
     private volatile boolean running;
     private Thread worker;
@@ -64,6 +67,10 @@ public class GlobalHotkeyService {
 
     public void setOnScreenshot(Runnable onScreenshot) {
         this.onScreenshot = onScreenshot;
+    }
+
+    public void setOnSelection(Runnable onSelection) {
+        this.onSelection = onSelection;
     }
 
     /** 当前平台能否使用全局热键（仅 Windows）。 */
@@ -89,7 +96,7 @@ public class GlobalHotkeyService {
         worker = new Thread(this::loop, "gim-global-hotkey");
         worker.setDaemon(true);
         worker.start();
-        log.info("全局热键消息泵已启动（quickAsk=Ctrl+Alt+Q, screenshot=Ctrl+Alt+A, enabled={}）", enabled);
+        log.info("全局热键消息泵已启动（quickAsk=Ctrl+Alt+Q, screenshot=Ctrl+Alt+A, selection=Ctrl+Alt+D, enabled={}）", enabled);
     }
 
     /**
@@ -158,6 +165,8 @@ public class GlobalHotkeyService {
             safeRun(onQuickAsk);
         } else if (id == ID_SCREENSHOT && onScreenshot != null) {
             safeRun(onScreenshot);
+        } else if (id == ID_SELECTION && onSelection != null) {
+            safeRun(onSelection);
         }
     }
 
@@ -172,6 +181,7 @@ public class GlobalHotkeyService {
     private void registerAllInto(Set<Integer> registered) {
         registerOne(registered, ID_QUICK_ASK, VK_Q);
         registerOne(registered, ID_SCREENSHOT, VK_A);
+        registerOne(registered, ID_SELECTION, VK_D);
     }
 
     private void registerOne(Set<Integer> registered, int id, int vk) {

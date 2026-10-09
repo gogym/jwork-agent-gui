@@ -1,5 +1,6 @@
 package com.gettyio.gim.agent.ui.chat;
 
+import com.gettyio.gim.agent.ui.I18n;
 import javafx.animation.PauseTransition;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -44,6 +45,10 @@ import org.commonmark.node.Text;
 import org.commonmark.node.ThematicBreak;
 import org.commonmark.parser.Parser;
 
+import java.awt.Desktop;
+import java.net.URI;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -85,10 +90,7 @@ public final class MarkdownRenderer {
             label.getStyleClass().add("md-h" + Math.min(Math.max(h.getLevel(), 1), 4));
             out.add(label);
         } else if (node instanceof Paragraph p) {
-            javafx.scene.text.TextFlow flow =
-                    new javafx.scene.text.TextFlow(inlineNodes(p).toArray(new javafx.scene.Node[0]));
-            flow.getStyleClass().add("md-p");
-            out.add(flow);
+            out.addAll(paragraph(p));
         } else if (node instanceof FencedCodeBlock f) {
             String info = f.getInfo() == null ? "" : f.getInfo().trim();
             String literal = f.getLiteral() == null ? "" : f.getLiteral().stripTrailing();
@@ -126,6 +128,119 @@ public final class MarkdownRenderer {
             out.add(flow);
         }
         return out;
+    }
+
+    // ===================== 本地图片（AI 生成图 / 绝对路径引用） =====================
+
+    /** 气泡内本地图片的最大展示宽度（px）：超宽图按比例缩小，小图不放大。 */
+    private static final double MAX_IMAGE_WIDTH = 420;
+
+    /**
+     * 段落：含「本地存在的图片」子节点时按顺序拆成 TextFlow 与图片块交替；否则单 TextFlow 原样返回。
+     * <p>仅当图片路径可解析为本地真实文件时才拆出独立图片块——远程 URL、相对路径与不存在的文件
+     * 继续走 {@link #appendInline} 的 alt 文本兑底，避免加载任意网络资源。</p>
+     */
+    private static List<javafx.scene.Node> paragraph(Paragraph p) {
+        if (!hasLocalImage(p)) {
+            return List.of(textFlow(inlineNodes(p)));
+        }
+        List<javafx.scene.Node> out = new ArrayList<>();
+        List<javafx.scene.Node> inline = new ArrayList<>();
+        for (Node c = p.getFirstChild(); c != null; c = c.getNext()) {
+            javafx.scene.Node image = c instanceof Image img ? imageBlock(img) : null;
+            if (image != null) {
+                if (!inline.isEmpty()) {
+                    out.add(textFlow(inline));
+                    inline = new ArrayList<>();
+                }
+                out.add(image);
+            } else {
+                appendInline(c, inline, false, false, false);
+            }
+        }
+        if (!inline.isEmpty()) {
+            out.add(textFlow(inline));
+        }
+        return out;
+    }
+
+    /** 把一组内联节点收成带 {@code md-p} 样式类的 TextFlow。 */
+    private static javafx.scene.text.TextFlow textFlow(List<javafx.scene.Node> inline) {
+        javafx.scene.text.TextFlow flow =
+                new javafx.scene.text.TextFlow(inline.toArray(new javafx.scene.Node[0]));
+        flow.getStyleClass().add("md-p");
+        return flow;
+    }
+
+    /** 段落里是否存在「本地可渲染的图片」子节点（存在才走拆分路径）。 */
+    private static boolean hasLocalImage(Node parent) {
+        for (Node c = parent.getFirstChild(); c != null; c = c.getNext()) {
+            if (c instanceof Image img && localImagePath(img.getDestination()) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 本地图片节点：同步加载、限宽展示、悬停看绝对路径、点击用系统程序打开；加载失败返回 null（回落 alt 文本）。 */
+    private static javafx.scene.Node imageBlock(Image img) {
+        Path path = localImagePath(img.getDestination());
+        if (path == null) {
+            return null;
+        }
+        javafx.scene.image.Image image = new javafx.scene.image.Image(path.toUri().toString(), false);
+        if (image.isError()) {
+            return null;
+        }
+        javafx.scene.image.ImageView view = new javafx.scene.image.ImageView(image);
+        view.setPreserveRatio(true);
+        view.setSmooth(true);
+        double w = image.getWidth();
+        view.setFitWidth(w > 0 ? Math.min(MAX_IMAGE_WIDTH, w) : MAX_IMAGE_WIDTH);
+        view.getStyleClass().add("md-image");
+        Tooltip.install(view, new Tooltip(path.toAbsolutePath().toString()));
+        view.setOnMouseClicked(e -> openExternally(path));
+        return view;
+    }
+
+    /** 点击图片用系统默认程序打开；无桌面支持时静默（悬停提示里已有路径可自行打开）。 */
+    private static void openExternally(Path path) {
+        try {
+            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
+                Desktop.getDesktop().open(path.toFile());
+            }
+        } catch (Exception e) {
+            // 打不开就保持静默：绝对路径已在悬停提示中给出
+        }
+    }
+
+    /**
+     * 判定 Markdown 图片目标是否为「本地可读文件」：支持 {@code file://} URI、Windows 盘符绝对路径
+     * （{@code C:/…} 或 {@code C:\…}）、Unix 绝对路径与 UNC 路径；其余（http(s)、相对路径）返回
+     * {@code null} 交由 alt 文本兑底。渲染层与导出层（HTML 内嵌图片）共用同一判定，公开以便复用。
+     */
+    public static Path localImagePath(String destination) {
+        if (destination == null || destination.isBlank()) {
+            return null;
+        }
+        String d = destination.trim();
+        try {
+            if (d.regionMatches(true, 0, "file:", 0, 5)) {
+                Path p = Path.of(URI.create(d));
+                return Files.isRegularFile(p) ? p : null;
+            }
+            boolean windowsAbs = d.length() > 2 && Character.isLetter(d.charAt(0)) && d.charAt(1) == ':'
+                    && (d.charAt(2) == '/' || d.charAt(2) == '\\');
+            boolean unixAbs = d.startsWith("/");
+            boolean unc = d.startsWith("\\\\");
+            if (windowsAbs || unixAbs || unc) {
+                Path p = Path.of(d);
+                return Files.isRegularFile(p) ? p : null;
+            }
+        } catch (RuntimeException e) {
+            return null;
+        }
+        return null;
     }
 
     /** 列表：逐项前置符号（• 或 数字.），子块递归渲染。 */
@@ -166,7 +281,7 @@ public final class MarkdownRenderer {
     }
 
     /**
-     * 代码块：着色文本流（关键字/字符串/数字/注释四类）+ 右上角复制按钮。
+     * 代码块：着色文本流（关键字/字符串/数字/注释四类）+ 右上角操作钮（HTML/SVG 为预览 + 复制，其余仅复制）。
      * <p>着色由 {@link CodeHighlighter} 切段，样式类 {@code md-code-*} 由明暗两套 CSS 提供色值。
      * 外层 ScrollPane 承担横向滚动（代码不折行），纵向高度由内容自然撑开、交给消息区统一滚动。</p>
      */
@@ -191,26 +306,42 @@ public final class MarkdownRenderer {
         copy.setGraphic(copyIcon);
         copy.getStyleClass().add("md-copy-btn");
         copy.setFocusTraversable(false);
-        Tooltip tip = new Tooltip("复制代码");
+        Tooltip tip = new Tooltip(I18n.t("chat.artifact.copy"));
         copy.setTooltip(tip);
         copy.setOnAction(e -> {
             ClipboardContent content = new ClipboardContent();
             content.putString(code);
             Clipboard.getSystemClipboard().setContent(content);
             copyIcon.setText("\uE73E");
-            tip.setText("已复制");
+            tip.setText(I18n.t("chat.artifact.copied"));
             PauseTransition reset = new PauseTransition(Duration.millis(1200));
             reset.setOnFinished(f -> {
                 copyIcon.setText("\uE8C8");
-                tip.setText("复制代码");
+                tip.setText(I18n.t("chat.artifact.copy"));
             });
             reset.play();
         });
 
-        StackPane copyHolder = new StackPane(copy);
-        StackPane.setAlignment(copy, Pos.TOP_RIGHT);
-        StackPane.setMargin(copy, new Insets(6, 8, 0, 0));
-        StackPane pane = new StackPane(scroller, copyHolder);
+        HBox codeActions = new HBox(4);
+        // 锁内容尺寸：StackPane 会把可伸缩子节点拉满，不锁则操作钮被 HBox 左对齐后落在左上角
+        codeActions.setMaxSize(Region.USE_PREF_SIZE, Region.USE_PREF_SIZE);
+        if (ArtifactPreviewWindow.isPreviewable(language)) {
+            Label previewIcon = new Label("\uE7B3");
+            previewIcon.getStyleClass().add("md-copy-icon");
+            Button preview = new Button();
+            preview.setGraphic(previewIcon);
+            preview.getStyleClass().add("md-copy-btn");
+            preview.setFocusTraversable(false);
+            preview.setTooltip(new Tooltip(I18n.t("chat.artifact.preview")));
+            preview.setOnAction(e -> ArtifactPreviewWindow.preview(
+                    preview.getScene() == null ? null : preview.getScene().getWindow(), code, language));
+            codeActions.getChildren().add(preview);
+        }
+        codeActions.getChildren().add(copy);
+
+        StackPane pane = new StackPane(scroller, codeActions);
+        StackPane.setAlignment(codeActions, Pos.TOP_RIGHT);
+        StackPane.setMargin(codeActions, new Insets(6, 8, 0, 0));
         pane.getStyleClass().add("md-code-block");
         return pane;
     }

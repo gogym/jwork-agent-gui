@@ -10,6 +10,7 @@ import com.gettyio.gim.agent.domain.entity.ToolPermissionRule;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 import com.gettyio.gim.agent.tools.guard.DangerousCommandPolicy;
 import com.gettyio.gim.agent.tools.guard.DangerousRule;
+import com.gettyio.gim.agent.tools.sandbox.SandboxExecutor;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,9 +41,17 @@ public class SecurityAdminService {
     private static final String KEY_KB_BASEURL = "knowledge.embedding.baseUrl";
     private static final String KEY_KB_MODEL = "knowledge.embedding.model";
     private static final String KEY_KB_APIKEY = "knowledge.embedding.apiKey";
+    private static final String KEY_IMG_BASEURL = "image.generation.baseUrl";
+    private static final String KEY_IMG_MODEL = "image.generation.model";
+    private static final String KEY_IMG_APIKEY = "image.generation.apiKey";
+    private static final String KEY_SANDBOX_DOCKER = "agent.sandbox.autoApproveDocker";
+    private static final String KEY_SANDBOX_IMAGE = "agent.sandbox.image";
 
     /** 联网搜索提供方默认值（当前仅内置 Tavily）。 */
     public static final String WEB_PROVIDER_TAVILY = "tavily";
+
+    /** Docker 沙箱镜像默认值：与执行器内置默认保持单一来源。 */
+    public static final String SANDBOX_IMAGE_DEFAULT = SandboxExecutor.DEFAULT_IMAGE;
 
     /** 审批档位取值（与聊天页 ApprovalOption 对应）。 */
     public static final String APPROVAL_ASK = "ask";
@@ -300,6 +309,81 @@ public class SecurityAdminService {
             return;
         }
         db.settingDao().upsert(KEY_KB_APIKEY, cipher.encrypt(plain.trim()), "向量知识库 embedding API Key（密文）");
+    }
+
+    // ===================== 图像生成（OpenAI 兼容 images/generations） =====================
+
+    /** 图像生成服务协议根（未配置返回空串）。 */
+    public String getImageBaseUrl() {
+        return db.settingDao().getValue(KEY_IMG_BASEURL).orElse("").trim();
+    }
+
+    public void setImageBaseUrl(String url) {
+        db.settingDao().upsert(KEY_IMG_BASEURL, url == null ? "" : url.trim(), "图像生成服务地址");
+    }
+
+    /** 图像模型编码（如 dall-e-3 / cogview-3）。 */
+    public String getImageModel() {
+        return db.settingDao().getValue(KEY_IMG_MODEL).orElse("").trim();
+    }
+
+    public void setImageModel(String model) {
+        db.settingDao().upsert(KEY_IMG_MODEL, model == null ? "" : model.trim(), "图像生成模型");
+    }
+
+    /** 读取明文图像 API Key（密文存储，取出即解密）；未配置或解密失败返回空串。 */
+    public String getImageApiKeyPlain() {
+        String stored = db.settingDao().getValue(KEY_IMG_APIKEY).orElse("").trim();
+        if (stored.isEmpty()) {
+            return "";
+        }
+        try {
+            return cipher.canHandle(stored) ? cipher.decrypt(stored) : stored;
+        } catch (RuntimeException e) {
+            return "";
+        }
+    }
+
+    /** 保存图像 API Key（加密入库）；空白即清除已存 Key（无鉴权的本地服务可留空）。 */
+    public void setImageApiKey(String plain) {
+        if (plain == null || plain.isBlank()) {
+            db.settingDao().upsert(KEY_IMG_APIKEY, "", "图像生成 API Key（密文）");
+            return;
+        }
+        db.settingDao().upsert(KEY_IMG_APIKEY, cipher.encrypt(plain.trim()), "图像生成 API Key（密文）");
+    }
+
+    /** 是否已配置可用的图像生成服务：地址与模型齐备即视为可用（Key 可空，兼容本地免鉴权服务）。 */
+    public boolean isImageConfigured() {
+        return !getImageBaseUrl().isEmpty() && !getImageModel().isEmpty();
+    }
+
+    // ===================== Docker 沙箱（自动通过档隔离执行） =====================
+
+    /** 自动通过档是否启用 Docker 沙箱隔离（缺省关闭；关闭时命令按既有本地方式执行）。 */
+    public boolean isSandboxDockerEnabled() {
+        return db.settingDao().getValue(KEY_SANDBOX_DOCKER)
+                .map(v -> "1".equals(v.trim()) || "true".equalsIgnoreCase(v.trim()))
+                .orElse(false);
+    }
+
+    public void setSandboxDockerEnabled(boolean enabled) {
+        db.settingDao().upsert(KEY_SANDBOX_DOCKER, enabled ? "1" : "0",
+                "自动通过档启用 Docker 沙箱隔离");
+    }
+
+    /** 沙箱镜像（如 python:3.12-slim）；未设置或空白回退 {@link #SANDBOX_IMAGE_DEFAULT}。 */
+    public String getSandboxImage() {
+        return db.settingDao().getValue(KEY_SANDBOX_IMAGE)
+                .map(String::trim)
+                .filter(v -> !v.isEmpty())
+                .orElse(SANDBOX_IMAGE_DEFAULT);
+    }
+
+    /** 保存沙箱镜像；空白即恢复默认（存空串，读取侧统一回退）。 */
+    public void setSandboxImage(String image) {
+        db.settingDao().upsert(KEY_SANDBOX_IMAGE, image == null ? "" : image.trim(),
+                "Docker 沙箱镜像");
     }
 
     // ===================== 「总是允许」授权规则 =====================

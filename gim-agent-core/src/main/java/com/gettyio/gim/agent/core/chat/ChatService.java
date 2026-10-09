@@ -104,6 +104,24 @@ public class ChatService {
     }
 
     /**
+     * 直插一轮本地合成的对话（图像生成等不经过模型链路的产物）：用户消息 + 助手消息各落一条，
+     * 不触发模型调用；返回助手消息主键。调用方随后按会话重放即带真实主键上屏。
+     */
+    public long insertLocalExchange(String sessionId, String agentCode, String userText, String assistantMarkdown) {
+        ensureSession(sessionId, agentCode, userText);
+        persistMessage(sessionId, agentCode, ConversationRole.USER, userText == null ? "" : userText);
+        ChatConversation c = new ChatConversation();
+        c.setSessionId(sessionId);
+        c.setAgentCode(agentCode);
+        c.setRole(ConversationRole.ASSISTANT.getCode());
+        c.setContent(assistantMarkdown == null ? "" : assistantMarkdown);
+        c.setCreatedAt(LocalDateTime.now());
+        db.conversationDao().insert(c);
+        db.sessionDao().incrementMessageCount(sessionId, 1);
+        return c.getId();
+    }
+
+    /**
      * 发起一轮流式对话：落盘用户消息（含图片附件）→ 流式应答 → 落盘助手消息（含本轮累计 token 用量）。
      * <p>{@link ChatRequest} 携带消息级模型覆盖与图片附件；无附件时行为与纯文本对话一致。</p>
      */

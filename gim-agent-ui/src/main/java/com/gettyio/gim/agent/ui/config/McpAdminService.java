@@ -10,7 +10,7 @@ import java.util.List;
  * MCP 服务配置管理：mcp_servers 表增删改查与启禁。
  * <p>运行时连接由智能体自己声明：{@code agents.mcp_servers_json} 列出的服务会在装配时由
  * AgentScope 真正建连并把工具注册进 Toolkit（见 {@code AgentCapabilityResolver}）；
- * 未被任何智能体声明的服务不连接，因此本服务不代指“已连接”，status 由注册结果回写。</p>
+ * 未被任何智能体声明的服务不连接，因此本服务不代指“已连接”；status 由运行时注册结果与「测试连接」探测共同回写。</p>
  * <p>配置变更要让引用它的智能体运行时重建，否则旧客户端会继续提供旧工具集。</p>
  */
 public class McpAdminService {
@@ -59,5 +59,21 @@ public class McpAdminService {
             db.mcpServerDao().update(m);
             agentAdminService.onMcpServerChanged(serverCode);
         });
+    }
+
+    /** 探测结果回写连接状态（「测试连接」用）；状态未变化不发多余 UPDATE。 */
+    public void recordStatus(String serverCode, boolean connected) {
+        db.mcpServerDao().findByCode(serverCode).ifPresent(m -> {
+            String next = connected ? "CONNECTED" : "DISCONNECTED";
+            if (!next.equals(m.getStatus())) {
+                m.setStatus(next);
+                db.mcpServerDao().update(m);
+            }
+        });
+    }
+
+    /** 测试连接恢复后让引用该服务的智能体运行时失效，下轮对话即会以新连接重试。 */
+    public void refreshAgentRuntimes(String serverCode) {
+        agentAdminService.onMcpServerChanged(serverCode);
     }
 }

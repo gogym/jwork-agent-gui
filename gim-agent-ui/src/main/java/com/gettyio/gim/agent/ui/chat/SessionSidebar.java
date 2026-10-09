@@ -64,6 +64,9 @@ public class SessionSidebar {
     private static final String ICON_STAR = "\uE734";
     private static final String ICON_STAR_FILL = "\uE735";
     private static final String ICON_BRANCH = "\uEBC9";
+    /** Fluent 图标：导出长图（图片）/ 导出网页（地球） */
+    private static final String ICON_EXPORT_IMAGE = "\uE91B";
+    private static final String ICON_EXPORT_HTML = "\uE774";
 
     private final VBox sessionsBox;
     private final HBox sessionsHeader;
@@ -402,8 +405,8 @@ public class SessionSidebar {
     }
 
     /**
-     * 会话行「⋯」菜单：重命名 + 删除；{@code groupMenu} 为真时再插入分组相关项
-     * （移动到分组（平铺各分组/移出/新建并移入））。
+     * 会话行「⋯」菜单：重命名 + 置顶/收藏/分支 + 导出（长图/网页）+ 删除；{@code groupMenu}
+     * 为真时再插入分组相关项（移动到分组（平铺各分组/移出/新建并移入））。
      * <p>本 JavaFX 版本无 {@code MenuMenuItem} 子菜单类型，故把移动选项直接平铺进菜单。</p>
      */
     private ContextMenu sessionContextMenu(ChatSession s, boolean groupMenu) {
@@ -412,7 +415,7 @@ public class SessionSidebar {
         rename.setOnAction(e -> renameSession(s));
         menu.getItems().add(rename);
 
-        // 置顶 / 收藏（切换态）+ 分支（复制会话到新会话并打开）
+        // 置顶 / 收藏（切换态）+ 分支（复制会话到新会话并打开）+ 导出（长图 / 网页）
         MenuItem pin = new MenuItem(isPinned(s) ? I18n.t("session.unpin.menu") : I18n.t("session.pin.menu"),
                 UiTheme.icon(ICON_PIN));
         pin.setOnAction(e -> {
@@ -431,7 +434,12 @@ public class SessionSidebar {
             host.refreshSessions();
             host.openSessionById(newId);
         });
-        menu.getItems().addAll(pin, fav, branch);
+        // 导出：编排（弹保存框 / 渲染 / 反馈）交回宿主，菜单只负责触发
+        MenuItem exportImage = new MenuItem(I18n.t("session.export.image"), UiTheme.icon(ICON_EXPORT_IMAGE));
+        exportImage.setOnAction(e -> host.exportSessionImage(s.getSessionId()));
+        MenuItem exportHtml = new MenuItem(I18n.t("session.export.html"), UiTheme.icon(ICON_EXPORT_HTML));
+        exportHtml.setOnAction(e -> host.exportSessionHtml(s.getSessionId()));
+        menu.getItems().addAll(pin, fav, branch, exportImage, exportHtml);
 
         if (groupMenu) {
             // 移动到分组：逐组一个条目（当前所在组置灰），再给「移出分组」（仅已在组内时）与「新建分组并移入」

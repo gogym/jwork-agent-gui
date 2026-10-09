@@ -6,6 +6,7 @@ import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.window.GimDialog;
+import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -61,6 +62,7 @@ public class KnowledgeView {
     private final Label docsHeader = new Label();
     private final Label indexHeader = new Label();
     private final Button importBtn = new Button();
+    private final Button importUrlBtn = new Button();
     private Button refreshBtn;
     // 向量索引区：状态 + embedding 提供方配置 + 重建索引
     private final Label vectorHeader = new Label();
@@ -124,6 +126,10 @@ public class KnowledgeView {
         refreshBtn = iconButton("\uE72C", this::reload);
         refreshBtn.setMinWidth(Region.USE_PREF_SIZE);
 
+        importUrlBtn.getStyleClass().add("link-btn");
+        importUrlBtn.setMinWidth(Region.USE_PREF_SIZE);
+        importUrlBtn.setOnAction(e -> handleImportUrl());
+
         importBtn.getStyleClass().addAll("btn-primary", "knowledge-import-btn");
         importBtn.setMinWidth(Region.USE_PREF_SIZE);
         importBtn.setOnAction(e -> handleImport());
@@ -145,7 +151,7 @@ public class KnowledgeView {
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox headRow = new HBox(10, descLabel, spacer, agentCombo, refreshBtn, importBtn);
+        HBox headRow = new HBox(10, descLabel, spacer, agentCombo, refreshBtn, importUrlBtn, importBtn);
         headRow.setAlignment(Pos.CENTER_LEFT);
         VBox headText = new VBox(4, titleLabel, headRow);
         headText.setMaxWidth(Double.MAX_VALUE);
@@ -186,6 +192,7 @@ public class KnowledgeView {
             titleLabel.setText(I18n.t("knowledge.title"));
             descLabel.setText(I18n.t("knowledge.desc"));
             importBtn.setText(I18n.t("knowledge.import"));
+            importUrlBtn.setText(I18n.t("knowledge.importUrl"));
             docsHeader.setText(I18n.t("knowledge.docs"));
             docEmpty.setText(I18n.t("knowledge.empty"));
             indexHeader.setText(I18n.t("knowledge.index"));
@@ -261,7 +268,7 @@ public class KnowledgeView {
                 String.valueOf(indexer.docCount(choice.code)), String.valueOf(indexer.chunkCount(choice.code))));
     }
 
-    /** 重建索引：逐文档读原文 → 分块嵌入整文档替换；未配置/失败给明确反馈。 */
+    /** 重建索引（增量）：未变更文档按内容+嵌入配置指纹跳过，变更文档重嵌入整文档替换；未配置/失败给明确反馈。 */
     private void handleReindex() {
         AgentChoice choice = agentCombo.getValue();
         if (choice == null) {
@@ -279,10 +286,16 @@ public class KnowledgeView {
         }
         int ok = 0;
         int chunks = 0;
+        int skipped = 0;
         String lastError = null;
         for (KnowledgeService.DocInfo d : docs) {
             try {
-                int n = indexer.indexDocument(choice.code, d.name(), knowledgeService.readDoc(choice.code, d.name()));
+                String text = knowledgeService.readDoc(choice.code, d.name());
+                if (indexer.isUpToDate(choice.code, d.name(), text)) {
+                    skipped++;
+                    continue;
+                }
+                int n = indexer.indexDocument(choice.code, d.name(), text);
                 if (n >= 0) {
                     ok++;
                     chunks += n;
@@ -292,11 +305,12 @@ public class KnowledgeView {
             }
         }
         refreshVectorStatus();
-        if (ok == 0) {
+        if (ok == 0 && skipped == 0) {
             error(lastError);
         } else {
             info(I18n.t("knowledge.vector.section"),
-                    I18n.t("knowledge.vector.reindex.ok", String.valueOf(ok), String.valueOf(chunks)));
+                    I18n.t("knowledge.vector.reindex.ok",
+                            String.valueOf(ok), String.valueOf(chunks), String.valueOf(skipped)));
         }
     }
 
@@ -416,6 +430,68 @@ public class KnowledgeView {
         } else {
             info(I18n.t("knowledge.import"), I18n.t("knowledge.import.ok", ok));
         }
+    }
+
+    /** 从 URL 导入网页：对话框收集地址与可选摘要 → 后台抓取入库 → 回 UI 线程刷新。 */
+    private void handleImportUrl() {
+        AgentChoice choice = agentCombo.getValue();
+        if (choice == null) {
+            return;
+        }
+        GimDialog.Shell shell = GimDialog.shell(owner(), I18n.t("knowledge.importUrl.title"));
+        TextField urlField = new TextField();
+        urlField.setPromptText(I18n.t("knowledge.importUrl.url"));
+        urlField.setPrefWidth(460);
+        TextField summaryField = new TextField();
+        summaryField.setPromptText(I18n.t("knowledge.importUrl.summary"));
+        summaryField.setPrefWidth(460);
+        Button cancel = new Button(I18n.t("common.cancel"));
+        cancel.setOnAction(e -> shell.stage().close());
+        Button confirm = new Button(I18n.t("knowledge.importUrl.confirm"));
+        confirm.getStyleClass().add("btn-primary");
+        confirm.setOnAction(e -> {
+            String url = urlField.getText() == null ? "" : urlField.getText().trim();
+            if (url.isEmpty()) {
+                return;
+            }
+            String summary = summaryField.getText() == null ? "" : summaryField.getText().trim();
+            shell.stage().close();
+            startUrlImport(choice.code, url, summary);
+        });
+        HBox btns = new HBox(8, cancel, confirm);
+        btns.setAlignment(Pos.CENTER_RIGHT);
+        shell.body().getChildren().addAll(urlField, summaryField, btns);
+        shell.show();
+        urlField.requestFocus();
+    }
+
+    /** 后台线程执行 URL 抓取与入库（网络耗时避免卡 UI）；完成后回 UI 线程提示并刷新。 */
+    private void startUrlImport(String agentCode, String url, String summary) {
+        importUrlBtn.setDisable(true);
+        Thread worker = new Thread(() -> {
+            String name = null;
+            String failure = null;
+            try {
+                name = knowledgeService.importFromUrl(agentCode, url, summary);
+            } catch (RuntimeException e) {
+                failure = e.getMessage();
+            }
+            String doneName = name;
+            String err = failure;
+            Platform.runLater(() -> {
+                importUrlBtn.setDisable(false);
+                if (doneName == null) {
+                    error(err);
+                    return;
+                }
+                renderDocs(agentCode);
+                indexArea.setText(knowledgeService.readIndex(agentCode));
+                refreshVectorStatus();
+                info(I18n.t("knowledge.importUrl.title"), I18n.t("knowledge.importUrl.ok", doneName));
+            });
+        }, "knowledge-url-import");
+        worker.setDaemon(true);
+        worker.start();
     }
 
     private void openDoc(String code, String name) {

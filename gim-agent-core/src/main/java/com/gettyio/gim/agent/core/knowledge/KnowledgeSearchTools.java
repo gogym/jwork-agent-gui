@@ -7,9 +7,9 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * 面向 Agent 的向量知识检索工具：{@code knowledge_search}——对当前智能体的知识库做语义检索，
- * 返回最相关的若干知识块原文与出处。
- * <p>与 KNOWLEDGE.md 文件树路线并存：先向量召回相关片段，需要完整上下文再按 doc_name 用
+ * 面向 Agent 的知识检索工具：{@code knowledge_search}——对当前智能体的知识库做混合检索
+ * （向量语义 + 关键词覆盖率加权），返回最相关的若干知识块原文与出处。
+ * <p>与 KNOWLEDGE.md 文件树路线并存：先混合召回相关片段，需要完整上下文再按 doc_name 用
  * {@code read}/{@code grep} 读原文。embedding 未配置时返回明确提示（引导去知识页配置），
  * 而非抛异常打断对话。每个智能体一份实例（agentCode 经网关注入）。</p>
  */
@@ -27,7 +27,7 @@ public class KnowledgeSearchTools {
     }
 
     @Tool(name = "knowledge_search", readOnly = true,
-            description = "在当前智能体的知识库中做语义检索（向量召回），返回最相关的知识片段及出处文档名。"
+            description = "在当前智能体的知识库中做混合检索（向量语义 + 关键词），返回最相关的知识片段及出处文档名。"
                     + "适合在 KNOWLEDGE.md 目录看不出该读哪个文件、或问题需要分散在多份资料里的细节时使用；"
                     + "需要完整上下文时再用 read/grep 按出处文件名读原文。")
     public String knowledgeSearch(

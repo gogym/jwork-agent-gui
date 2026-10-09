@@ -441,6 +441,11 @@
 .md-italic { -fx-font-style: italic; }
 .md-link { -fx-fill: -gim-accent; -fx-underline: true; }
 .md-image-alt { -fx-fill: -gim-text-4; -fx-font-style: italic; }
+/* 本地图片块（AI 生成图等，见 MarkdownRenderer.imageBlock）：限宽展示、点击用系统程序打开 */
+.md-image {
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 12, 0, 0, 3);
+}
 /* 行内码 chip（对齐 QwenPaw/Spark 做法）：正文同色 + 淡底 + 细边框 + 小圆角 + 等宽字体。
    节点为 Label（内嵌 TextFlow，见 MarkdownRenderer.appendInline）——JavaFX 原生 Text
    只有字形能力做不出底色；-fx-fill 仅作 Text 场合兜底，Label 实际吃 -fx-text-fill */
@@ -536,7 +541,7 @@
 /* ---------- 气泡悬停操作条（复制 / 重新生成 / 编辑重发）---------- */
 /* 默认隐去，悬停气泡宿主时淡入右上角；不占位（visibility）以免气泡拖动 */
 .msg-actions {
-    -fx-spacing: 2;
+    -fx-spacing: 5;
     visibility: hidden;
     -fx-opacity: 0;
 }
@@ -553,14 +558,96 @@
     -fx-graphic-text-gap: 0;
     -fx-alignment: center;
     -fx-cursor: hand;
-    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.14), 8, 0, 0, 2);
 }
 .msg-action-btn:hover { -fx-background-color: -gim-btn-hover; }
 .msg-action-btn .icon { -fx-font-size: 13px; -fx-text-fill: -gim-icon; }
 
+/* 操作条内的时间（悬停时随按钮浮现，见 MessageActions.setTime）
+   与气泡底部行右侧的「由 AI 生成」标注：同随气泡悬停显隐、同处一条水平线 */
+.msg-time { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; -fx-padding: 0 0 0 10; }
+.msg-ai-label {
+    -fx-font-size: 11px;
+    -fx-text-fill: -gim-text-4;
+    visibility: hidden;
+    -fx-opacity: 0;
+}
+.bubble-host:hover .msg-ai-label {
+    visibility: visible;
+    -fx-opacity: 1;
+}
+
 /* 搜索命中跳转的短暂高亮：给行内气泡铺一层选中底色 */
 .bubble-hit .bubble-assistant { -fx-background-color: -gim-tint-3; -fx-background-radius: 12; }
 .bubble-hit .bubble-user { -fx-background-color: -gim-tint-2; }
+
+/* ---------- 多模型对比：输入条「对比」按钮 + 消息区对比卡片（一行 N 列并排）---------- */
+/* 输入卡片工具条的对比文字按钮：常态弱色，勾选 ≥2 个模型后高亮为强调色 */
+.compare-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -gim-text-3;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-cursor: hand;
+}
+.compare-button:hover { -fx-background-color: -gim-hover; }
+.compare-button.compare-on { -fx-text-fill: -gim-accent; -fx-font-weight: bold; }
+.compare-card { -fx-spacing: 10; -fx-padding: 2 0 6 0; }
+.compare-col {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 12;
+    -fx-border-color: -gim-border-6;
+    -fx-border-radius: 12;
+    -fx-padding: 10 12 10 12;
+}
+.compare-col-head { -fx-spacing: 8; -fx-alignment: center-left; }
+.compare-col-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-strong; }
+/* 流式期实时明文：与收尾 Markdown 同为一级文本色，避免重渲瞬间跳色 */
+.compare-col-text { -fx-text-fill: -gim-text; -fx-font-size: 13px; -fx-line-spacing: 4; }
+.compare-col-scroll { -fx-background-color: transparent; -fx-background-radius: 10; }
+.compare-col-scroll > .viewport { -fx-background-color: transparent; }
+
+/* ---------- Artifacts 预览：HTML/SVG 代码块预览按钮触发的独立预览窗 ---------- */
+.artifact-root { -fx-background-color: -gim-panel-2; }
+.artifact-toolbar {
+    -fx-padding: 8 12 8 14;
+    -fx-spacing: 8;
+    -fx-background-color: -gim-panel-2;
+    -fx-border-color: -gim-border-6;
+    -fx-border-width: 0 0 1 0;
+}
+.artifact-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-strong; }
+.artifact-tool {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 6;
+    -fx-text-fill: -gim-text-3;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-cursor: hand;
+}
+.artifact-tool:hover { -fx-background-color: -gim-btn-hover; -fx-text-fill: -gim-text; }
+
+/* ---------- 划词助手浮出操作条（Ctrl+Alt+D：抓取选中文本后在光标旁弹出） ---------- */
+.selection-bar {
+    -fx-background-color: -gim-input-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 10;
+    -fx-padding: 6 8 6 12;
+    -fx-spacing: 6;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 14, 0, 0, 4);
+}
+.selection-preview { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+.selection-action {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 7;
+    -fx-text-fill: -gim-text-2;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-cursor: hand;
+}
+.selection-action:hover { -fx-background-color: -gim-btn-hover; }
+.selection-action:pressed { -fx-background-color: -gim-btn-press; }
 
 /* ---------- 工具调用组卡片（助手气泡内）：一轮合并为一张，标题显示次数，行级展开输入/响应 ---------- */
 .tool-group { -fx-spacing: 0; }
@@ -769,6 +856,73 @@
 .terminal-drawer-theme .icon { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; }
 .terminal-host { -fx-padding: 12 8 10 8; -fx-background-color: -gim-bg; }
 .terminal-error { -fx-text-fill: -gim-badge-red-fg; -fx-padding: 12; }
+
+/* ---------- 工作区右侧栏（文件树 + 就地阅读） ---------- */
+/* 外层横向分栏：分隔线与 chat-split 同规格 */
+.workspace-split { -fx-padding: 0; -fx-background-color: transparent; -fx-box-border: transparent; }
+.workspace-split > .split-pane-divider {
+    -fx-background-color: -gim-border-4;
+    -fx-background-insets: 0;
+    -fx-padding: 0 1 0 1;
+}
+.workspace-panel {
+    -fx-background-color: -gim-panel-2;
+    -fx-border-color: transparent transparent transparent -gim-border-4;
+    -fx-border-width: 1;
+    -fx-min-width: 260;
+}
+.workspace-header {
+    -fx-padding: 8 8 8 12;
+    -fx-alignment: center-left;
+    -fx-border-color: transparent transparent -gim-border-4 transparent;
+    -fx-border-width: 0 0 1 0;
+}
+.workspace-crumb { -fx-font-size: 12px; -fx-text-fill: -gim-text-2; }
+.workspace-tool {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-min-width: 26;
+    -fx-min-height: 26;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+.workspace-tool:hover { -fx-background-color: -gim-hover; }
+.workspace-tool .icon { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; }
+.workspace-inner { -fx-background-color: transparent; -fx-box-border: transparent; -fx-padding: 0; }
+.workspace-inner > .split-pane-divider { -fx-background-color: -gim-border-4; -fx-padding: 0 1 0 1; }
+.workspace-tree-pane { -fx-background-color: transparent; }
+.workspace-tree { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 4; }
+.workspace-tree .tree-cell { -fx-background-color: transparent; -fx-text-fill: -gim-text; -fx-font-size: 12px; }
+.workspace-tree .tree-cell:selected { -fx-background-color: -gim-hover; -fx-text-fill: -gim-text-title; }
+.workspace-tree-icon { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; }
+.workspace-viewer { -fx-background-color: -gim-bg; }
+.workspace-viewer-body { -fx-padding: 16; }
+.workspace-scroll { -fx-background-color: transparent; -fx-border-color: transparent; }
+.workspace-scroll > .viewport { -fx-background-color: transparent; }
+.workspace-code {
+    -fx-background-color: -gim-bg;
+    -fx-text-fill: -gim-text;
+    -fx-font-family: "Cascadia Code", "Consolas", monospace;
+    -fx-font-size: 12px;
+    -fx-border-color: transparent;
+}
+.workspace-code > .content { -fx-background-color: -gim-bg; }
+.workspace-image { -fx-padding: 16; }
+.workspace-empty { -fx-padding: 24; -fx-alignment: center; }
+.workspace-hint { -fx-text-fill: -gim-text-4; -fx-font-size: 13px; -fx-text-alignment: center; }
+.workspace-open-sys {
+    -fx-background-color: -gim-btn;
+    -fx-background-radius: 8;
+    -fx-border-color: -gim-border-2;
+    -fx-border-radius: 8;
+    -fx-padding: 5 10 5 10;
+    -fx-font-size: 12px;
+    -fx-text-fill: -gim-text-2;
+    -fx-cursor: hand;
+}
+.workspace-open-sys:hover { -fx-background-color: -gim-btn-hover; }
 
 /* 输入区：卡片钉住最大宽度并居中，侧栏收起使聊天区变宽时输入框不跟着拉长 */
 .input-wrap { -fx-padding: 10 24 20 24; -fx-alignment: top-center; }

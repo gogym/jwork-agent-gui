@@ -124,6 +124,11 @@
                         <HBox fx:id="chatHeader" styleClass="chat-header" alignment="CENTER_LEFT">
                             <Label fx:id="sessionTitleLabel" styleClass="chat-header-title"
                                    maxWidth="Infinity" ellipsisString="&#x2026;" HBox.hgrow="ALWAYS"/>
+                            <Button fx:id="workspaceButton" styleClass="terminal-button" onAction="#handleToggleWorkspace">
+                                <graphic>
+                                    <Label styleClass="icon" text="&#xE8B7;"/>
+                                </graphic>
+                            </Button>
                             <Button fx:id="terminalButton" styleClass="terminal-button" onAction="#handleToggleTerminal">
                                 <graphic>
                                     <Label styleClass="icon" text="&#xE756;"/>
@@ -159,6 +164,9 @@
                     </VBox>
                 </top>
                 <center>
+                    <!-- 外层横向分栏：左聊天（含纵向终端抽屉），右工作区面板（控制器动态挂入，初始收起不占位） -->
+                    <SplitPane fx:id="workspaceSplit" orientation="HORIZONTAL" styleClass="workspace-split">
+                        <items>
                     <SplitPane fx:id="chatSplit" orientation="VERTICAL" styleClass="chat-split">
                         <items>
                             <VBox styleClass="chat-main">
@@ -202,6 +210,7 @@
                                             </Button>
                                             <Button fx:id="micButton" styleClass="attach-button"/>
                                             <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
+                                            <Button fx:id="compareButton" styleClass="compare-button" onAction="#showCompareMenu"/>
                                             <Region HBox.hgrow="ALWAYS"/>
                                             <HBox fx:id="contextStats" styleClass="context-stats" alignment="CENTER_RIGHT" spacing="8.0">
                                                 <ProgressBar fx:id="contextGauge" styleClass="context-gauge" prefWidth="30.0" maxWidth="30.0" progress="0.0" managed="false" visible="false"/>
@@ -210,7 +219,7 @@
                                             <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
                                             <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSendOrStop">
                                                 <graphic>
-                                                    <Label styleClass="send-icon" text="&#xE724;"/>
+                                                    <Label styleClass="send-icon" text="&#xE74A;"/>
                                                 </graphic>
                                             </Button>
                                         </HBox>
@@ -222,6 +231,8 @@
                                     </HBox>
                                 </VBox>
                             </VBox>
+                        </items>
+                    </SplitPane>
                         </items>
                     </SplitPane>
                 </center>

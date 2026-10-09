@@ -13,6 +13,13 @@ import javafx.stage.Window;
  */
 public final class MenuPopup {
 
+    /**
+     * 向上/向下贴合锚点按钮时的补偿量（px）：{@code ContextMenu} skin 的
+     * {@code getBoundsInLocal()} 含透明阴影/内边距，基准 0 会让菜单与按钮之间留一道阴影缝，
+     * 故统一往下（上弹）/往上（下弹）压这段缝。所有贴合菜单共此单一调参入口。
+     */
+    public static final double GAP = 12;
+
     private MenuPopup() {
     }
 
@@ -33,7 +40,7 @@ public final class MenuPopup {
         double h = skin.getBoundsInLocal().getHeight();
         double margin = 8;
         double x = b.getMinX();
-        double y = b.getMinY() - h; // 贴合按钮顶边：复用实例消除累积漂移后，基准 0 即贴合
+        double y = b.getMinY() - h + GAP;
         Window win = anchor.getScene() == null ? null : anchor.getScene().getWindow();
         if (win != null) {
             double winLeft = win.getX() + margin;
@@ -46,7 +53,7 @@ public final class MenuPopup {
                 x = winLeft;
             }
             if (y < winTop) {
-                y = b.getMaxY() + 4;
+                y = b.getMaxY() + GAP; // 上方空间不够翻到下方，同样贴近按钮底边
             }
         }
         menu.setX(x);

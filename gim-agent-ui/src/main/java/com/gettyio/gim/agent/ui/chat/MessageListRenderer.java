@@ -12,6 +12,7 @@ import javafx.scene.image.ImageView;
 import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -78,12 +79,14 @@ public class MessageListRenderer {
         return bubble;
     }
 
-    /** 追加一条助手气泡并立即以 Markdown 渲染（历史重放用）；{@code toolCallsJson} 为 {@code tool_calls} 列原文，可空；{@code thinking} 为思考过程全文，可空。 */
-    public void appendAssistantMarkdown(String content, long conversationId, String toolCallsJson, String thinking) {
+    /** 追加一条助手气泡并立即以 Markdown 渲染（历史重放用）；{@code toolCallsJson} 为 {@code tool_calls} 列原文，可空；{@code thinking} 为思考过程全文，可空；{@code createdAt} 为落盘时间（悬停操作条内显示），可空。 */
+    public void appendAssistantMarkdown(String content, long conversationId, String toolCallsJson, String thinking, LocalDateTime createdAt) {
         AssistantBubble bubble = new AssistantBubble(BUBBLE_MAX_WIDTH, listener);
         bubble.renderContent(content, thinking,
                 com.gettyio.gim.agent.core.chat.ToolCallRecordCodec.decode(toolCallsJson));
+        bubble.actions().setSpeakShown(true);
         bubble.setConversationId(conversationId);
+        bubble.setTime(createdAt);
         Node node = bubble.node();
         node.setUserData(conversationId);
         messagesContainer.getChildren().add(node);
@@ -103,12 +106,20 @@ public class MessageListRenderer {
         return bubble;
     }
 
-    /** 头部插入一条助手气泡并立即以 Markdown 渲染（向上补页用）；{@code thinking} 为思考过程全文，可空；不触发 promote 与滚动。 */
-    public void prependAssistantMarkdown(String content, long conversationId, String toolCallsJson, String thinking) {
+    /** 追加任意节点到消息区底部并滚动跟随（多模型对比卡片用）。 */
+    public void appendNode(Node node) {
+        messagesContainer.getChildren().add(node);
+        scrollToBottom();
+    }
+
+    /** 头部插入一条助手气泡并立即以 Markdown 渲染（向上补页用）；{@code thinking} 为思考过程全文，可空；{@code createdAt} 为落盘时间（悬停操作条内显示），可空；不触发 promote 与滚动。 */
+    public void prependAssistantMarkdown(String content, long conversationId, String toolCallsJson, String thinking, LocalDateTime createdAt) {
         AssistantBubble bubble = new AssistantBubble(BUBBLE_MAX_WIDTH, listener);
         bubble.renderContent(content, thinking,
                 com.gettyio.gim.agent.core.chat.ToolCallRecordCodec.decode(toolCallsJson));
+        bubble.actions().setSpeakShown(true);
         bubble.setConversationId(conversationId);
+        bubble.setTime(createdAt);
         Node node = bubble.node();
         node.setUserData(conversationId);
         messagesContainer.getChildren().add(0, node);

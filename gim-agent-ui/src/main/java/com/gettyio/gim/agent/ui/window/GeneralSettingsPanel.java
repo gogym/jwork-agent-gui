@@ -7,10 +7,13 @@ import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService;
 import com.gettyio.gim.agent.ui.export.ExportService;
+import com.gettyio.gim.agent.ui.export.SessionImageExporter;
 import com.gettyio.gim.agent.ui.sync.WebDavSyncService;
+import com.gettyio.gim.agent.ui.voice.TtsService;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -36,7 +39,7 @@ import java.util.function.Supplier;
 
 /**
  * 通用设置子面板：数据与路径概览、启动与关闭行为（含开机自启、全局热键）、数据维护
- * （立即备份 / 导出会话（Markdown·PDF·DOCX）/ 导出全库 JSON / 打开目录）。抽自 {@link SettingsWindow}，
+ * （立即备份 / 导出会话（Markdown·PDF·DOCX·长图 PNG·独立 HTML）/ 导出全库 JSON / 打开目录）。抽自 {@link SettingsWindow}，
  * 依赖 {@link AppLifecycle}/{@link GlobalHotkeyService}/{@link DbBackupService}/{@link ExportService}
  * 与宿主弹窗归属/提示回调；「最近备份」行在备份完成后就地刷新。
  */
@@ -52,6 +55,9 @@ final class GeneralSettingsPanel {
     private final GimDatabase database;
     private final WebDavSyncService webDavSyncService;
     private final VoiceInputService voiceInputService;
+    private final TtsService ttsService;
+    /** 图像生成配置（地址/模型/Key）的读写后端：图像生成卡片保存即生效 */
+    private final SecurityAdminService securityAdminService;
     /** 多智能体网关：上下文窗口上限变更后失效全部运行体，使新阈值于下一轮对话重新装配时生效。 */
     private final MultiAgentGateway agentGateway;
 
@@ -62,6 +68,7 @@ final class GeneralSettingsPanel {
                          GlobalHotkeyService globalHotkeyService, DbBackupService dbBackupService,
                          ExportService exportService, GimDatabase database,
                          WebDavSyncService webDavSyncService, VoiceInputService voiceInputService,
+                         TtsService ttsService, SecurityAdminService securityAdminService,
                          MultiAgentGateway agentGateway) {
         this.host = host;
         this.gimPaths = gimPaths;
@@ -72,6 +79,8 @@ final class GeneralSettingsPanel {
         this.database = database;
         this.webDavSyncService = webDavSyncService;
         this.voiceInputService = voiceInputService;
+        this.ttsService = ttsService;
+        this.securityAdminService = securityAdminService;
         this.agentGateway = agentGateway;
     }
 
@@ -94,6 +103,8 @@ final class GeneralSettingsPanel {
         box.getChildren().add(budgetCard());
         box.getChildren().add(webDavCard());
         box.getChildren().add(voiceCard());
+        box.getChildren().add(ttsCard());
+        box.getChildren().add(imageCard());
         refreshLastBackupRow();
         return box;
     }
@@ -354,6 +365,103 @@ final class GeneralSettingsPanel {
         return SettingsLayout.groupCard(I18n.t("settings.voice.group"), rows);
     }
 
+    /**
+     * 语音朗读卡片：合成服务地址 / 模型 / 音色 / API Key（SecretCipher 加密存 settings），
+     * 文本框失焦/回车即保存；「试听」先落存当前输入再合成一段示例文本（播放中再点会被新一轮打断）。
+     */
+    private VBox ttsCard() {
+        TextField urlField = new TextField(ttsService.baseUrl());
+        urlField.setPromptText(I18n.t("settings.tts.url.prompt"));
+        urlField.setMaxWidth(360);
+        TextField modelField = new TextField(ttsService.model());
+        modelField.setPromptText(I18n.t("settings.tts.model.prompt"));
+        modelField.setMaxWidth(200);
+        TextField voiceField = new TextField(ttsService.voice());
+        voiceField.setPromptText(I18n.t("settings.tts.voice.prompt"));
+        voiceField.setMaxWidth(200);
+        PasswordField keyField = new PasswordField();
+        keyField.setText(ttsService.apiKeyPlain());
+        keyField.setMaxWidth(200);
+
+        Runnable save = () -> {
+            ttsService.saveBaseUrl(urlField.getText());
+            ttsService.saveModel(modelField.getText());
+            ttsService.saveVoice(voiceField.getText());
+            ttsService.saveApiKey(keyField.getText());
+        };
+        for (TextField f : List.of(urlField, modelField, voiceField, keyField)) {
+            f.setOnAction(e -> save.run());
+            f.focusedProperty().addListener((obs, was, now) -> {
+                if (!now) {
+                    save.run();
+                }
+            });
+        }
+        Button preview = SettingsLayout.iconTextButton("\uE768", I18n.t("settings.tts.preview"), () -> {
+            save.run();
+            if (!ttsService.isConfigured()) {
+                host.notify("settings.tts.group", I18n.t("voice.tts.notConfigured"));
+                return;
+            }
+            ttsService.speak(I18n.t("settings.tts.preview.text"), err -> {
+                if (err != null && !err.isBlank()) {
+                    host.notify("settings.tts.group", I18n.t("voice.tts.failed", err));
+                }
+            });
+        });
+
+        List<Node> rows = new ArrayList<>();
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.tts.url"),
+                I18n.t("settings.tts.url.desc"), urlField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.tts.model"),
+                I18n.t("settings.tts.model.desc"), modelField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.tts.voice"),
+                I18n.t("settings.tts.voice.desc"), voiceField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.tts.apiKey"),
+                I18n.t("settings.tts.apiKey.desc"), keyField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.tts.preview"), null, preview));
+        return SettingsLayout.groupCard(I18n.t("settings.tts.group"), rows);
+    }
+
+    /**
+     * 图像生成卡片：服务地址 / 模型 / API Key（SecretCipher 加密存 settings），文本框失焦/回车即保存。
+     * <p>OpenAI 兼容 {@code /images/generations} 协议；地址与模型齐备即视为可用（无鉴权的本地服务可留空 Key）。
+     * 聊天页「生成图片」入口与 Agent 的 {@code generate_image} 工具共用这份配置，改配即生效。</p>
+     */
+    private VBox imageCard() {
+        TextField urlField = new TextField(securityAdminService.getImageBaseUrl());
+        urlField.setPromptText(I18n.t("settings.image.url.prompt"));
+        urlField.setMaxWidth(360);
+        TextField modelField = new TextField(securityAdminService.getImageModel());
+        modelField.setPromptText(I18n.t("settings.image.model.prompt"));
+        modelField.setMaxWidth(200);
+        PasswordField keyField = new PasswordField();
+        keyField.setText(securityAdminService.getImageApiKeyPlain());
+        keyField.setMaxWidth(200);
+
+        Runnable save = () -> {
+            securityAdminService.setImageBaseUrl(urlField.getText());
+            securityAdminService.setImageModel(modelField.getText());
+            securityAdminService.setImageApiKey(keyField.getText());
+        };
+        for (TextField f : List.of(urlField, modelField, keyField)) {
+            f.setOnAction(e -> save.run());
+            f.focusedProperty().addListener((obs, was, now) -> {
+                if (!now) {
+                    save.run();
+                }
+            });
+        }
+        List<Node> rows = new ArrayList<>();
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.image.url"),
+                I18n.t("settings.image.url.desc"), urlField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.image.model"),
+                I18n.t("settings.image.model.desc"), modelField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.image.apiKey"),
+                I18n.t("settings.image.apiKey.desc"), keyField));
+        return SettingsLayout.groupCard(I18n.t("settings.image.group"), rows);
+    }
+
     /** 周期小时数转下拉索引：0/6/12/24 → 0..3，未知值归关闭。 */
     private static int intervalIndex(int hours) {
         return switch (hours) {
@@ -440,7 +548,7 @@ final class GeneralSettingsPanel {
                 this::refreshLastBackupRow);
     }
 
-    /** 导出单个会话为 Markdown/PDF/DOCX：先选会话，再选保存路径。 */
+    /** 导出单个会话为 Markdown/PDF/DOCX/长图 PNG/独立 HTML：先选会话，再选保存路径。 */
     private void handleExportSession() {
         List<ChatSession> sessions = exportServiceAllSessions();
         if (sessions.isEmpty()) {
@@ -467,13 +575,27 @@ final class GeneralSettingsPanel {
         FileChooser.ExtensionFilter md = new FileChooser.ExtensionFilter("Markdown (*.md)", "*.md");
         FileChooser.ExtensionFilter pdf = new FileChooser.ExtensionFilter("PDF (*.pdf)", "*.pdf");
         FileChooser.ExtensionFilter docx = new FileChooser.ExtensionFilter("DOCX (*.docx)", "*.docx");
-        chooser.getExtensionFilters().addAll(md, pdf, docx);
+        FileChooser.ExtensionFilter png = new FileChooser.ExtensionFilter("PNG (*.png)", "*.png");
+        FileChooser.ExtensionFilter html = new FileChooser.ExtensionFilter("HTML (*.html)", "*.html");
+        chooser.getExtensionFilters().addAll(md, pdf, docx, png, html);
         File file = chooser.showSaveDialog(host.hostWindow());
         if (file == null) {
             return;
         }
         String sessionId = chosen.getSessionId();
         FileChooser.ExtensionFilter sel = chooser.getSelectedExtensionFilter();
+        if (sel == png) {
+            exportSessionPng(sessionId, withExtension(file.toPath(), ".png"));
+            return;
+        }
+        if (sel == html) {
+            Path htmlTarget = withExtension(file.toPath(), ".html");
+            runInBackground("settings.export.session",
+                    () -> Optional.of(I18n.t("settings.export.done",
+                            exportService.exportSessionHtml(sessionId, htmlTarget).getFileName())),
+                    null);
+            return;
+        }
         Path target = withExtension(file.toPath(), sel == pdf ? ".pdf" : sel == docx ? ".docx" : ".md");
         boolean asPdf = sel == pdf;
         boolean asDocx = sel == docx;
@@ -489,6 +611,28 @@ final class GeneralSettingsPanel {
     private static Path withExtension(Path p, String ext) {
         String name = p.getFileName().toString().toLowerCase(java.util.Locale.ROOT);
         return name.endsWith(ext) ? p : Path.of(p.toString() + ext);
+    }
+
+    /**
+     * 导出会话为长图（PNG）：后台线程备好话题卡片 HTML，回 FX 线程交给
+     * {@link SessionImageExporter} 离屏快照（其内部再异步写盘并回调反馈）。
+     */
+    private void exportSessionPng(String sessionId, Path target) {
+        Thread t = new Thread(() -> {
+            String html;
+            try {
+                html = exportService.renderSessionHtml(sessionId);
+            } catch (RuntimeException e) {
+                Platform.runLater(() -> host.notify("settings.export.session",
+                        I18n.t("settings.data.fail", String.valueOf(e.getMessage()))));
+                return;
+            }
+            Platform.runLater(() -> SessionImageExporter.export(host.hostWindow(), html, target,
+                    saved -> host.notify("settings.export.session", I18n.t("settings.export.done", saved.getFileName())),
+                    err -> host.notify("settings.export.session", err)));
+        }, "gim-session-image");
+        t.setDaemon(true);
+        t.start();
     }
 
     /** 导出全库为 JSON。 */

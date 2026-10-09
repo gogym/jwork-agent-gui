@@ -95,15 +95,19 @@ public class GimAgentApplication extends Application {
         // 更新检查：若开关开启且当日未查过，后台静默比对服务器最新版（发现新版：强更弹模态，否则发托盘气泡）
         springContext.getBean(com.gettyio.gim.agent.ui.update.UpdateChecker.class).maybeCheckOnStartup(stage);
 
-        // 全局热键（仅 Windows）：Ctrl+Alt+Q 唤起快速问答小窗、Ctrl+Alt+A 截屏提问注入主窗输入框
+        // 全局热键（仅 Windows）：Ctrl+Alt+Q 唤起快速问答小窗、Ctrl+Alt+A 截屏提问注入主窗输入框、
+        // Ctrl+Alt+D 划词助手（抓取选中文本后浮出操作条）
         com.gettyio.gim.agent.ui.controller.MainController controller =
                 (com.gettyio.gim.agent.ui.controller.MainController) loader.getController();
         com.gettyio.gim.agent.ui.desktop.QuickAskWindow quickAsk =
                 springContext.getBean(com.gettyio.gim.agent.ui.desktop.QuickAskWindow.class);
+        com.gettyio.gim.agent.ui.desktop.SelectionAssistant selection =
+                springContext.getBean(com.gettyio.gim.agent.ui.desktop.SelectionAssistant.class);
         com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService hotkeys =
                 springContext.getBean(com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService.class);
         hotkeys.setOnQuickAsk(() -> Platform.runLater(quickAsk::toggle));
         hotkeys.setOnScreenshot(() -> Platform.runLater(controller::captureScreenshotToComposer));
+        hotkeys.setOnSelection(selection::trigger);
         hotkeys.start();
     }
 

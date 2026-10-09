@@ -16,4 +16,9 @@ public interface EmbeddingClient {
     default float[] embed(String text) {
         return embedAll(List.of(text))[0];
     }
+
+    /** 索引指纹用的配置身份：同一内容换过嵌入配置（如模型）也需重建，默认按实现类区分。 */
+    default String cacheKey() {
+        return getClass().getName();
+    }
 }

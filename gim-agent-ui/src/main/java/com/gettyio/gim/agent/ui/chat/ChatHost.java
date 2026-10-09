@@ -28,4 +28,9 @@ public interface ChatHost {
      * <p>区别于本轮临时抽取：这是“长期入库”，与当轮是否发送无关。</p>
      */
     void importAttachmentToKnowledge(FileAttachment attachment);
+
+    /**
+     * 请求生成图片：由宿主弹出提示词对话框并在当前会话直插一轮「提示词 + 生成图」的本地对话。
+     */
+    void requestImageGeneration();
 }

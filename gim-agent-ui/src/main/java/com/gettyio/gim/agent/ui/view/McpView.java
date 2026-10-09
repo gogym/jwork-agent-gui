@@ -1,12 +1,16 @@
 package com.gettyio.gim.agent.ui.view;
 
+import com.gettyio.gim.agent.core.capability.McpConnectionProbe;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.market.MarketService;
+import com.gettyio.gim.agent.ui.market.McpMarketDialog;
 import com.gettyio.gim.agent.ui.window.GimDialog;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -36,12 +40,15 @@ public class McpView {
     private static final double CARD_WIDTH = 400;
 
     private final McpAdminService mcpAdminService;
+    /** 在线市场：从市场索引一键添加 MCP 配置模板（含依赖探测引导） */
+    private final MarketService marketService;
 
     private final VBox root = new VBox();
     private final VBox cardsBox = new VBox(12);
     private final Label titleLabel = new Label();
     private final Label subtitleLabel = new Label();
     private final Button addBtn = new Button();
+    private final Button marketBtn = new Button();
     private final Label statusLabel = new Label("");
 
     private final TextField codeField = new TextField();
@@ -53,8 +60,9 @@ public class McpView {
     private final TextField timeoutField = new TextField();
     private final ToggleSwitch enabledCheck = new ToggleSwitch();
 
-    public McpView(McpAdminService mcpAdminService) {
+    public McpView(McpAdminService mcpAdminService, MarketService marketService) {
         this.mcpAdminService = mcpAdminService;
+        this.marketService = marketService;
         buildUi();
         I18n.onChange(lang -> {
             applyI18n();
@@ -91,10 +99,17 @@ public class McpView {
         addBtn.setGraphic(addIcon);
         addBtn.setOnAction(e -> openDialog(null));
 
+        // 市场入口：默认中性样式，与右侧主按钮「添加」形成层次
+        marketBtn.setMinWidth(Region.USE_PREF_SIZE);
+        Label marketIcon = new Label("\uE719");
+        marketIcon.getStyleClass().add("icon");
+        marketBtn.setGraphic(marketIcon);
+        marketBtn.setOnAction(e -> openMarket());
+
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         // 新增按钮与描述同一行：行内中心对齐使按钮中心线与描述文字中心共线，标题独占上一行
-        HBox descRow = new HBox(10, subtitleLabel, spacer, addBtn);
+        HBox descRow = new HBox(10, subtitleLabel, spacer, marketBtn, addBtn);
         descRow.setAlignment(Pos.CENTER_LEFT);
         VBox headText = new VBox(4, titleLabel, descRow);
         headText.setMaxWidth(Double.MAX_VALUE);
@@ -126,6 +141,7 @@ public class McpView {
         titleLabel.setText(I18n.t("settings.menu.mcp"));
         subtitleLabel.setText(I18n.t("settings.mcp.subtitle"));
         addBtn.setText(I18n.t("settings.mcp.add"));
+        marketBtn.setText(I18n.t("market.entry"));
     }
 
     /** 依据库中数据重绘 MCP 服务信息卡片。 */
@@ -174,13 +190,28 @@ public class McpView {
         HBox titleRow = new HBox(10, name, badge);
         titleRow.setAlignment(Pos.CENTER_LEFT);
 
+        // 测试连接：手动重试入口；结果显示在卡片底部的工具清单行
+        Label toolsLabel = new Label(I18n.t("settings.mcp.tools.hint"));
+        toolsLabel.getStyleClass().addAll("card-meta", "status-unknown");
+        toolsLabel.setWrapText(true);
+        toolsLabel.setMaxWidth(CARD_WIDTH - 24);
+        // 状态行值单独持有引用：探测后即时同步，避免与工具清单反馈不一致
+        Label statusVal = new Label(m.getStatus() == null || m.getStatus().isBlank() ? "-" : m.getStatus());
+        statusVal.getStyleClass().add("provider-card-val");
+        Button test = new Button(I18n.t("settings.mcp.test"));
+        test.getStyleClass().add("link-btn");
+        Label testIcon = new Label("\uE72C");
+        testIcon.getStyleClass().add("icon");
+        test.setGraphic(testIcon);
+        test.setOnAction(e -> handleProbe(m, toolsLabel, statusVal, test));
+
         Button edit = iconTextButton("\uE70F", I18n.t("common.edit"), () -> openDialog(m));
         edit.getStyleClass().add("link-btn");
         Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDelete(m));
         del.getStyleClass().addAll("link-btn", "link-btn-danger");
         Region sp = new Region();
         HBox.setHgrow(sp, Priority.ALWAYS);
-        HBox head = new HBox(titleRow, sp, edit, del);
+        HBox head = new HBox(titleRow, sp, test, edit, del);
         head.setAlignment(Pos.CENTER_LEFT);
 
         VBox card = new VBox(8, head,
@@ -189,7 +220,8 @@ public class McpView {
                 kvLine(I18n.t("settings.mcp.command"), m.getCommand()),
                 kvLine(I18n.t("settings.mcp.baseUrl"), m.getBaseUrl()),
                 kvLine(I18n.t("settings.mcp.timeout"), String.valueOf(m.getTimeout())),
-                kvLine(I18n.t("common.status"), m.getStatus()));
+                kvLine(I18n.t("common.status"), statusVal),
+                toolsLabel);
         card.getStyleClass().add("provider-card");
         card.setPrefWidth(CARD_WIDTH);
         card.setMaxWidth(CARD_WIDTH);
@@ -197,6 +229,12 @@ public class McpView {
     }
 
     // ---- 新增 / 编辑 ----
+
+    /** 打开 MCP 市场对话框（添加成功回调刷新本页卡片）。 */
+    private void openMarket() {
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        new McpMarketDialog(owner, marketService, this::reload).show();
+    }
 
     /** 弹出无边框模态窗口新增/编辑 MCP 服务；{@code editing} 为 null 表示新增。 */
     private void openDialog(McpServerConfig editing) {
@@ -310,16 +348,83 @@ public class McpView {
         reload();
     }
 
+    // ---- 测试连接 ----
+
+    /** 后台探测连接：成功后展示工具清单并回写状态；连接恢复时让引用它的智能体运行时失效（手动重试生效）。 */
+    private void handleProbe(McpServerConfig m, Label toolsLabel, Label statusVal, Button trigger) {
+        trigger.setDisable(true);
+        setProbeTone(toolsLabel, "status-unknown");
+        toolsLabel.setText(I18n.t("settings.mcp.testing"));
+        String code = m.getServerCode();
+        Thread worker = new Thread(() -> {
+            McpConnectionProbe.ProbeResult result = McpConnectionProbe.probe(m);
+            Platform.runLater(() -> {
+                trigger.setDisable(false);
+                renderProbeResult(toolsLabel, result);
+                boolean wasConnected = "CONNECTED".equalsIgnoreCase(m.getStatus());
+                mcpAdminService.recordStatus(code, result.success());
+                String nextStatus = result.success() ? "CONNECTED" : "DISCONNECTED";
+                m.setStatus(nextStatus);
+                statusVal.setText(nextStatus);
+                if (result.success() && !wasConnected) {
+                    // 手动重试成功：让引用该服务的智能体重建，下轮对话以新连接重连
+                    mcpAdminService.refreshAgentRuntimes(code);
+                }
+            });
+        }, "mcp-probe-" + code);
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    private void renderProbeResult(Label toolsLabel, McpConnectionProbe.ProbeResult result) {
+        if (!result.success()) {
+            setProbeTone(toolsLabel, "status-bad");
+            toolsLabel.setText(I18n.t("settings.mcp.test.fail", result.error()));
+            return;
+        }
+        setProbeTone(toolsLabel, "status-ok");
+        toolsLabel.setText(result.tools().isEmpty()
+                ? I18n.t("settings.mcp.test.ok.none")
+                : I18n.t("settings.mcp.test.ok", result.tools().size()) + "\n" + formatTools(result.tools()));
+    }
+
+    private static void setProbeTone(Label label, String tone) {
+        label.getStyleClass().removeAll("status-ok", "status-bad", "status-unknown");
+        label.getStyleClass().add(tone);
+    }
+
+    /** 工具清单展示：每行「• 名称 — 描述」，描述压空白并截断防撑高卡片。 */
+    private static String formatTools(List<McpConnectionProbe.ToolInfo> tools) {
+        StringBuilder sb = new StringBuilder();
+        for (McpConnectionProbe.ToolInfo t : tools) {
+            sb.append("• ").append(t.name());
+            String desc = t.description() == null ? "" : t.description().replaceAll("\\s+", " ").strip();
+            if (desc.length() > 80) {
+                desc = desc.substring(0, 80) + "…";
+            }
+            if (!desc.isEmpty()) {
+                sb.append(" — ").append(desc);
+            }
+            sb.append('\n');
+        }
+        return sb.toString().strip();
+    }
+
     // ---- 小工具 ----
 
     private HBox kvLine(String key, String value) {
-        Label k = new Label(key);
-        k.getStyleClass().add("provider-card-key");
         Label v = new Label(value == null || value.isBlank() ? "-" : value);
         v.getStyleClass().add("provider-card-val");
         v.setWrapText(true);
-        HBox.setHgrow(v, Priority.ALWAYS);
-        HBox h = new HBox(12, k, v);
+        return kvLine(key, v);
+    }
+
+    /** 值 Label 由调用方持有的变体：探测回写等场景需要随数据即时更新。 */
+    private HBox kvLine(String key, Label value) {
+        Label k = new Label(key);
+        k.getStyleClass().add("provider-card-key");
+        HBox.setHgrow(value, Priority.ALWAYS);
+        HBox h = new HBox(12, k, value);
         h.setAlignment(Pos.CENTER_LEFT);
         return h;
     }

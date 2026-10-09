@@ -18,6 +18,8 @@ import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
+import com.gettyio.gim.agent.domain.enums.StreamEventType;
+import com.gettyio.gim.agent.tools.image.ImageGenerationClient;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UserPrefs;
@@ -25,6 +27,8 @@ import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
+import com.gettyio.gim.agent.ui.export.ExportService;
+import com.gettyio.gim.agent.ui.export.SessionImageExporter;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TerminalView;
 import com.gettyio.gim.agent.ui.view.TasksView;
@@ -32,6 +36,7 @@ import com.gettyio.gim.agent.ui.view.UsageView;
 import com.gettyio.gim.agent.ui.window.AgentDialog;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.ImageGenerateDialog;
 import com.gettyio.gim.agent.ui.window.SessionSearchDialog;
 import com.gettyio.gim.agent.ui.window.SettingsWindow;
 import com.gettyio.gim.agent.ui.window.TitleBar;
@@ -100,6 +105,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * 主窗口控制器：侧边栏导航驱动页面切换（对话/定时任务/技能），
@@ -229,6 +235,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private VBox planPreview;
     @FXML
     private SplitPane chatSplit;
+    /** 外层横向分栏：左聊天（chatSplit），右工作区面板（动态挂入） */
+    @FXML
+    private SplitPane workspaceSplit;
+    @FXML
+    private Button workspaceButton;
     @FXML
     private Button terminalButton;
     @FXML
@@ -243,6 +254,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private Button modelButton;
     @FXML
     private Button approvalButton;
+    @FXML
+    private Button compareButton;
     @FXML
     private VBox sidebarVBox;
     /** 侧栏最外层容器（sidebar-margin，左/下留白）：伸缩动画通过它的 maxWidth 实现 */
@@ -272,8 +285,15 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 协作类：底部终端抽屉（展开/收起、进程与历史保留），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.TerminalDrawer terminalDrawer;
 
+    /** 协作类：工作区右侧栏（文件树 + 就地阅读），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.WorkspacePanel workspacePanel;
+
     @Autowired
     private ChatService chatService;
+
+    /** 网关直连：多模型对比绕开落盘层直接订阅各列流（只读、不进历史） */
+    @Autowired
+    private com.gettyio.gim.agent.core.chat.AgentGateway agentGateway;
 
     @Autowired
     private SettingsWindow settingsWindow;
@@ -323,6 +343,17 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @Autowired
     private com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
 
+    @Autowired
+    private com.gettyio.gim.agent.ui.voice.TtsService ttsService;
+
+    /** 图像生成客户端：附件菜单「生成图片」入口调用（配置从加密 settings 实时取用） */
+    @Autowired
+    private ImageGenerationClient imageGenerationClient;
+
+    /** 会话导出服务：侧栏「导出长图/导出网页」共用（Markdown/PDF/DOCX 走设置页数据维护卡片） */
+    @Autowired
+    private ExportService exportService;
+
     /** 读应用级设置（上下文 token 上限）；仅取 settingDao 的只读用途 */
     @Autowired
     private com.gettyio.gim.agent.domain.GimDatabase database;
@@ -336,6 +367,17 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private Disposable activeStream;
     /** 在途流所属会话：停止时需告知网关中断哪个会话的 Agent 循环 */
     private String streamingSessionId;
+    /** 在途多模型对比：逐列订阅句柄（停止时全部取消）；仅在 FX 线程读写 */
+    private final List<Disposable> compareStreams = new ArrayList<>();
+    /** 在途对比的临时会话 id（每列一个，停止时逐个通知网关中断） */
+    private final List<String> compareSessions = new ArrayList<>();
+    /** 在途对比归属的智能体编码（停止时用）；无对比在途时为 null */
+    private String compareAgentCode;
+    /** 是否有对比在途（isBusy 判定与停止分流） */
+    private boolean comparing;
+    /** 本轮对比的总列数与已完成列数：全部列终结（完成/出错/停止）后退出流式态 */
+    private int compareDoneTotal;
+    private int compareCompleted;
     /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
     private ContextMenu templateMenu;
     /** 横幅当前展示的计划归属智能体（编辑/确认时定位 PLAN.md） */
@@ -357,7 +399,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         attachmentBar = new com.gettyio.gim.agent.ui.chat.AttachmentBar(
                 attachChipsBox, inputField, attachButton, gimPaths, this);
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
-                themeMenuButton, modelButton, approvalButton, templateButton, inputField,
+                themeMenuButton, modelButton, approvalButton, templateButton, compareButton, inputField,
                 providerAdminService, securityAdminService, promptTemplateAdminService, this);
         sidebar = new com.gettyio.gim.agent.ui.chat.SessionSidebar(
                 sessionsBox, sessionsHeader, recentHeader, recentBox, recentSectionCaret,
@@ -369,7 +411,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 new com.gettyio.gim.agent.ui.chat.ChatStatusBar.ContextCompactor() {
                     @Override
                     public boolean busy() {
-                        return activeStream != null;
+                        return isBusy();
                     }
 
                     @Override
@@ -437,6 +479,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         terminalDrawer = new com.gettyio.gim.agent.ui.chat.TerminalDrawer(chatSplit, terminalView);
         terminalView.setOnCloseRequest(terminalDrawer::hide);
 
+        // 工作区右侧栏：文件树 + 就地阅读；把聊天内联 HTML/SVG 产物预览从弹窗改导入本面板
+        workspacePanel = new com.gettyio.gim.agent.ui.chat.WorkspacePanel(workspaceSplit, gimPaths);
+        com.gettyio.gim.agent.ui.chat.ArtifactPreviewWindow.setPreviewSink(
+                (owner, code, lang) -> workspacePanel.showArtifact(code, lang));
+
         applyI18n();
         toolbar.buildThemeMenu();
         // 审批初始档：读设置「安全」页持久化的全局默认（未设置回退询问）
@@ -446,6 +493,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         attachChipsBox.managedProperty().bind(attachChipsBox.visibleProperty());
         toolbar.renderModelButton();
         toolbar.renderApprovalButton();
+        toolbar.renderCompareButton();
         // 语言切换：静态文案、智能体卡片与列表都需重刷（展示名与占位文案都是本地化的）
         I18n.onChange(lang -> {
             applyI18n();
@@ -454,6 +502,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             sidebar.renderSessions();
             toolbar.renderModelButton();
             toolbar.renderApprovalButton();
+            toolbar.renderCompareButton();
             // 占用条百分比与浮层内按钮文案随语言即时刷新
             statusBar.updateContext();
         });
@@ -523,6 +572,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 terminalButton.setTooltip(new Tooltip());
             }
             terminalButton.getTooltip().setText(I18n.t("chat.terminal.toggle"));
+        }
+        if (workspaceButton != null) {
+            if (workspaceButton.getTooltip() == null) {
+                workspaceButton.setTooltip(new Tooltip());
+            }
+            workspaceButton.getTooltip().setText(I18n.t("chat.workspace.toggle"));
         }
         if (sidebarToggle != null) {
             sidebarToggle.refreshLabel();
@@ -660,7 +715,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @FXML
     public void handleSend() {
         // 在途生成期间不并发升一轮（Enter 与重复点击同一口径）；停止请点发送按钮的停止态
-        if (activeStream != null) {
+        if (isBusy()) {
             return;
         }
         // 手动压缩在途：上下文正被改写，拒绝并发送入（core 侧 inflight 计数亦有兜底）
@@ -674,6 +729,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         boolean hasRefs = attachmentBar.hasRefs();
         boolean hasDocs = attachmentBar.hasDocs();
         if (!hasText && !hasImages && !hasRefs && !hasDocs) {
+            return;
+        }
+        // 对比模式：工具条勾选了 ≥2 个模型时走并行对比链路（只读、不落库、不进历史）
+        if (toolbar.compareEnabled()) {
+            sendCompare(text, hasText, hasImages, hasRefs, hasDocs);
             return;
         }
         // 发送前的两道硬拦：非视觉模型禁用图片发送、模型速率（RPM/TPM）超限节流。拦下时保留草稿不建会话
@@ -728,6 +788,144 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     }
 
     /**
+     * 对比发送：组装正文 → 上屏用户气泡 → 挂对比卡片 → 每列独立订阅网关流。
+     * <p>对比固定只读模式（EXPLORE：读类工具正常、副作用工具被拒且不弹确认），不落库：
+     * 每列走临时会话 id，与真实会话状态互不影响；文档附件暂不支持（正文抽取链路在 ChatService 内）。</p>
+     */
+    private void sendCompare(String text, boolean hasText, boolean hasImages, boolean hasRefs, boolean hasDocs) {
+        List<com.gettyio.gim.agent.ui.chat.CompareCard.Target> targets = toolbar.compareTargets();
+        if (hasDocs) {
+            GimDialog.message(ownerWindow(), I18n.t("compare.menu.title"), null, I18n.t("compare.doc.unsupported"));
+            return;
+        }
+        if (hasImages) {
+            List<String> noVision = targets.stream()
+                    .filter(t -> !providerAdminService.modelSupportsVision(t.modelCode()))
+                    .map(com.gettyio.gim.agent.ui.chat.CompareCard.Target::label)
+                    .toList();
+            if (!noVision.isEmpty()) {
+                GimDialog.message(ownerWindow(), I18n.t("vision.blocked.title"), I18n.t("vision.blocked.title"),
+                        I18n.t("compare.vision.blocked", String.join("、", noVision)));
+                return;
+            }
+        }
+        for (com.gettyio.gim.agent.ui.chat.CompareCard.Target t : targets) {
+            String rateBlocked = rateGovernor.blockedReason(t.modelCode());
+            if (rateBlocked != null) {
+                GimDialog.message(ownerWindow(), I18n.t("rate.limit.title"),
+                        I18n.t("rate.limit.title"), rateBlocked);
+                return;
+            }
+        }
+        String body = hasText ? text : "";
+        if (hasRefs) {
+            String refBlock = attachmentBar.renderRefBlock();
+            if (!refBlock.isEmpty()) {
+                body = body.isEmpty() ? refBlock : body + "\n\n" + refBlock;
+            }
+        }
+        List<ImageAttachment> images = attachmentBar.snapshotImages();
+        inputField.clear();
+        List<Node> fileRows = attachmentBar.buildFileRows(attachmentBar.previewDocRefs());
+        attachmentBar.clearPending();
+        // 与普通发送一致：用户气泡先上屏（不落库，主键 0）
+        messageRenderer.appendUserBubble(body, attachmentBar.thumbsFromBase64(images), fileRows, 0);
+        runCompare(body, images, targets);
+        statusBar.updateContext();
+    }
+
+    /** 对比流的生命周期编排：逐列订阅 → 全部列终态后退出流式态；发出即清勾选（对比为一次性动作）。 */
+    private void runCompare(String body, List<ImageAttachment> images,
+                            List<com.gettyio.gim.agent.ui.chat.CompareCard.Target> targets) {
+        String agentCode = currentAgentCode();
+        com.gettyio.gim.agent.ui.chat.CompareCard card = new com.gettyio.gim.agent.ui.chat.CompareCard(targets);
+        messageRenderer.appendNode(card.node());
+
+        comparing = true;
+        compareAgentCode = agentCode;
+        compareSessions.clear();
+        compareStreams.clear();
+        compareDoneTotal = targets.size();
+        compareCompleted = 0;
+        enterStreamingUi(null);
+
+        for (int i = 0; i < targets.size(); i++) {
+            com.gettyio.gim.agent.ui.chat.CompareCard.Target t = targets.get(i);
+            com.gettyio.gim.agent.ui.chat.CompareCard.Column col = card.column(i);
+            // 临时会话 id：与真实会话隔离（不进历史，停止时按它逐个中断网关侧生成）
+            String tempSession = "cmp-" + java.util.UUID.randomUUID();
+            compareSessions.add(tempSession);
+            ChatRequest req = ChatRequest.builder()
+                    .agentCode(agentCode)
+                    .sessionId(tempSession)
+                    .text(body)
+                    .providerCode(t.providerCode())
+                    .modelCode(t.modelCode())
+                    .images(images)
+                    .permissionMode(PermissionMode.EXPLORE)
+                    .build();
+            rateGovernor.recordRequest(t.modelCode());
+            Disposable stream = agentGateway.stream(req)
+                    .bufferTimeout(256, FRAME_WINDOW)
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .doOnCancel(() -> Platform.runLater(() -> {
+                        col.stopped();
+                        compareColumnDone();
+                    }))
+                    .subscribe(
+                            batch -> Platform.runLater(() -> {
+                                for (StreamEvent e : batch) {
+                                    if (e.getType() == StreamEventType.TEXT_DELTA) {
+                                        col.appendDelta(e.getText());
+                                    } else if (e.getType() == StreamEventType.TOOL_START) {
+                                        col.noteTool(e.getToolName());
+                                    } else if (e.getType() == StreamEventType.USAGE) {
+                                        col.setUsage(e.getUsage());
+                                    }
+                                }
+                            }),
+                            err -> Platform.runLater(() -> {
+                                log.warn("对比流失败: model={}", t.modelCode(), err);
+                                col.fail(err.getMessage());
+                                compareColumnDone();
+                            }),
+                            () -> Platform.runLater(() -> {
+                                col.complete();
+                                compareColumnDone();
+                            }));
+            compareStreams.add(stream);
+        }
+        toolbar.clearCompareSelection();
+        toolbar.renderCompareButton();
+    }
+
+    /** 停止对比：先打断各列网关侧的模型/工具循环，再取消订阅（doOnCancel 逐列收尾为「已停止」）。 */
+    private void stopCompare() {
+        String agent = compareAgentCode;
+        for (String sid : List.copyOf(compareSessions)) {
+            if (agent != null) {
+                chatService.stop(agent, sid);
+            }
+        }
+        for (Disposable stream : List.copyOf(compareStreams)) {
+            stream.dispose();
+        }
+    }
+
+    /** 一列终结（完成/出错/停止）：全部列终结后退出流式态并清在途记录。 */
+    private void compareColumnDone() {
+        compareCompleted++;
+        if (compareCompleted < compareDoneTotal) {
+            return;
+        }
+        comparing = false;
+        compareAgentCode = null;
+        compareStreams.clear();
+        compareSessions.clear();
+        exitStreamingUi();
+    }
+
+    /**
      * 本轮发送实际使用的模型编码（供 vision/速率判定）：工具条手选优先，否则取应用默认模型；
      * 两者皆空（未配置默认）时返回 {@code null}，判定层据此一律放行。
      */
@@ -759,6 +957,65 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                         inputField.requestFocus();
                     }
                 }));
+    }
+
+    /**
+     * 附件菜单「生成图片」：输入提示词 → 直插一轮本地对话（用户气泡 + 生成气泡）→ 后台调生图服务 →
+     * 落库（{@link ChatService#insertLocalExchange}）并以 Markdown 图片语法展示。
+     * <p>生成不占在途流（期间可继续对话）；落库先于展示。完成后若仍停在原会话且无流在途，
+     * 整会话重放补齐主键；否则就地渲染当前气泡，切走再切回由重放自然补上。</p>
+     */
+    @Override
+    public void requestImageGeneration() {
+        if (!securityAdminService.isImageConfigured()) {
+            GimDialog.message(ownerWindow(), I18n.t("image.dialog.title"), null, I18n.t("image.notConfigured"));
+            return;
+        }
+        Optional<String> input = ImageGenerateDialog.show(ownerWindow());
+        if (input.isEmpty()) {
+            return;
+        }
+        String prompt = input.get();
+        if (currentSessionId == null) {
+            // 与发送首条消息同口径：生图也建会话，归属当前选中的智能体
+            currentSessionId = chatService.createSession(currentAgentCode());
+            refreshSessions();
+        }
+        String sid = currentSessionId;
+        String agent = agentOfSession(sid);
+        messageRenderer.appendUserBubble(prompt, List.of(), List.of(), 0);
+        com.gettyio.gim.agent.ui.chat.AssistantBubble bubble = messageRenderer.appendAssistantBubble();
+        bubble.appendPlain(I18n.t("image.generating"));
+        Thread worker = new Thread(() -> {
+            String assistantMd;
+            try {
+                byte[] bytes = imageGenerationClient.generate(prompt);
+                Path file = ImageGenerationClient.save(gimPaths.generatedDir(), bytes);
+                String mdPath = file.toAbsolutePath().toString().replace('\\', '/');
+                assistantMd = "![" + imageAlt(prompt) + "](<" + mdPath + ">)";
+            } catch (Exception e) {
+                log.warn("图像生成失败", e);
+                assistantMd = I18n.t("image.failed", String.valueOf(e.getMessage()));
+            }
+            String md = assistantMd;
+            Platform.runLater(() -> {
+                chatService.insertLocalExchange(sid, agent, prompt, md);
+                refreshSessions();
+                if (sid.equals(currentSessionId) && !isBusy()) {
+                    renderSessionMessages(sid);
+                } else {
+                    bubble.renderMarkdown(md);
+                }
+            });
+        }, "gim-image-gen");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** 生成图 Markdown 的 alt 文本：压平换行与方括号并截断，避免破坏图片语法。 */
+    private static String imageAlt(String prompt) {
+        String t = prompt.replaceAll("[\\[\\]()\\r\\n]+", " ").trim();
+        return t.length() <= 60 ? t : t.substring(0, 60) + "\u2026";
     }
 
     /**
@@ -876,15 +1133,24 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 发送按钮的停止态入口：在途流存在则停止，否则正常发送（FXML 绑此方法）。 */
     @FXML
     public void handleSendOrStop() {
-        if (activeStream != null) {
+        if (isBusy()) {
             handleStop();
             return;
         }
         handleSend();
     }
 
-    /** 停止生成：先打断网关侧的模型/工具循环，再取消订阅（doOnCancel 落盘半截应答）。 */
+    /** 是否有任何在途生成（普通流式或对比）：发送互斥与停止分流的统一判定。 */
+    private boolean isBusy() {
+        return activeStream != null || comparing;
+    }
+
+    /** 停止生成：对比在途时停对比；否则先打断网关侧的模型/工具循环，再取消订阅（doOnCancel 落盘半截应答）。 */
     private void handleStop() {
+        if (comparing) {
+            stopCompare();
+            return;
+        }
         String session = streamingSessionId;
         if (session != null) {
             chatService.stop(agentOfSession(session), session);
@@ -913,7 +1179,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         streamingSessionId = null;
         Node graphic = sendButton.getGraphic();
         if (graphic instanceof Label icon) {
-            icon.setText("\uE724");
+            icon.setText("\uE74A");
             icon.getStyleClass().remove("send-stop");
         }
         sendButton.setTooltip(null);
@@ -996,9 +1262,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 content = content + "\n" + I18n.t("chat.interrupted");
             }
             if (prepend) {
-                messageRenderer.prependAssistantMarkdown(content, id, c.getToolCalls(), meta.thinking());
+                messageRenderer.prependAssistantMarkdown(content, id, c.getToolCalls(), meta.thinking(), c.getCreatedAt());
             } else {
-                messageRenderer.appendAssistantMarkdown(content, id, c.getToolCalls(), meta.thinking());
+                messageRenderer.appendAssistantMarkdown(content, id, c.getToolCalls(), meta.thinking(), c.getCreatedAt());
             }
         }
     }
@@ -1008,7 +1274,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
      * 保持当前阅读位置不跳动。补满一整页才认为可能还有更早（与首页同口径）。
      */
     private void loadOlderMessages() {
-        if (loadingOlder || !hasMoreOlder || activeStream != null) {
+        if (loadingOlder || !hasMoreOlder || isBusy()) {
             return;
         }
         String sid = currentSessionId;
@@ -1054,9 +1320,30 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         Clipboard.getSystemClipboard().setContent(content);
     }
 
+    /** 朗读助手消息：未配置时提示先设置；合成/播放的错误与结束统一恢复气泡按钮两态。 */
+    @Override
+    public void onSpeak(String rawText, Runnable onEnded) {
+        if (!ttsService.isConfigured()) {
+            GimDialog.message(ownerWindow(), I18n.t("chat.msg.speak"), null, I18n.t("voice.tts.notConfigured"));
+            onEnded.run();
+            return;
+        }
+        ttsService.speak(rawText, err -> {
+            if (err != null && !err.isBlank()) {
+                GimDialog.message(ownerWindow(), I18n.t("chat.msg.speak"), null, I18n.t("voice.tts.failed", err));
+            }
+            onEnded.run();
+        });
+    }
+
+    @Override
+    public void onSpeakStop() {
+        ttsService.stop();
+    }
+
     @Override
     public void onRegenerate() {
-        if (activeStream != null) {
+        if (isBusy()) {
             return;
         }
         if (statusBar.isCompacting()) {
@@ -1081,7 +1368,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     @Override
     public void onEditResend(long conversationId, String currentText) {
-        if (activeStream != null || conversationId <= 0) {
+        if (isBusy() || conversationId <= 0) {
             return;
         }
         if (statusBar.isCompacting()) {
@@ -1106,7 +1393,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     @Override
     public void onDelete(long conversationId) {
-        if (activeStream != null || conversationId <= 0) {
+        if (isBusy() || conversationId <= 0) {
             return;
         }
         String sid = currentSessionId;
@@ -1123,7 +1410,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     @Override
     public void onFork(long conversationId) {
-        if (activeStream != null || conversationId <= 0) {
+        if (isBusy() || conversationId <= 0) {
             return;
         }
         String sid = currentSessionId;
@@ -1217,6 +1504,14 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         terminalDrawer.toggle();
     }
 
+    /** 右上角工作区按钮：展开/收起右侧工作区栏（收起仅摘节点、树与阅读状态保留）。 */
+    @FXML
+    private void handleToggleWorkspace() {
+        if (workspacePanel != null) {
+            workspacePanel.toggle();
+        }
+    }
+
     // ===================== 侧栏顶部：智能体切换卡 =====================
 
     /** 读取偏好里的侧栏智能体；定义已被删除时回落默认智能体，避免新建会话指向空定义 */
@@ -1296,6 +1591,86 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         dropForeignSession();
     }
 
+    // ===================== 会话导出（长图 / 独立 HTML） =====================
+
+    /** 侧栏「导出长图」：弹保存框后以话题卡片 HTML 离屏快照为 PNG（成功/失败弹框反馈）。 */
+    @Override
+    public void exportSessionImage(String sessionId) {
+        ChatSession session = exportService.findSession(sessionId).orElse(null);
+        if (session == null) {
+            GimDialog.message(ownerWindow(), I18n.t("session.export.image"), null, I18n.t("settings.export.noSession"));
+            return;
+        }
+        File file = chooseExportTarget(I18n.t("session.export.image"), session, ".png", "PNG (*.png)");
+        if (file == null) {
+            return;
+        }
+        Path target = withExtension(file.toPath(), ".png");
+        // 长图须在 FX 线程快照：先在后台备好 HTML，回 FX 线程交给导出器（其内部再异步写盘）
+        Thread t = new Thread(() -> {
+            String html;
+            try {
+                html = exportService.renderSessionHtml(sessionId);
+            } catch (RuntimeException e) {
+                log.warn("导出会话长图：HTML 渲染失败", e);
+                Platform.runLater(() -> GimDialog.message(ownerWindow(), I18n.t("session.export.image"), null,
+                        I18n.t("settings.data.fail", String.valueOf(e.getMessage()))));
+                return;
+            }
+            Platform.runLater(() -> SessionImageExporter.export(ownerWindow(), html, target,
+                    saved -> GimDialog.message(ownerWindow(), I18n.t("session.export.image"), null,
+                            I18n.t("settings.export.done", saved.getFileName())),
+                    err -> GimDialog.message(ownerWindow(), I18n.t("session.export.image"), null, err)));
+        }, "session-image-render");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** 侧栏「导出网页」：话题卡片式独立 HTML（样式与本地图片内嵌，单文件可分享）；渲染在后台线程。 */
+    @Override
+    public void exportSessionHtml(String sessionId) {
+        ChatSession session = exportService.findSession(sessionId).orElse(null);
+        if (session == null) {
+            GimDialog.message(ownerWindow(), I18n.t("session.export.html"), null, I18n.t("settings.export.noSession"));
+            return;
+        }
+        File file = chooseExportTarget(I18n.t("session.export.html"), session, ".html", "HTML (*.html)");
+        if (file == null) {
+            return;
+        }
+        Path target = withExtension(file.toPath(), ".html");
+        Thread t = new Thread(() -> {
+            try {
+                Path saved = exportService.exportSessionHtml(sessionId, target);
+                Platform.runLater(() -> GimDialog.message(ownerWindow(), I18n.t("session.export.html"), null,
+                        I18n.t("settings.export.done", saved.getFileName())));
+            } catch (RuntimeException e) {
+                log.warn("导出会话网页失败", e);
+                Platform.runLater(() -> GimDialog.message(ownerWindow(), I18n.t("session.export.html"), null,
+                        I18n.t("settings.data.fail", String.valueOf(e.getMessage()))));
+            }
+        }, "session-html-export");
+        t.setDaemon(true);
+        t.start();
+    }
+
+    /** 弹「另存为」对话框（标题、建议文件名与扩展名过滤器按导出格式定制）；取消返回 null。 */
+    private File chooseExportTarget(String title, ChatSession session, String ext, String filterText) {
+        FileChooser chooser = new FileChooser();
+        chooser.setTitle(title);
+        chooser.setInitialFileName(exportService.suggestedFileName(
+                session.getTitle() == null || session.getTitle().isBlank() ? session.getSessionId() : session.getTitle(),
+                ext));
+        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(filterText, "*" + ext));
+        return chooser.showSaveDialog(ownerWindow());
+    }
+
+    /** 用户未按选中格式补后缀时自动补上（与设置页导出同规则）。 */
+    private static Path withExtension(Path p, String ext) {
+        String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
+        return name.endsWith(ext) ? p : Path.of(p.toString() + ext);
+    }
+
     /** 搜索按钮：弹出命令面板，在当前智能体的会话标题与消息正文里检索，选中即打开（消息行还会滚到该条）。 */
     @FXML
     public void handleOpenSearch() {
@@ -1333,6 +1708,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @FXML
     public void handleAttach() {
         attachmentBar.handleAttach();
+    }
+
+    /** 点对比按钮：委托工具条对比多选菜单（实现见 {@code ToolbarPickers}）。 */
+    @FXML
+    public void showCompareMenu() {
+        toolbar.showCompareMenu();
     }
 
     /** 点模型按钮：委托工具条模型菜单（实现见 {@code ToolbarPickers}）。 */

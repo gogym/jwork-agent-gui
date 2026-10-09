@@ -35,7 +35,11 @@ import com.gettyio.gim.agent.tools.guard.GuardChain;
 import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
+import com.gettyio.gim.agent.tools.image.ImageGenerationClient;
+import com.gettyio.gim.agent.tools.image.ImageGenerationTools;
+import com.gettyio.gim.agent.tools.sandbox.DockerAvailabilityProbe;
 import com.gettyio.gim.agent.tools.sandbox.SandboxExecutor;
+import com.gettyio.gim.agent.tools.sandbox.SandboxShellTool;
 import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.tools.web.WebSearchTools;
 import com.gettyio.gim.agent.ui.export.ExportService;
@@ -112,6 +116,15 @@ public class GimAgentConfiguration {
         return new ModelProbe(modelFactory);
     }
 
+    /** 图像生成客户端：配置从加密 settings 实时取用（改配即生效）；工具与聊天页生图入口共用。 */
+    @Bean
+    public ImageGenerationClient imageGenerationClient(SecurityAdminService securityAdminService) {
+        return new ImageGenerationClient(() -> new ImageGenerationClient.Config(
+                securityAdminService.getImageBaseUrl(),
+                securityAdminService.getImageModel(),
+                securityAdminService.getImageApiKeyPlain()));
+    }
+
     @Bean
     public AgentCapabilityResolver agentCapabilityResolver(GimDatabase db) {
         return new AgentCapabilityResolver(db);
@@ -127,7 +140,9 @@ public class GimAgentConfiguration {
                                           AgentCapabilityResolver capabilities,
                                           TaskSchedulerService schedulerService,
                                           SecurityAdminService securityAdminService,
-                                          com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService embeddingIndexer) {
+                                          ImageGenerationClient imageGenerationClient,
+                                          com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService embeddingIndexer,
+                                          DockerAvailabilityProbe dockerAvailabilityProbe) {
         // 智能体定义 + 消息级模型覆盖 → 模型实例（未定向则用应用默认模型，按生成参数分桶复用）；
         // 备用模型：同提供商按优先级取下一个启用模型，接 Harness 框架级重试 + failover
         MultiAgentGateway.ModelResolver modelResolver = new MultiAgentGateway.ModelResolver() {
@@ -166,6 +181,14 @@ public class GimAgentConfiguration {
                     // 知识检索工具：knowledge_search——向量召回知识块，与 KNOWLEDGE.md 文件树路线并存
                     gw.registerToolTarget(new com.gettyio.gim.agent.core.knowledge.KnowledgeSearchTools(
                             embeddingIndexer, gw::getAgentId));
+                    // 图像生成工具：generate_image——配置实时取用，产物落 workspace/generated 后由模型以 Markdown 引用展示
+                    gw.registerToolTarget(new ImageGenerationTools(imageGenerationClient, () -> paths.generatedDir()));
+                    // Docker 沙箱：自动通过档且设置开启时，Shell 走一次性容器执行；握手失败自动回退本地
+                    gw.setShellToolFactory((localFs, ws, project, autoApprove) -> new SandboxShellTool(
+                            localFs, ws, project, autoApprove,
+                            securityAdminService::isSandboxDockerEnabled,
+                            securityAdminService::getSandboxImage,
+                            dockerAvailabilityProbe));
                 });
     }
 
@@ -438,16 +461,26 @@ public class GimAgentConfiguration {
         };
     }
 
-    /** 启动时后台预拉取沙箱轻量镜像（Docker 可用时；失败/超时只记日志，绝不阻塞启动）。 */
+    /** Docker 连通性探针（真实握手 + TTL 缓存）：沙箱执行装配、镜像预拉取与设置页状态共用。 */
+    @Bean
+    public DockerAvailabilityProbe dockerAvailabilityProbe() {
+        return DockerAvailabilityProbe.handshake();
+    }
+
+    /** 启动时后台预拉取沙箱镜像（连通性握手通过后用当前配置镜像；失败/超时只记日志，绝不阻塞启动）。 */
     @Bean
     @Order(60)
-    public CommandLineRunner prePullSandboxImage() {
-        SandboxExecutor executor = new SandboxExecutor();
+    public CommandLineRunner prePullSandboxImage(DockerAvailabilityProbe dockerAvailabilityProbe,
+                                                 SecurityAdminService securityAdminService) {
         return args -> {
-            if (!executor.dockerAvailable()) {
-                return;
-            }
-            Thread t = new Thread(executor::prePullImage, "sandbox-prepull");
+            Thread t = new Thread(() -> {
+                SandboxExecutor executor = new SandboxExecutor(
+                        dockerAvailabilityProbe, securityAdminService.getSandboxImage());
+                if (!executor.dockerAvailable()) {
+                    return;
+                }
+                executor.prePullImage();
+            }, "sandbox-prepull");
             t.setDaemon(true);
             t.start();
         };

@@ -27,6 +27,8 @@ import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import io.agentscope.core.state.AgentState;
 import io.agentscope.harness.agent.HarnessAgent;
+import io.agentscope.harness.agent.filesystem.AbstractFilesystem;
+import io.agentscope.harness.agent.filesystem.sandbox.AbstractSandboxFilesystem;
 import io.agentscope.harness.agent.memory.MemoryConfig;
 import io.agentscope.harness.agent.memory.MemoryFlushManager;
 import io.agentscope.harness.agent.memory.compaction.CompactionConfig;
@@ -54,6 +56,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
 /**
@@ -79,6 +82,9 @@ public class HarnessAgentGateway implements AutoCloseable {
 
     /** 工具入参/输出写入事件与落盘前的截断上限（字符），避免超长结果撑爆一列 */
     private static final int TOOL_TEXT_MAX = 2000;
+
+    /** 框架内置 Shell 工具名：自定义 Shell 工具以同名注册即替换（ToolRegistry 同名覆盖）。 */
+    private static final String SHELL_TOOL_NAME = "execute";
 
     /** 主模型调用失败后的框架级重试次数（配合备用模型 failover） */
     private static final int FRAMEWORK_MAX_RETRIES = 2;
@@ -133,6 +139,9 @@ public class HarnessAgentGateway implements AutoCloseable {
      * 非空时装配走静态子智能体中间件，精确按库内定义注册委派对象；空/null 即不启用子智能体编排。
      */
     private volatile List<SubagentDeclaration> subagentDeclarations;
+
+    /** 自定义 Shell 工具工厂（可空）：装配后替换框架内置 execute 工具（如 Docker 沙箱装饰） */
+    private volatile ShellToolFactory shellToolFactory;
 
     private volatile HarnessAgent agent;
 
@@ -247,6 +256,28 @@ public class HarnessAgentGateway implements AutoCloseable {
         }
     }
 
+    /**
+     * 自定义 Shell 工具工厂：智能体装配完成后以同名 {@code execute} 工具替换框架内置实现
+     * （{@link io.agentscope.harness.agent.tool.ShellExecuteTool}）；返回 {@code null} 表示不替换。
+     */
+    @FunctionalInterface
+    public interface ShellToolFactory {
+        /**
+         * @param localFilesystem 框架本地档文件系统（与内置 Shell 工具同源，可委托其本地执行）
+         * @param workspace       智能体工作区
+         * @param project         授权项目目录（可空）
+         * @param autoApprove     按调用时刻读取的「本轮自动通过档」标记
+         * @return 替代工具宿主对象（含 {@code @Tool} 方法）；{@code null} 表示保持内置实现
+         */
+        Object create(AbstractSandboxFilesystem localFilesystem, Path workspace, Path project,
+                      BooleanSupplier autoApprove);
+    }
+
+    /** 注入自定义 Shell 工具工厂；须在首次装配（或失效重建）前设置。 */
+    public void setShellToolFactory(ShellToolFactory shellToolFactory) {
+        this.shellToolFactory = shellToolFactory;
+    }
+
     private HarnessAgent agent() {
         HarnessAgent local = this.agent;
         if (local == null) {
@@ -332,6 +363,24 @@ public class HarnessAgentGateway implements AutoCloseable {
                         builder = builder.subagents(subs).disableDynamicSubagents();
                     }
                     local = builder.build();
+                    ShellToolFactory shellFactory = this.shellToolFactory;
+                    if (shellFactory != null && local.getToolkit().getTool(SHELL_TOOL_NAME) != null) {
+                        // 内置 execute 在 build 内注册，tools.json 过滤也已在 build 内生效：
+                        // 被过滤时 getTool 为空，此时保持不动以尊重配置
+                        AbstractFilesystem fs = local.getWorkspaceManager().getFilesystem();
+                        if (fs instanceof AbstractSandboxFilesystem sandboxFs) {
+                            try {
+                                Object replacement = shellFactory.create(sandboxFs, workspace,
+                                        this.projectDir, () -> this.autoApprove);
+                                if (replacement != null) {
+                                    local.getToolkit().registerTool(replacement);
+                                    log.info("已替换内置 Shell 工具: agent={}", agentId);
+                                }
+                            } catch (RuntimeException e) {
+                                log.warn("Shell 工具替换失败，沿用框架内置实现: agent={}", agentId, e);
+                            }
+                        }
+                    }
                     for (Object target : toolTargets) {
                         local.getToolkit().registerTool(target);
                     }

@@ -6,6 +6,8 @@ import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.chat.MenuPopup;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
+import com.gettyio.gim.agent.ui.market.MarketService;
+import com.gettyio.gim.agent.ui.market.SkillsMarketDialog;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -53,6 +55,10 @@ public class SkillsView {
     @Autowired
     private AgentAdminService agentAdminService;
 
+    /** 在线市场：搜索/安装远端技能（来源标记为 MARKETPLACE） */
+    @Autowired
+    private MarketService marketService;
+
     private final VBox root = new VBox();
     private final TilePane grid = new TilePane();
     private final StackPane body = new StackPane();
@@ -67,6 +73,7 @@ public class SkillsView {
     private MenuItem importFolderItem;
     private MenuItem importFileItem;
     private Button refreshButton;
+    private Button marketButton;
 
     public SkillsView() {
         buildUi();
@@ -132,8 +139,16 @@ public class SkillsView {
         importMenu.getItems().addAll(importFolderItem, importFileItem);
         importButton.setOnAction(e -> showImportMenu());
 
+        // 市场入口：默认中性样式，与右侧主按钮「导入」形成层次
+        marketButton = new Button();
+        marketButton.setMinWidth(Region.USE_PREF_SIZE);
+        Label marketIcon = new Label("\uE719");
+        marketIcon.getStyleClass().add("icon");
+        marketButton.setGraphic(marketIcon);
+        marketButton.setOnAction(e -> openMarket());
+
         // 右侧控件与描述同一行：行内中心对齐使控件中心线与描述文字中心共线，标题独占上一行
-        HBox descRow = new HBox(10, descLabel, spacer, refreshButton, searchField, importButton);
+        HBox descRow = new HBox(10, descLabel, spacer, refreshButton, searchField, marketButton, importButton);
         descRow.setAlignment(Pos.CENTER_LEFT);
         VBox headText = new VBox(4, titleLabel, descRow);
         headText.setMaxWidth(Double.MAX_VALUE);
@@ -166,6 +181,7 @@ public class SkillsView {
         importFileItem.setText(I18n.t("skills.importFile"));
         searchField.setPromptText(I18n.t("skills.searchPrompt"));
         refreshButton.getTooltip().setText(I18n.t("common.refresh"));
+        marketButton.setText(I18n.t("market.entry"));
     }
 
     /** 弹出/收起导入菜单：在按钮下方弹出并夹到主窗体内；已开则收起，刚被系统收起的 250ms 内不重开。 */
@@ -318,6 +334,12 @@ public class SkillsView {
     }
 
     // ---- 操作 ----
+
+    /** 打开技能市场对话框（安装成功回调刷新本页卡片）。 */
+    private void openMarket() {
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        new SkillsMarketDialog(owner, marketService, skillService, agentAdminService, this::reload).show();
+    }
 
     private void handleInstall() {
         DirectoryChooser chooser = new DirectoryChooser();

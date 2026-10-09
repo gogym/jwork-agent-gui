@@ -43,6 +43,16 @@ class EmbeddingIndexServiceTest {
         }
     }
 
+    /** 与 {@link FakeClient} 向量口径相同、但类身份不同（默认 cacheKey 即类名）：验证换嵌入配置触发指纹失配。 */
+    private static final class FakeClientAlt implements EmbeddingClient {
+        private final FakeClient delegate = new FakeClient();
+
+        @Override
+        public float[][] embedAll(List<String> texts) {
+            return delegate.embedAll(texts);
+        }
+    }
+
     @TempDir
     Path tempDir;
 
@@ -135,5 +145,42 @@ class EmbeddingIndexServiceTest {
         if (prev.length() > 150) {
             assertTrue(next.startsWith(prev.substring(prev.length() - 150)), "后块应以前块尾部重叠开头");
         }
+    }
+
+    @Test
+    @DisplayName("增量指纹：索引后判定最新；内容/配置变更、删除后失配")
+    void fingerprintTracksChanges() {
+        String text = "稳定的知识内容。";
+        assertTrue(!indexer.isUpToDate("agent-a", "a.md", text), "未索引不应视为最新");
+
+        indexer.indexDocument("agent-a", "a.md", text);
+        assertTrue(indexer.isUpToDate("agent-a", "a.md", text), "同内容同配置应判定最新");
+        assertTrue(!indexer.isUpToDate("agent-a", "a.md", text + "追加"), "内容变更应失配");
+        assertTrue(!indexer.isUpToDate("agent-a", "other.md", text), "未索引的其他文档应失配");
+
+        EmbeddingIndexService swapped = new EmbeddingIndexService(db, FakeClientAlt::new);
+        assertTrue(!swapped.isUpToDate("agent-a", "a.md", text), "换嵌入配置应失配");
+
+        indexer.removeDocument("agent-a", "a.md");
+        assertTrue(!indexer.isUpToDate("agent-a", "a.md", text), "删除后指纹应清除");
+    }
+
+    @Test
+    @DisplayName("混合检索：0.7×向量 + 0.3×关键词——子串字面命中（向量无共享）也得分，双通道最高")
+    void hybridScoringVectorPlusKeyword() {
+        // query 词面 "cook"：假嵌入按词根哈希置位，"cooking" 哈希位与其不同（向量无共享）但含子串 "cook"
+        indexer.indexDocument("agent-a", "c.md", "cook pork");   // 双通道：向量共享 + 字面命中
+        indexer.indexDocument("agent-a", "b.md", "cooking");     // 仅关键词通道（子串命中）
+        indexer.indexDocument("agent-a", "a.md", "pork sugar");  // 双通道皆无
+
+        List<EmbeddingIndexService.SearchHit> hits = indexer.search("agent-a", "cook", 5);
+
+        assertEquals(3, hits.size());
+        assertEquals("c.md", hits.get(0).docName());
+        assertEquals(0.7 * (1 / Math.sqrt(2)) + 0.3, hits.get(0).score(), 1e-9);
+        assertEquals("b.md", hits.get(1).docName());
+        assertEquals(0.3, hits.get(1).score(), 1e-9);
+        assertEquals("a.md", hits.get(2).docName());
+        assertEquals(0.0, hits.get(2).score(), 1e-9);
     }
 }

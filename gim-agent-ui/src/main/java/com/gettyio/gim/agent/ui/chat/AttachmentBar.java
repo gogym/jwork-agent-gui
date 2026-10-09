@@ -161,9 +161,10 @@ public class AttachmentBar {
     // ===================== 回形针菜单与选择 =====================
 
     /**
-     * 回形针按钮：弹出「文件 / 文件夹」子菜单。
+     * 回形针按钮：弹出「文件 / 文件夹 / 生成图片」菜单。
      * <p>图片不单列——它本就是文件的一种：在「文件」选择器里选中图片仍走 Base64 多模态通道，
-     * 选中其它文件则只记路径引用，发送时拼进正文由 Agent 用文件工具按需读取。</p>
+     * 选中其它文件则只记路径引用，发送时拼进正文由 Agent 用文件工具按需读取；「生成图片」
+     * 则是 AI 生图入口，交回宿主（{@link ChatHost#requestImageGeneration()}）编排。</p>
      */
     public void handleAttach() {
         if (attachMenu == null) {
@@ -181,7 +182,8 @@ public class AttachmentBar {
         // 每次重灌条目：保证文案随语言即时刷新
         attachMenu.getItems().setAll(
                 attachMenuItem(I18n.t("attach.menu.file"), "\uE8A5", this::chooseFiles),
-                attachMenuItem(I18n.t("attach.menu.folder"), "\uE8B7", this::chooseFolder));
+                attachMenuItem(I18n.t("attach.menu.folder"), "\uE8B7", this::chooseFolder),
+                attachMenuItem(I18n.t("attach.menu.generate"), "\uE91B", host::requestImageGeneration));
         MenuPopup.showAbove(attachMenu, attachButton);
     }
 

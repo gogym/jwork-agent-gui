@@ -38,7 +38,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * 会话与全库导出：单会话导出为可读 Markdown（角色/时间/工具行），全库导出为结构化 JSON。
+ * 会话与全库导出：单会话导出为可读 Markdown（角色/时间/工具行）或「话题卡片」式独立 HTML
+ * （{@link SessionHtmlRenderer}，.html 文件与长图快照共用同一份内容），全库导出为结构化 JSON。
  * <p>纯数据渲染，无 JavaFX 依赖，便于在设置页后台线程调用与后续测试。</p>
  */
 public class ExportService {
@@ -85,6 +86,18 @@ public class ExportService {
             sb.append(renderMessage(c));
         }
         return sb.toString();
+    }
+
+    /** 导出单个会话为独立 HTML 文件（话题卡片式，样式自包含、本地图片内嵌），返回落盘路径。 */
+    public Path exportSessionHtml(String sessionId, Path target) {
+        return write(target, renderSessionHtml(sessionId));
+    }
+
+    /** 渲染单个会话为独立 HTML 文本；.html 导出与长图（PNG 快照）共用同一份内容。 */
+    public String renderSessionHtml(String sessionId) {
+        ChatSession session = db.sessionDao().findBySessionId(sessionId).orElse(null);
+        List<ChatConversation> messages = db.conversationDao().findBySession(sessionId);
+        return SessionHtmlRenderer.render(session, messages);
     }
 
     private String renderMessage(ChatConversation c) {

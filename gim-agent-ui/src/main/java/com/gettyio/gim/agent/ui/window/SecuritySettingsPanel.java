@@ -3,9 +3,11 @@ package com.gettyio.gim.agent.ui.window;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.entity.ToolPermissionRule;
 import com.gettyio.gim.agent.tools.guard.DangerousRule;
+import com.gettyio.gim.agent.tools.sandbox.DockerAvailabilityProbe;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -22,6 +24,7 @@ import javafx.scene.layout.VBox;
 import javafx.stage.DirectoryChooser;
 
 import java.io.File;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -29,8 +32,8 @@ import java.util.Map;
 import java.util.Optional;
 
 /**
- * 安全设置子面板：工具防护（审批档位 + 危险命令黑名单 + Shell 程序白名单）、文件防护（授权目录）、
- * 联网（搜索提供方与 API Key）、授权管理（逐条撤销 HITL「总是允许」）。
+ * 安全设置子面板：工具防护（审批档位 + 危险命令黑名单 + Shell 程序白名单 + Docker 沙箱）、
+ * 文件防护（授权目录）、联网（搜索提供方与 API Key）、授权管理（逐条撤销 HITL「总是允许」）。
  * <p>从 {@link SettingsWindow} 抽出的独立子面板，持有本页专属的动态容器字段与
  * {@link SecurityAdminService}；共享布局走 {@link SettingsLayout}，弹窗归属/提示/整表刷新
  * 回调宿主 {@link SettingsWindow}。宿主在语言切换重建时复用同一实例，容器内容随之重绘。</p>
@@ -40,6 +43,8 @@ final class SecuritySettingsPanel {
     private final SettingsWindow host;
     private final SecurityAdminService securityAdminService;
     private final GimPaths gimPaths;
+    /** 执行路径同源的 Docker 握手探针（带 TTL 缓存）：初始状态检测复用其结果，避免重复付出进程成本。 */
+    private final DockerAvailabilityProbe dockerAvailabilityProbe;
 
     /** 安全页动态容器：危险命令规则 / Shell 白名单 / 文件授权目录 / 授权管理，reloadSecurity 时重绘。 */
     private final VBox dangerousRulesBox = new VBox(8);
@@ -47,10 +52,13 @@ final class SecuritySettingsPanel {
     private final VBox pathRootsBox = new VBox(0);
     private final VBox grantBox = new VBox(0);
 
-    SecuritySettingsPanel(SettingsWindow host, SecurityAdminService securityAdminService, GimPaths gimPaths) {
+    SecuritySettingsPanel(SettingsWindow host, SecurityAdminService securityAdminService, GimPaths gimPaths,
+                          DockerAvailabilityProbe dockerAvailabilityProbe) {
         this.host = host;
         this.securityAdminService = securityAdminService;
         this.gimPaths = gimPaths;
+        this.dockerAvailabilityProbe = dockerAvailabilityProbe == null
+                ? DockerAvailabilityProbe.onPath() : dockerAvailabilityProbe;
     }
 
     VBox build() {
@@ -119,7 +127,75 @@ final class SecuritySettingsPanel {
         renderShellAllowlist();
         tab.getChildren().add(SettingsLayout.sectionBlockCentered(I18n.t("settings.security.shell.group"),
                 I18n.t("settings.security.shell.desc"), List.of(addProg), shellAllowBox));
+        tab.getChildren().add(buildSandboxSection());
         return tab;
+    }
+
+    /** 工具防护 Tab 内的 Docker 沙箱卡：自动通过档隔离开关 + 镜像 + 后台握手状态检测。 */
+    private VBox buildSandboxSection() {
+        ToggleSwitch toggle = new ToggleSwitch();
+        toggle.setSelected(securityAdminService.isSandboxDockerEnabled());
+        toggle.selectedProperty().addListener((obs, o, sel) -> securityAdminService.setSandboxDockerEnabled(sel));
+
+        TextField imageField = new TextField();
+        imageField.setText(securityAdminService.getSandboxImage());
+        imageField.setPromptText(SecurityAdminService.SANDBOX_IMAGE_DEFAULT);
+        imageField.setMaxWidth(260);
+        Runnable saveImage = () -> securityAdminService.setSandboxImage(imageField.getText());
+        imageField.setOnAction(e -> saveImage.run());
+        imageField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                saveImage.run();
+            }
+        });
+
+        Label statusValue = new Label();
+        statusValue.getStyleClass().addAll("row-value", "status-unknown");
+        statusValue.setWrapText(true);
+        statusValue.setMaxWidth(340);
+        Button check = new Button(I18n.t("settings.security.sandbox.check"));
+        check.setOnAction(e -> refreshSandboxStatus(statusValue, check, true));
+        HBox statusControl = new HBox(12, statusValue, check);
+        statusControl.setAlignment(Pos.CENTER_LEFT);
+
+        VBox card = SettingsLayout.groupCard(I18n.t("settings.security.sandbox.group"), List.of(
+                SettingsLayout.settingRow(I18n.t("settings.security.sandbox.enable"),
+                        I18n.t("settings.security.sandbox.enable.desc"), toggle),
+                SettingsLayout.settingRow(I18n.t("settings.security.sandbox.image"),
+                        I18n.t("settings.security.sandbox.image.desc"), imageField),
+                SettingsLayout.settingRow(I18n.t("settings.security.sandbox.status"), null, statusControl)));
+        refreshSandboxStatus(statusValue, check, false);
+        return card;
+    }
+
+    /**
+     * 后台线程握手检测 Docker 连通性并刷新状态标签（探测绝不阻塞 UI 线程，检测期间按钮禁用防重入）。
+     * 初始检查复用注入探针（与执行路径共享 TTL 缓存），手动「立即检测」用无缓存探针取即时结果。
+     */
+    private void refreshSandboxStatus(Label statusValue, Button checkButton, boolean fresh) {
+        checkButton.setDisable(true);
+        statusValue.setText(I18n.t("settings.security.sandbox.status.checking"));
+        setStatusTone(statusValue, "status-unknown");
+        DockerAvailabilityProbe probe = fresh
+                ? DockerAvailabilityProbe.handshake(DockerAvailabilityProbe.HANDSHAKE_TIMEOUT, Duration.ZERO)
+                : dockerAvailabilityProbe;
+        Thread worker = new Thread(() -> {
+            boolean available = probe.available();
+            Platform.runLater(() -> {
+                statusValue.setText(I18n.t(available
+                        ? "settings.security.sandbox.status.available" : "sandbox.docker.unavailable"));
+                setStatusTone(statusValue, available ? "status-ok" : "status-bad");
+                checkButton.setDisable(false);
+            });
+        }, "sandbox-docker-check");
+        worker.setDaemon(true);
+        worker.start();
+    }
+
+    /** 状态标签按语义着色（绿=可用、红=不可用、灰=检测中），保留基础 row-value 样式。 */
+    private static void setStatusTone(Label statusValue, String tone) {
+        statusValue.getStyleClass().removeAll("status-ok", "status-bad", "status-unknown");
+        statusValue.getStyleClass().add(tone);
     }
 
     /** 文件防护 Tab：文件授权目录（越界仅提示，写操作仍逐次确认）。 */

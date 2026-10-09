@@ -47,10 +47,16 @@ import java.util.Map;
  */
 public class ToolbarPickers {
 
+    /** 对比勾选上限：4 列并排已是可读性极限 */
+    private static final int COMPARE_MAX = 4;
+    /** 对比最少模型数：低于此值按普通发送处理 */
+    private static final int COMPARE_MIN = 2;
+
     private final Button themeMenuButton;
     private final Button modelButton;
     private final Button approvalButton;
     private final Button templateButton;
+    private final Button compareButton;
     private final javafx.scene.control.TextArea inputField;
     private final ProviderAdminService providerAdminService;
     private final SecurityAdminService securityAdminService;
@@ -77,9 +83,15 @@ public class ToolbarPickers {
     private long themeMenuHiddenAt;
     /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
     private ContextMenu templateMenu;
+    /** 对比勾选（模型键集合，保持插入序）；勾选 ≥2 个时发送走对比链路，发完自动清空 */
+    private final java.util.LinkedHashSet<String> compareSelection = new java.util.LinkedHashSet<>();
+    /** 对比选择菜单：复用单一实例 */
+    private ContextMenu compareMenu;
+    /** 对比菜单最近一次关闭的时间戳（毫秒） */
+    private long compareMenuHiddenAt;
 
     public ToolbarPickers(Button themeMenuButton, Button modelButton, Button approvalButton,
-                          Button templateButton, javafx.scene.control.TextArea inputField,
+                          Button templateButton, Button compareButton, javafx.scene.control.TextArea inputField,
                           ProviderAdminService providerAdminService, SecurityAdminService securityAdminService,
                           PromptTemplateAdminService promptTemplateAdminService,
                           ChatHost host) {
@@ -87,6 +99,7 @@ public class ToolbarPickers {
         this.modelButton = modelButton;
         this.approvalButton = approvalButton;
         this.templateButton = templateButton;
+        this.compareButton = compareButton;
         this.inputField = inputField;
         this.providerAdminService = providerAdminService;
         this.securityAdminService = securityAdminService;
@@ -115,6 +128,24 @@ public class ToolbarPickers {
     /** 规划模式是否被勾选：为真时发送流程把本轮标记为只读计划轮（进入/退出包在流两端）。 */
     public boolean planModeRequested() {
         return planModeRequested;
+    }
+
+    /** 已勾选的对比目标（按模型菜单顺序、排除「跟随默认」）；发送流程据此组装并行请求。 */
+    public List<CompareCard.Target> compareTargets() {
+        return modelOptions().stream()
+                .filter(o -> !o.followDefault() && compareSelection.contains(modelKey(o)))
+                .map(o -> new CompareCard.Target(o.providerCode(), o.modelCode(), o.label()))
+                .toList();
+    }
+
+    /** 对比模式是否就绪：勾选了至少 {@link #COMPARE_MIN} 个模型。 */
+    public boolean compareEnabled() {
+        return compareTargets().size() >= COMPARE_MIN;
+    }
+
+    /** 清空对比勾选（对比发送后调用，恢复常态发送）。 */
+    public void clearCompareSelection() {
+        compareSelection.clear();
     }
 
     /** 程序化开关规划模式：计划确认横幅「确认执行」后自动关闭，下一条消息不再走计划轮。 */
@@ -239,7 +270,8 @@ public class ToolbarPickers {
             themeMenu.setX(b.getMaxX() - w);
         }
         if (h > 0) {
-            themeMenu.setY(b.getMinY() - h);
+            // skin 边界含透明阴影内边距，往上弹时往下压这段缝，让菜单贴近按钮（与 MenuPopup.showAbove 共用 GAP）
+            themeMenu.setY(b.getMinY() - h + MenuPopup.GAP);
         }
     }
 
@@ -358,6 +390,108 @@ public class ToolbarPickers {
         mark.setMinWidth(Region.USE_PREF_SIZE);
         mark.setTooltip(new Tooltip(I18n.t("settings.model.vision.supported")));
         return mark;
+    }
+
+    // ===================== 多模型对比 =====================
+
+    /** 对比按钮闭合态：常态「对比」；勾选 ≥2 时高亮为「对比 ·N」。 */
+    public void renderCompareButton() {
+        if (compareButton == null) {
+            return;
+        }
+        int n = compareTargets().size();
+        boolean on = n >= COMPARE_MIN;
+        compareButton.setText(on ? I18n.t("compare.button.on", n) : I18n.t("compare.button"));
+        compareButton.getStyleClass().remove("compare-on");
+        if (on) {
+            compareButton.getStyleClass().add("compare-on");
+        }
+        compareButton.setTooltip(new Tooltip(on ? I18n.t("compare.button.tip.on", n) : I18n.t("compare.button.tip")));
+    }
+
+    /**
+     * 点对比按钮：向上弹出模型多选卡（勾选 {@link #COMPARE_MIN}~{@link #COMPARE_MAX} 个）。
+     * <p>点击单项后菜单会被系统自动收起，随后的延迟重开保持连续勾选体验；重开时重建条目以刷新勾选态。</p>
+     */
+    public void showCompareMenu() {
+        showCompareMenu(false);
+    }
+
+    private void showCompareMenu(boolean force) {
+        if (compareMenu == null) {
+            compareMenu = new ContextMenu();
+            compareMenu.getStyleClass().add("rich-menu");
+            compareMenu.setOnHiding(e -> compareMenuHiddenAt = System.currentTimeMillis());
+        }
+        if (compareMenu.isShowing()) {
+            compareMenu.hide();
+            return;
+        }
+        if (!force && MenuPopup.inHideDebounce(compareMenuHiddenAt)) {
+            return;
+        }
+        buildCompareItems();
+        MenuPopup.showAbove(compareMenu, compareButton);
+    }
+
+    /** 重建对比菜单条目：说明头 + 模型多选行（勾选中项右侧带勾）。 */
+    private void buildCompareItems() {
+        compareMenu.getItems().clear();
+
+        Label title = new Label(I18n.t("compare.menu.title"));
+        title.getStyleClass().add("approval-title");
+        Label desc = new Label(I18n.t("compare.menu.desc", COMPARE_MIN, COMPARE_MAX));
+        desc.getStyleClass().add("approval-desc");
+        Label icon = UiTheme.icon("\uE99A");
+        icon.getStyleClass().add("approval-icon");
+        MenuItem header = twoLineMenuItem(icon, title, desc, false, 300, null);
+        header.setDisable(true);
+        compareMenu.getItems().add(header);
+        compareMenu.getItems().add(new SeparatorMenuItem());
+
+        List<ModelOption> options = modelOptions().stream().filter(o -> !o.followDefault()).toList();
+        if (options.isEmpty()) {
+            MenuItem empty = new MenuItem(I18n.t("compare.menu.empty"));
+            empty.setDisable(true);
+            compareMenu.getItems().add(empty);
+            return;
+        }
+        for (ModelOption o : options) {
+            boolean checked = compareSelection.contains(modelKey(o));
+            Label itemIcon = UiTheme.icon("\uE99A");
+            itemIcon.getStyleClass().add("approval-icon");
+            Label itemTitle = new Label(o.label());
+            itemTitle.getStyleClass().add("approval-title");
+            Label itemDesc = new Label(o.desc());
+            itemDesc.getStyleClass().add("approval-desc");
+            compareMenu.getItems().add(twoLineMenuItem(itemIcon, itemTitle, itemDesc, checked, 300, () -> {
+                toggleCompare(o);
+                // 勾选后菜单通常已被系统自动收起：延迟一拍重开（force 绕过防抖）保持连续多选
+                Platform.runLater(() -> {
+                    if (compareMenu.isShowing()) {
+                        buildCompareItems();
+                    } else {
+                        showCompareMenu(true);
+                    }
+                });
+            }));
+        }
+    }
+
+    /** 勾选/取消一个模型；超出 {@link #COMPARE_MAX} 的额外勾选忽略（说明文案已给上限）。 */
+    private void toggleCompare(ModelOption o) {
+        String key = modelKey(o);
+        if (compareSelection.contains(key)) {
+            compareSelection.remove(key);
+        } else if (compareSelection.size() < COMPARE_MAX) {
+            compareSelection.add(key);
+        }
+        renderCompareButton();
+    }
+
+    /** 对比勾选的稳定键（提供商 + 模型，与 ModelOption 一一对应）。 */
+    private static String modelKey(ModelOption o) {
+        return o.providerCode() + "/" + o.modelCode();
     }
 
     // ===================== 审批档位 =====================

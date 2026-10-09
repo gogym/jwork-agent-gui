@@ -99,12 +99,26 @@ public class SkillService {
         }
         String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
         if (name.endsWith(".zip")) {
-            return importFromZip(file);
+            return importFromZip(file, "INSTALLED");
         }
         if (name.endsWith(".md")) {
             return importFromMarkdown(file);
         }
         throw new IllegalArgumentException("仅支持 .md 或 .zip 文件: " + file.getFileName());
+    }
+
+    /**
+     * 从市场下载的 zip 包安装：语义与 zip 导入一致（校验 SKILL.md、拒绝路径穿越），
+     * 来源标记为 {@code MARKETPLACE}（技能卡片展示「市场安装」）。文件名需为 {@code <code>.zip}。
+     */
+    public SkillPackage importFromMarket(Path zip) {
+        if (!Files.isRegularFile(zip)) {
+            throw new IllegalArgumentException("市场技能包不存在: " + zip);
+        }
+        if (!zip.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".zip")) {
+            throw new IllegalArgumentException("市场技能包必须是 .zip: " + zip.getFileName());
+        }
+        return importFromZip(zip, "MARKETPLACE");
     }
 
     /** 单个 SKILL.md：以其文件名（SKILL.md 则取父目录名）建目录，复制为目录内 SKILL.md。 */
@@ -132,7 +146,7 @@ public class SkillService {
      * zip 导入：先解到 skillsRoot 下的临时目录，逐条校验条目 normalize 后仍位于临时目录内（拒绝
      * {@code ../} 与绝对路径穿越），定位最浅层 SKILL.md 作为内容根，整体搬入 skillsRoot/&lt;code&gt;。
      */
-    private SkillPackage importFromZip(Path zip) {
+    private SkillPackage importFromZip(Path zip, String source) {
         String code = sanitizeCode(stripExtension(zip.getFileName().toString()));
         Path target = skillsRoot().resolve(code);
         Path tmp = null;
@@ -165,7 +179,7 @@ public class SkillService {
             Files.createDirectories(target.getParent());
             copyTree(entryFile.getParent(), target);
             SkillManifest manifest = SkillManifest.parse(target.resolve(SkillManifest.ENTRY_FILE));
-            return upsert(code, manifest, "INSTALLED", EnabledStatus.ENABLED);
+            return upsert(code, manifest, source, EnabledStatus.ENABLED);
         } catch (IOException e) {
             throw new UncheckedIOException("导入技能失败", e);
         } finally {

@@ -79,6 +79,31 @@ public class QuickAskWindow {
         }
     }
 
+    /**
+     * 划词助手入口：唤出小窗并预置待处理文本。
+     *
+     * @param text     预置到输入框的文本（光标置于末尾）
+     * @param autoSend 为 true 时预置后立即发送（翻译/润色）；false 仅预填待用户补充问题（问 AI）
+     */
+    public void askWith(String text, boolean autoSend) {
+        Platform.runLater(() -> {
+            buildIfNeeded();
+            if (!stage.isShowing()) {
+                stage.show();
+            }
+            stage.toFront();
+            stage.requestFocus();
+            if (input != null) {
+                input.setText(text);
+                input.positionCaret(text.length());
+                input.requestFocus();
+            }
+            if (autoSend) {
+                sendNow();
+            }
+        });
+    }
+
     /** 唤起小窗（首次惰性构建），置于屏幕中部并聚焦输入框。 */
     public void show() {
         Platform.runLater(() -> {

@@ -46,6 +46,17 @@ public class AppSettingDao {
         }
     }
 
+    /** 删除指定键（知识索引指纹等内部键的定点清理）；返回删除行数。 */
+    public int delete(String key) {
+        return runner.update("DELETE FROM settings WHERE setting_key=?", key);
+    }
+
+    /** 删除指定前缀的全部键（内部键按「命名空间/」分组场景）；前缀中的 LIKE 通配符按字面处理。 */
+    public int deleteByPrefix(String prefix) {
+        String escaped = prefix.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_");
+        return runner.update("DELETE FROM settings WHERE setting_key LIKE ? ESCAPE '\\'", escaped + "%");
+    }
+
     public List<AppSetting> findAll() {
         return runner.query("SELECT " + COLUMNS + " FROM settings ORDER BY setting_key", AppSettingDao::map);
     }

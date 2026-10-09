@@ -34,4 +34,10 @@ public interface SessionSidebarHost extends ChatHost {
 
     /** 新建/编辑智能体后即接管它。 */
     void adoptAgent(String agentCode);
+
+    /** 导出会话为长图（PNG）：宿主弹保存对话框并就地渲染（含成功/失败反馈）。 */
+    void exportSessionImage(String sessionId);
+
+    /** 导出会话为独立 HTML（话题卡片式、本地图片内嵌）文件。 */
+    void exportSessionHtml(String sessionId);
 }

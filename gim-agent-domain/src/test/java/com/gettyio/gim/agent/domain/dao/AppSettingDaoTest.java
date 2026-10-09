@@ -61,4 +61,31 @@ class AppSettingDaoTest {
         // updated_at 由 LocalDateTime 存 TEXT 后应能读回（非空）
         assertTrue(all.get(0).getUpdatedAt() != null);
     }
+
+    @Test
+    @DisplayName("delete 精确键、deleteByPrefix 前缀批量删除")
+    void deletesByKeyAndPrefix() {
+        dao.upsert("fp.agent-a/doc.md", "1", null);
+        dao.upsert("fp.agent-a/doc2.md", "2", null);
+        dao.upsert("fp.agent-b/doc.md", "3", null);
+
+        assertEquals(1, dao.delete("fp.agent-a/doc.md"));
+        assertTrue(dao.getValue("fp.agent-a/doc.md").isEmpty());
+        assertEquals(0, dao.delete("fp.agent-a/doc.md"), "再次删除应影响 0 行");
+
+        assertEquals(1, dao.deleteByPrefix("fp.agent-a/"));
+        assertTrue(dao.getValue("fp.agent-a/doc2.md").isEmpty());
+        assertEquals("3", dao.getValue("fp.agent-b/doc.md").orElseThrow(), "其他前缀未被误删");
+    }
+
+    @Test
+    @DisplayName("deleteByPrefix：下划线按字面匹配（LIKE 元字符转义生效）")
+    void deleteByPrefixEscapesWildcard() {
+        dao.upsert("t_100", "v1", null);
+        dao.upsert("tX100", "v2", null);
+
+        assertEquals(1, dao.deleteByPrefix("t_100"));
+        assertTrue(dao.getValue("t_100").isEmpty());
+        assertEquals("v2", dao.getValue("tX100").orElseThrow(), "不应被下划线通配误删");
+    }
 }

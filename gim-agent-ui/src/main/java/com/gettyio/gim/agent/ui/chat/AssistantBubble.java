@@ -10,17 +10,21 @@ import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.util.Duration;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
  * 助手消息气泡句柄：流式期间以单个纯文本 {@link Label} 承载增量（避免半截代码栅栏在每帧重渲时闪烁），
  * 流结束（或历史重放）时调用 {@link #renderMarkdown(String)} 用 {@link MarkdownRenderer} 整体重渲一次。
- * <p>消息正文下方挂一行 {@link MessageActions} 悬停操作条（复制 / 重新生成，位于左下角），右键菜单提供删除。原文与
- * 主键由本类持有、经 {@code Supplier} 现取，故实时气泡收尾后仍能被正确复制与删除。</p>
+ * <p>消息正文下方挂一行底部行（左对齐）：悬停时整体浮现——左侧 {@link MessageActions} 操作条
+ * （复制 / 重新生成，含消息时间）与右侧「由 AI 生成」标注同处一条水平线居中；右键菜单提供删除。
+ * 原文与主键由本类持有、经 {@code Supplier} 现取，故实时气泡收尾后仍能被正确复制与删除。</p>
  */
 public final class AssistantBubble {
 
@@ -55,8 +59,17 @@ public final class AssistantBubble {
         body.setMaxWidth(maxWidth);
         body.getChildren().add(contentBox);
         actions = new MessageActions(() -> rawSource, () -> conversationId, listener);
-        // 操作条作为正文之后的下挂行（左对齐）：默认隐去但仍占位，悬停时浮现于消息左下角，位置确定不受内容高矮影响
-        body.getChildren().add(actions.node());
+        // 底部行：操作条与「由 AI 生成」标注默认隐去但仍占位，悬停气泡时整行浮现；
+        // 整行常驻占位，位置确定不受内容高矮影响
+        Label aiLabel = new Label(I18n.t("chat.msg.aiGenerated"));
+        aiLabel.getStyleClass().add("msg-ai-label");
+        Region spacer = new Region();
+        HBox.setHgrow(spacer, Priority.ALWAYS);
+        HBox footer = new HBox(actions.node(), spacer, aiLabel);
+        footer.setAlignment(Pos.CENTER_LEFT);
+        // 底部行整体与正文留一段上间距，避免贴住正文最后一行
+        VBox.setMargin(footer, new Insets(6, 0, 0, 0));
+        body.getChildren().add(footer);
         host = new StackPane(body);
         host.getStyleClass().add("bubble-host");
         row = new HBox(host);
@@ -181,6 +194,11 @@ public final class AssistantBubble {
     /** 关联落盘主键（历史重放或实时收尾后回填；0 表示尚未持久化，删除/编辑不可用）。 */
     public void setConversationId(long conversationId) {
         this.conversationId = conversationId;
+    }
+
+    /** 回填消息时间（悬停操作条内显示）；实时流未落盘阶段不调用即保持隐藏。 */
+    public void setTime(LocalDateTime createdAt) {
+        actions.setTime(createdAt);
     }
 
     MessageActions actions() {

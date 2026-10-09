@@ -4,11 +4,15 @@ import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.dao.AgentDefinitionDao;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
+import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -140,5 +144,57 @@ class KnowledgeServiceTest {
         when(dao.findAll()).thenReturn(List.of(a));
         MultiAgentGateway gateway = mock(MultiAgentGateway.class);
         assertEquals(1, new KnowledgeService(db, gateway).listAgents().size());
+    }
+
+    @Test
+    @DisplayName("URL 导入：抓取 HTML 剥标签落盘（主机名折连字符命名），script/style 剥离，摘要与索引就位")
+    void importFromUrlExtractsHtmlText() throws IOException {
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/guide", ex -> {
+            String html = "<html><head><script>var x=1;</script><style>.a{color:red}</style></head>"
+                    + "<body><h1>快速指南</h1><p>第一步：安装依赖</p></body></html>";
+            byte[] body = html.getBytes(StandardCharsets.UTF_8);
+            ex.getResponseHeaders().set("Content-Type", "text/html; charset=utf-8");
+            ex.sendResponseHeaders(200, body.length);
+            try (OutputStream os = ex.getResponseBody()) {
+                os.write(body);
+            }
+        });
+        server.start();
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/guide";
+            String name = service.importFromUrl("A", url, "本地指南");
+
+            assertEquals("127-0-0-1-guide.md", name);
+            String doc = service.readDoc("A", name);
+            assertTrue(doc.contains("<!-- jwork:summary=本地指南 -->"), "摘要标记应写入文件头");
+            assertTrue(doc.contains("快速指南"), "标题文字应保留");
+            assertTrue(doc.contains("第一步：安装依赖"), "段落文字应保留");
+            assertFalse(doc.contains("var x=1"), "script 内容应被剥离");
+            assertFalse(doc.contains("color:red"), "style 内容应被剥离");
+            assertTrue(service.readIndex("A").contains(name), "KNOWLEDGE.md 应列出新文件");
+        } finally {
+            server.stop(0);
+        }
+    }
+
+    @Test
+    @DisplayName("URL 导入：非 http/https 地址与抓取非 2xx 各抛其因")
+    void importFromUrlRejectsBadAddressAndStatus() throws IOException {
+        assertThrows(IllegalArgumentException.class, () -> service.importFromUrl("A", "ftp://host/x", "s"));
+        assertThrows(IllegalArgumentException.class, () -> service.importFromUrl("A", "file:///etc/passwd", "s"));
+
+        HttpServer server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
+        server.createContext("/missing", ex -> {
+            ex.sendResponseHeaders(404, -1);
+            ex.close();
+        });
+        server.start();
+        try {
+            String url = "http://127.0.0.1:" + server.getAddress().getPort() + "/missing";
+            assertThrows(IllegalStateException.class, () -> service.importFromUrl("A", url, "s"));
+        } finally {
+            server.stop(0);
+        }
     }
 }

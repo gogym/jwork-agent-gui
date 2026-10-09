@@ -2,6 +2,7 @@ package com.gettyio.gim.agent.ui.view;
 
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
+import com.gettyio.gim.agent.ui.market.MarketService;
 import javafx.geometry.Insets;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
@@ -28,6 +29,10 @@ public class ExtensionsView {
 
     @Autowired
     private McpAdminService mcpAdminService;
+
+    /** 在线市场服务：MCP Tab 内的「市场」入口复用 */
+    @Autowired
+    private MarketService marketService;
 
     private final StackPane root = new StackPane();
     private final TabPane tabPane = new TabPane();
@@ -56,7 +61,7 @@ public class ExtensionsView {
             return;
         }
         // MCP 视图需在字段注入完成后创建，首次访问时构建
-        mcpView = new McpView(mcpAdminService);
+        mcpView = new McpView(mcpAdminService, marketService);
         // 拓展页内隐藏一级标题（与 Tab 名重复）；设置页的 MCP 仍保留标题
         skillsView.showHeaderTitle(false);
         memoryView.showHeaderTitle(false);

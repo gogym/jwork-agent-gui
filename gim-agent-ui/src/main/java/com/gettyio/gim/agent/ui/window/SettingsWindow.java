@@ -60,6 +60,10 @@ public class SettingsWindow {
     @Autowired
     private McpAdminService mcpAdminService;
 
+    /** 在线市场服务：MCP 页内「市场」入口复用 */
+    @Autowired
+    private com.gettyio.gim.agent.ui.market.MarketService marketService;
+
     @Autowired
     private SecurityAdminService securityAdminService;
 
@@ -78,6 +82,9 @@ public class SettingsWindow {
 
     @Autowired
     private com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
+
+    @Autowired
+    private com.gettyio.gim.agent.ui.voice.TtsService ttsService;
 
     /** 多智能体网关：通用页上下文窗口上限变更后需失效全部运行体即时重装配。 */
     @Autowired
@@ -98,6 +105,10 @@ public class SettingsWindow {
     @Autowired
     private com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService globalHotkeyService;
 
+    /** Docker 握手探针（与执行路径同源的单例）：安全页沙箱卡复用其 TTL 缓存做初始状态检测。 */
+    @Autowired
+    private com.gettyio.gim.agent.tools.sandbox.DockerAvailabilityProbe dockerAvailabilityProbe;
+
     /** MCP 服务页复用组件（自包含）；与拓展页各自实例化，互不干扰场景图父子关系。 */
     private McpView mcpView;
 
@@ -110,7 +121,7 @@ public class SettingsWindow {
 
     private SecuritySettingsPanel securityPanel() {
         if (securityPanel == null) {
-            securityPanel = new SecuritySettingsPanel(this, securityAdminService, gimPaths);
+            securityPanel = new SecuritySettingsPanel(this, securityAdminService, gimPaths, dockerAvailabilityProbe);
         }
         return securityPanel;
     }
@@ -151,7 +162,8 @@ public class SettingsWindow {
     private GeneralSettingsPanel generalPanel() {
         if (generalPanel == null) {
             generalPanel = new GeneralSettingsPanel(this, gimPaths, appLifecycle, globalHotkeyService,
-                    dbBackupService, exportService, database, webDavSyncService, voiceInputService, agentGateway);
+                    dbBackupService, exportService, database, webDavSyncService, voiceInputService,
+                    ttsService, securityAdminService, agentGateway);
         }
         return generalPanel;
     }
@@ -459,7 +471,7 @@ public class SettingsWindow {
     }
 
     private VBox buildMcpPage() {
-        mcpView = new McpView(mcpAdminService);
+        mcpView = new McpView(mcpAdminService, marketService);
         return mcpView.getNode();
     }
 
