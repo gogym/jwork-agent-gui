@@ -1,0 +1,30 @@
+﻿JAR: D:\Program Files\maven-mvnd-1.0.6-windows-amd64\m2\me\friwi\jcef-api\jcef-2caef5a+cef-141.0.10+g1d65b0d+chromium-141.0.7390.123\jcef-api-jcef-2caef5a+cef-141.0.10+g1d65b0d+chromium-141.0.7390.123-sources.jar
+ENTRY: org/cef/CefApp.java -> D:\GitHub\gim-agent-gui\scripts\_ft\out\CefApp.java
+  L82: * No CefApp instance was created yet. Call getInstance() to create a new
+  L139: * getInstance() instead of this CTOR.
+  L141: * The CTOR is called by getInstance() as needed and
+  L146: private CefApp(String[] args, CefSettings settings) throws UnsatisfiedLinkError {
+  L154: // Other platforms load this library in CefApp.startup().
+  L204: public static synchronized CefApp getInstance() throws UnsatisfiedLinkError {
+  L205: return getInstance(null, null);
+  L208: public static synchronized CefApp getInstance(String[] args) throws UnsatisfiedLinkError {
+  L209: return getInstance(args, null);
+  L212: public static synchronized CefApp getInstance(CefSettings settings)
+  L214: return getInstance(null, settings);
+  L217: public static synchronized CefApp getInstance(String[] args, CefSettings settings)
+  L539: * specific startup initialization. On Linux this initializes Xlib multithreading and on
+  L542: * @return True on successful startup.
+  L544: public static final boolean startup(String[] args) {
+  L547: return N_Startup(OS.isMacintosh() ? getCefFrameworkPath(args) : null);
+  L578: private static final String getCefFrameworkPath(String[] args) {
+  L592: private final static native boolean N_Startup(String pathToCefFramework);
+-----
+JAR: D:\Program Files\maven-mvnd-1.0.6-windows-amd64\m2\me\friwi\jcefmaven\141.0.10\jcefmaven-141.0.10-sources.jar
+ENTRY: me/friwi/jcefmaven/CefAppBuilder.java -> D:\GitHub\gim-agent-gui\scripts\_ft\out\CefAppBuilder.java
+  L38: * builder.addJCefArgs("--disable-gpu"); //Just an example
+  L54: private static final List<String> DEFAULT_JCEF_ARGS = new LinkedList<>();
+  L57: private final List<String> jcefArgs;
+  L64: private final List<String> mirrors;
+  L111: public List<String> getJcefArgs() {
+  L125: public void addJcefArgs(String... args) {
+-----

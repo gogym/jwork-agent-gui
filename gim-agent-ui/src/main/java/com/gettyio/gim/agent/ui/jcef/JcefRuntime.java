@@ -48,9 +48,17 @@ public final class JcefRuntime {
         try {
             CefAppBuilder b = new CefAppBuilder();
             b.setInstallDir(installDir());
+            // 禁后台网络（组件更新、域名预取等）：桌面嵌入场景不需要，不影响页面自身网络请求。
+            // 注：实测该开关不覆盖 GCM 遗留注册（Chromium 141 仍会向已废弃端点注册并记 ERROR）。
+            b.addJcefArgs("--disable-background-networking");
             CefSettings s = b.getCefSettings();
             s.windowless_rendering_enabled = true;
-            s.log_severity = CefSettings.LogSeverity.LOGSEVERITY_WARNING;
+            // CEF 原生 stderr 日志只保留 FATAL（DISABLE 语义：stderr 仅 ≥FATAL 仍输出、不写日志文件）：
+            // Chromium 141 的 GCM 服务每次启动都会向已废弃的注册端点发起请求并打 ERROR 日志
+            // （google_apis\gcm\engine\registration_request.cc:291 DEPRECATED_ENDPOINT），
+            // 这是 Chromium 内部遗留噪音、与应用无关、无法从源头关闭。
+            // 需要排查 CEF 内部日志时，临时改回 LOGSEVERITY_WARNING 即可。
+            s.log_severity = CefSettings.LogSeverity.LOGSEVERITY_DISABLE;
             // 可选覆盖 CEF 用户数据目录（含单实例锁）：并行跑第二个 CEF 进程的测试/工具场景用
             // -Djwork.cef.root=... 指向独立目录，避免与主应用争抢同一目录锁。
             String rootOverride = System.getProperty("jwork.cef.root");

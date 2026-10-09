@@ -584,6 +584,9 @@ public final class JcefOsrView {
             Component ui = browser.getUIComponent();
             ui.setSize(new Dimension(1, 1));
             Frame f = new Frame("jcef-osr-realizer");
+            // UTILITY 工具窗口：不占任务栏/Alt-Tab（NORMAL 类型即使位于屏幕外也会出现条目）；
+            // 它仅为让 GLCanvas 进入 showing 态而存在，不影响 GL 上下文与出帧。
+            f.setType(java.awt.Window.Type.UTILITY);
             f.setUndecorated(true);
             f.setLayout(new BorderLayout());
             f.add(ui, BorderLayout.CENTER);
