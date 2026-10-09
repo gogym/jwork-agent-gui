@@ -2,6 +2,7 @@ package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Button;
@@ -10,8 +11,6 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
-import javafx.scene.web.WebEngine;
-import javafx.scene.web.WebView;
 import javafx.stage.Stage;
 import javafx.stage.Window;
 import org.slf4j.Logger;
@@ -24,7 +23,7 @@ import java.nio.file.Path;
 import java.util.Locale;
 
 /**
- * Artifacts 预览窗口：把聊天中 HTML / SVG 代码块用 WebView 在独立窗口渲染（单例复用）。
+ * Artifacts 预览窗口：把聊天中 HTML / SVG 代码块用 JCEF(Chromium OSR) 在独立窗口渲染（单例复用）。
  * <p>非模态、可调整大小：重复预览时替换文档并前置，不打断聊天操作。工具栏提供「在浏览器打开」
  * （内容写临时文件交系统默认浏览器，便于用开发者工具调试）。由 {@link MarkdownRenderer}
  * 代码块卡片的预览按钮触发；HTML 系原样载入，SVG 包一层白底居中骨架。本类不含业务状态。</p>
@@ -34,7 +33,7 @@ public final class ArtifactPreviewWindow {
     private static final Logger log = LoggerFactory.getLogger(ArtifactPreviewWindow.class);
 
     private static Stage stage;
-    private static WebEngine engine;
+    private static JcefOsrView view;
     private static Label titleLabel;
     /** 当前预览文档（「在浏览器打开」用）；随每次 show 替换。 */
     private static String currentHtml = "";
@@ -106,7 +105,7 @@ public final class ArtifactPreviewWindow {
         titleLabel.setText(lang.isEmpty()
                 ? I18n.t("chat.artifact.window")
                 : I18n.t("chat.artifact.window") + " · " + lang);
-        engine.loadContent(currentHtml, "text/html");
+        view.loadData(currentHtml);
         if (stage.isShowing()) {
             stage.toFront();
         } else {
@@ -119,8 +118,7 @@ public final class ArtifactPreviewWindow {
         if (stage != null) {
             return;
         }
-        WebView webView = new WebView();
-        engine = webView.getEngine();
+        view = new JcefOsrView("gimQuery", "gimCancel", null);
 
         titleLabel = new Label(I18n.t("chat.artifact.window"));
         titleLabel.getStyleClass().add("artifact-title");
@@ -138,7 +136,7 @@ public final class ArtifactPreviewWindow {
         toolbar.setAlignment(Pos.CENTER_LEFT);
         toolbar.getStyleClass().add("artifact-toolbar");
 
-        BorderPane root = new BorderPane(webView);
+        BorderPane root = new BorderPane(view.node());
         root.setTop(toolbar);
         root.getStyleClass().add("artifact-root");
 

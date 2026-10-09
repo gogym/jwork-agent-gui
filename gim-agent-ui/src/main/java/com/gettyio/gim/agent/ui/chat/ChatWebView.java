@@ -1,12 +1,12 @@
 package com.gettyio.gim.agent.ui.chat;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
-import javafx.concurrent.Worker;
+import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
+import com.gettyio.gim.agent.ui.jcef.JcefResources;
 import javafx.scene.layout.StackPane;
-import javafx.scene.web.WebEngine;
-import javafx.scene.web.WebView;
-import netscape.javascript.JSObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,24 +17,24 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 聊天区整页 WebView 宿主：内联一段 HTML 骨架（引用 classpath 里的 chat.css / marked.min.js / purify.min.js / chat.js），
- * 装载完成后把 {@link ChatBridge} 挂到 {@code window.javaBridge}，并以 {@code engine.executeScript("ChatAPI.xxx(...)")}
- * 驱动前端 {@code chat.js} 渲染历史、流式增量、对比卡与主题切换。
- * <p>对外暴露与旧 JavaFX 气泡列表渲染器等价的 Java API（renderHistory/prependOlder/stream*…），控制器只与本类交互。</p>
- * <p>页面脚本装载是异步的：装载完成前的调用先入 {@link #pending} 队列，就绪后按序重放，杜绝时序竞争。</p>
+ * 聊天区整页 JCEF(Chromium OSR) 宿主：把 classpath 里的 {@code chat.css / marked.min.js / purify.min.js / chat.js}
+ * 提取到临时目录并以 {@code file://} 装载内联 HTML 骨架；页面就绪后由 {@code bridge-shim.js} 定义的
+ * {@code window.javaBridge} 经 {@code CefMessageRouter} 把 JS→Java 事件回抛给 {@link ChatBridge}，
+ * Java→JS 则经 {@code browser.executeScript("ChatAPI.xxx(...)")} 驱动前端 {@code chat.js} 渲染。
+ * <p>对外暴露与旧 WebView 宿主完全等价的 Java API（renderHistory/prependOlder/stream*…），控制器只与本类交互。</p>
+ * <p>Chromium 冷启动较慢：装载完成前的调用先入 {@link #pending} 队列，就绪后按序重放，杜绝时序竞争。</p>
  */
 public final class ChatWebView {
 
     private static final Logger log = LoggerFactory.getLogger(ChatWebView.class);
 
-    private static final String MARKED_JS = "/js/marked.min.js";
-    private static final String PURIFY_JS = "/js/purify.min.js";
-    private static final String CHAT_JS = "/web/chat.js";
-    private static final String CHAT_CSS = "/web/chat.css";
+    /** {@code CefMessageRouter} 注入 JS 的请求/取消函数名（须与 {@link JcefResources} 垫片一致）。 */
+    private static final String QUERY_FN = "gimQuery";
+    private static final String CANCEL_FN = "gimCancel";
 
-    private final WebView webView = new WebView();
-    private final WebEngine engine = webView.getEngine();
     private final ChatBridge bridge;
+    private final JcefOsrView view;
+    private final ObjectMapper mapper = new ObjectMapper();
 
     private volatile boolean ready;
     /** 就绪前的待执行脚本队列（FX 线程读写）。 */
@@ -46,24 +46,21 @@ public final class ChatWebView {
      */
     public ChatWebView(MessageActionListener actions, ChatViewEventsHolder events) {
         this.bridge = new ChatBridge(actions, events);
-        // 关闭 WebView 默认右键菜单（改由桥 onContext 提供原生菜单）
-        webView.setContextMenuEnabled(false);
-        engine.getLoadWorker().stateProperty().addListener((obs, o, state) -> {
-            if (state == Worker.State.SUCCEEDED) {
-                installBridge();
-            } else if (state == Worker.State.FAILED) {
-                log.warn("聊天 WebView 装载失败: {}", engine.getLoadWorker().getException());
-            }
-        });
-        engine.loadContent(buildShell(), "text/html");
-        // 主题/字号/语言联动：注册监听即时同步到 WebView
+        this.view = new JcefOsrView(QUERY_FN, CANCEL_FN, this::dispatch);
+        this.view.setOnLoadEnd(this::onPageReady);
+        try {
+            this.view.loadUrl(JcefResources.chatShell(QUERY_FN));
+        } catch (Throwable t) {
+            log.error("聊天 JCEF 页面装载失败", t);
+        }
+        // 主题/字号/语言联动：注册监听即时同步到前端
         UiTheme.addThemeListener(this::refreshTheme);
         I18n.onChange(lang -> refreshTheme());
     }
 
     /** 宿主节点：控制器把它放进 chatHost 并撑满。 */
     public StackPane node() {
-        StackPane host = new StackPane(webView);
+        StackPane host = view.node();
         host.getStyleClass().add("chat-web-host");
         return host;
     }
@@ -75,47 +72,57 @@ public final class ChatWebView {
 
     // ---------- 装载与桥接 ----------
 
-    private void installBridge() {
-        try {
-            JSObject window = (JSObject) engine.executeScript("window");
-            window.setMember("javaBridge", bridge);
-            ready = true;
-            // 补发就绪前的调用
-            String script;
-            while ((script = pending.pollFirst()) != null) {
-                engine.executeScript(script);
-            }
-        } catch (Throwable t) {
-            log.warn("聊天桥接安装失败", t);
+    /** 页面主框架装载完成：置就绪并按序重放挂起脚本（对齐旧 {@code installBridge} 语义）。 */
+    private void onPageReady() {
+        ready = true;
+        String script;
+        while ((script = pending.pollFirst()) != null) {
+            view.executeScript(script);
         }
     }
 
-    /** 组装内联 HTML 骨架：样式与脚本一律取 classpath 资源的外部 URL（jar: 子资源可加载，MermaidView 已佐证）。 */
-    private String buildShell() {
-        String css = resUrl(CHAT_CSS);
-        String marked = resUrl(MARKED_JS);
-        String purify = resUrl(PURIFY_JS);
-        String chat = resUrl(CHAT_JS);
-        return """
-                <!DOCTYPE html>
-                <html lang="zh" data-theme="light" data-font="medium">
-                <head>
-                <meta charset="utf-8">
-                <link rel="stylesheet" href="%s">
-                </head>
-                <body>
-                <div id="list"></div>
-                <script src="%s"></script>
-                <script src="%s"></script>
-                <script src="%s"></script>
-                </body>
-                </html>
-                """.formatted(css, marked, purify, chat);
+    /**
+     * JS→Java 派发：解析垫片送来的 {@code {fn,args}} JSON，转调 {@link ChatBridge} 对应方法。
+     * <p>已在 FX 线程回调（{@link JcefOsrView} 的 {@code onQuery} 经 {@code Platform.runLater} 派发），
+     * 方法体可直接操作 JavaFX。任一分支异常均被吞掉，绝不由单个脏事件中断渲染。</p>
+     */
+    private void dispatch(String json) {
+        try {
+            JsonNode root = mapper.readTree(json);
+            String fn = root.path("fn").asText("");
+            JsonNode a = root.path("args");
+            switch (fn) {
+                case "onReady" -> bridge.onReady();
+                case "onAction" -> bridge.onAction(str(a, 0), lng(a, 1), str(a, 2));
+                case "onContext" -> bridge.onContext(lng(a, 0), dbl(a, 1), dbl(a, 2));
+                case "onScrollTop" -> bridge.onScrollTop();
+                case "onScrollState" -> bridge.onScrollState(bool(a, 0), bool(a, 1));
+                case "onLink" -> bridge.onLink(str(a, 0));
+                case "onImage" -> bridge.onImage(str(a, 0));
+                case "onCopyCode" -> bridge.onCopyCode(str(a, 0));
+                case "onPreviewCode" -> bridge.onPreviewCode(str(a, 0), str(a, 1));
+                case "onEmpty" -> bridge.onEmpty(bool(a, 0));
+                default -> log.debug("忽略未知聊天桥方法: {}", fn);
+            }
+        } catch (Throwable t) {
+            log.warn("聊天桥事件处理失败: {}", abbrev(json), t);
+        }
     }
 
-    private static String resUrl(String path) {
-        var r = ChatWebView.class.getResource(path);
-        return r == null ? path : r.toExternalForm();
+    private static String str(JsonNode args, int i) {
+        return args.isArray() && i < args.size() ? args.get(i).asText("") : "";
+    }
+
+    private static long lng(JsonNode args, int i) {
+        return args.isArray() && i < args.size() ? args.get(i).asLong(0) : 0L;
+    }
+
+    private static double dbl(JsonNode args, int i) {
+        return args.isArray() && i < args.size() ? args.get(i).asDouble(0) : 0d;
+    }
+
+    private static boolean bool(JsonNode args, int i) {
+        return args.isArray() && i < args.size() && args.get(i).asBoolean(false);
     }
 
     // ---------- 主题 ----------
@@ -238,7 +245,7 @@ public final class ChatWebView {
     private void run(String script) {
         if (ready) {
             try {
-                engine.executeScript(script);
+                view.executeScript(script);
             } catch (Throwable t) {
                 log.warn("聊天脚本执行失败: {}", abbrev(script), t);
             }

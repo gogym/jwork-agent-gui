@@ -28,12 +28,12 @@
         return s == null ? '' : String(s);
     }
 
-    // 显示前清洗不可见/格式字符（不删 emoji 本体，图标照常渲染）：零宽类 U+200B-200F、双向控制 U+202A-202E、
-    // 隐式运算符 U+2060-2064、键帽 U+20E3、变体选择符 U+FE00-FE0F、BOM U+FEFF、Tag 字符 U+E0020-E007F、
-    // 变体选择符补充区 U+E0100-E01EF——WebView 不吞这些组合符，会单独渲染成 emoji 右侧的豆腐块。
+    // 显示前清洗：JCEF(Chromium) 原生正确渲染 emoji 连字（ZWJ/变体选择符 FE0F/键帽/旗帜 Tag 字符），
+    // 无需再像旧 WebView 那样剥离这些组合符（剥离反而破坏彩色 emoji）。故此处保留原文，仅去除零宽空格
+    // U+200B 与 BOM U+FEFF 这两个绝不属于任何 emoji 序列、且可能干扰排版的不可见字符。
     // 仅影响显示，不改写存储原文（复制/重发仍取原 content）。
     function norm(s) {
-        return s == null ? '' : String(s).replace(/[\u200B-\u200F\u202A-\u202E\u2060-\u2064\u20E3\uFE00-\uFE0F\uFEFF\u{E0020}-\u{E007F}\u{E0100}-\u{E01EF}]/gu, '');
+        return s == null ? '' : String(s).replace(/[\u200B\uFEFF]/g, '');
     }
 
     function el(tag, cls, text) {

@@ -51,6 +51,11 @@
             <groupId>org.openjfx</groupId>
             <artifactId>javafx-web</artifactId>
         </dependency>
+        <!-- JCEF（Chromium OSR）：聊天区彩色 emoji 渲染引擎 -->
+        <dependency>
+            <groupId>me.friwi</groupId>
+            <artifactId>jcefmaven</artifactId>
+        </dependency>
         <dependency>
             <groupId>io.github.mkpaz</groupId>
             <artifactId>atlantafx-base</artifactId>

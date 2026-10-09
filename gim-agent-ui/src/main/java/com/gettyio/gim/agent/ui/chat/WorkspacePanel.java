@@ -24,7 +24,7 @@ import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
-import javafx.scene.web.WebView;
+import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
@@ -47,7 +47,7 @@ import java.nio.file.DirectoryStream;
  * <p>外层横向 {@link SplitPane}（左聊天、右本面板），与聊天并存、可拖拽调宽；收起仅摘除节点（{@link #hide()}），
  * 树与已读内容状态保留。面板内部再分「阅读区」与「文件树」两块，默认单面板（一次只显示其一），
  * 头部按钮可扩为三列（阅读区 + 文件树并排）。</p>
- * <p>阅读区按扩展名分派：Markdown 复用 {@link MarkdownRenderer}、HTML/SVG 走 {@link WebView}、
+ * <p>阅读区按扩展名分派：Markdown 复用 {@link MarkdownRenderer}、HTML/SVG 走 {@link JcefOsrView}、
  * 图片走 {@link ImageView}、文档（pdf/docx/xlsx）经 {@link FileTextExtractor} 抽文本、其余按纯文本。
  * 读盘在后台线程进行，回 FX 线程填充。</p>
  * <p>安全：文件树以工作区根为界，选中路径经 {@link #isWithin} 归一化校验，杜绝 {@code ../} 与符号链接越界；
@@ -81,8 +81,8 @@ public final class WorkspacePanel {
     private final Button backBtn = new Button();
     private final Button columnsBtn = new Button();
     private final Button closeBtn = new Button();
-    /** HTML/SVG 阅读复用单个 WebView，首次渲染时创建。 */
-    private WebView webView;
+    /** HTML/SVG 阅读复用单个 JCEF OSR 视图，首次渲染时创建。 */
+    private JcefOsrView htmlView;
     /** 三列模式：阅读区与文件树并排；否则单面板只显示其一。 */
     private boolean threeColumn;
     /** 单面板模式下当前显示的是阅读区（true）还是文件树（false）。 */
@@ -313,11 +313,11 @@ public final class WorkspacePanel {
     }
 
     private void renderHtml(String code, String language) {
-        if (webView == null) {
-            webView = new WebView();
+        if (htmlView == null) {
+            htmlView = new JcefOsrView("gimQuery", "gimCancel", null);
         }
-        viewerPane.getChildren().setAll(webView);
-        webView.getEngine().loadContent(ArtifactPreviewWindow.buildHtml(code, language), "text/html");
+        viewerPane.getChildren().setAll(htmlView.node());
+        htmlView.loadData(ArtifactPreviewWindow.buildHtml(code, language));
     }
 
     private void renderImage(byte[] bytes) {
