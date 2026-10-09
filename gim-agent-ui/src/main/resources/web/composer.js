@@ -263,6 +263,11 @@
             document.execCommand('insertText', false, t == null ? '' : String(t));
             reportState();
         },
+        insertLineBreak: function () {
+            editor.focus();
+            document.execCommand('insertLineBreak');
+            reportState();
+        },
         focus: function () {
             editor.focus();
             var s = window.getSelection();
@@ -319,6 +324,16 @@
         }
     });
 
+    // Enter 兜底提交：正常路径下 Enter 由 Java 侧 KEY_PRESSED 拦截消费（不会到达本页）；
+    // 若因平台焦点差异 Enter 直达 Chromium（屏幕外宿主窗口被系统激活等），此处转交
+    // Java 走同一发送链路（Java 再经 askSend 取全文）。输入法组合态与 Shift+Enter 放行。
+    editor.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter' && !e.shiftKey && !e.isComposing && e.keyCode !== 229) {
+            e.preventDefault();
+            send('enterSend', []);
+        }
+    });
+
     // 段落插入统一转行内换行：DOM 只产出 <br>，文本提取保持简单
     editor.addEventListener('beforeinput', function (e) {
         if (e.inputType === 'insertParagraph') {
@@ -340,7 +355,7 @@
         }
     });
 
-    editor.focus();
+    // 加载后不主动聚焦编辑区（启动不抢焦点，点击输入框才聚焦）；插入类 API 各自自保 focus
     syncEmpty();
     console.log('GIM_COMPOSER_BOOT bridge=' + typeof window[Q] + ' url=' + location.href);
 })();

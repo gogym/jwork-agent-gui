@@ -247,9 +247,13 @@ public final class JcefComposer {
             return; // 组合中：按键归输入法（确认/翻页/取消），不转发、不提交
         }
         KeyCode code = e.getCode();
-        if (code == KeyCode.ENTER && !e.isShiftDown()) {
+        if (code == KeyCode.ENTER) {
             e.consume();
-            if (onSubmit != null) {
+            if (e.isShiftDown()) {
+                // 软换行本地注入：与字符输入同一 JS 链路（不依赖合成 AWT 键盘转发——
+                // 键盘经 JavaFX 路由时该链路不产生 Chromium 换行）
+                execJs("ComposerAPI.insertLineBreak();");
+            } else if (onSubmit != null) {
                 onSubmit.run();
             }
             return;
@@ -386,6 +390,14 @@ public final class JcefComposer {
                     pendingSend = null;
                     if (cb != null) {
                         cb.accept(text);
+                    }
+                }
+                case "enterSend" -> {
+                    // JS 键盘兜底（composer.js keydown）：Enter 未走 JavaFX 键盘链
+                    // （键盘焦点被屏幕外 OSR 宿主窗口取得等平台差异）时由页面转交提交
+                    log.info("Enter 由 JS 兜底路径转交提交（键盘未经过 JavaFX）");
+                    if (onSubmit != null) {
+                        onSubmit.run();
                     }
                 }
                 default -> log.debug("忽略未知输入框桥方法: {}", fn);

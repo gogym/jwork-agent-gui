@@ -56,6 +56,7 @@ import javafx.scene.control.RadioMenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SeparatorMenuItem;
 import javafx.scene.control.SplitPane;
+import javafx.scene.control.TextInputControl;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
@@ -73,8 +74,10 @@ import javafx.scene.image.ImageView;
 import javafx.scene.shape.Rectangle;
 import javafx.scene.input.Clipboard;
 import javafx.scene.input.ClipboardContent;
+import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
+import javafx.scene.input.KeyEvent;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Side;
@@ -475,10 +478,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         } else {
             switchToSession(scoped.get(0).getSessionId());
         }
-        // 启动焦点交接：不任由 JavaFX 把焦点给场景里首个可 Tab 到的控件（那是侧栏「新任务」导航项，
-        // 一开机就顶着一个焦点态）。焦点跟着内容走：有会话即落在该会话，空态即落在新任务输入区，
-        // 两种情形都是把光标交给输入框，导航按钮不参与。
-        Platform.runLater(this::focusComposer);
+        // 启动不自动置焦：聚焦完全交给用户首次点击（输入框与导航控件都不参与初始焦点交接）
+        // Enter 提交兜底（场景级）：焦点不在输入区时按 Enter 亦提交，但不改变焦点归属
+        inputFieldHost.sceneProperty().addListener((obs, o, sc) -> {
+            if (sc != null) {
+                installEnterFallback(sc);
+            }
+        });
         // 「会话」标题行点击：整块区域展开/收起
         sessionsHeader.setOnMouseClicked(e -> sidebar.toggleSessionsSection());
         // 「最近会话」标题行点击：平级独立区展开/收起
@@ -1012,6 +1018,35 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         inputField.requestFocus();
         inputField.positionCaret(inputField.getLength());
+    }
+
+    /**
+     * Enter 提交兜底（场景级）：修补「点击发送按钮/侧栏等可聚焦控件后焦点漂移、
+     * Enter 静默失效」——焦点不在输入区域时按 Enter（无 Shift）等同点击发送。
+     * <p>不改变焦点归属（交互约定：点击哪里焦点去哪里，点击输入框才聚焦该框），
+     * 只保证 Enter 在任何焦点下都能送达发送链路。</p>
+     * <p>终端与 JavaFX 文本输入控件自带键盘语义（执行命令/回车确认），
+     * 输入框本体由 {@code JcefComposer} 的键盘链处理，三者一律放行。</p>
+     */
+    private void installEnterFallback(Scene scene) {
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() != KeyCode.ENTER || e.isShiftDown() || isInInputArea(scene.getFocusOwner())) {
+                return;
+            }
+            e.consume();
+            handleSend();
+        });
+    }
+
+    /** 节点（焦点所有者）是否位于输入区：JCEF 输入框、JavaFX 文本输入控件、底部终端。 */
+    private boolean isInInputArea(Node node) {
+        Node terminalRoot = terminalView == null ? null : terminalView.getNode();
+        for (Node n = node; n != null; n = n.getParent()) {
+            if (n == inputFieldHost || n == terminalRoot || n instanceof TextInputControl) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

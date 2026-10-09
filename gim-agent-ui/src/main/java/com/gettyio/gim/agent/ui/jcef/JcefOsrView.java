@@ -612,6 +612,11 @@ public final class JcefOsrView {
             // 它仅为让 GLCanvas 进入 showing 态而存在，不影响 GL 上下文与出帧。
             f.setType(java.awt.Window.Type.UTILITY);
             f.setUndecorated(true);
+            // 纯承载窗口不参与焦点竞争（关键）：AWT 窗口首次 setVisible 会抢前台键盘焦点，
+            // 一旦键盘流向屏幕外的 Chromium，JavaFX 侧收不到按键——Enter 提交、IME、字符注入
+            // 整体失效（表现为打字正常但 Enter 不发送）；禁自动抢焦 + 禁可聚焦状态双保险。
+            f.setAutoRequestFocus(false);
+            f.setFocusableWindowState(false);
             f.setLayout(new BorderLayout());
             f.add(ui, BorderLayout.CENTER);
             f.setSize(1, 1);
