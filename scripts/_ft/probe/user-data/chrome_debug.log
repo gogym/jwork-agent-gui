@@ -1,3 +1,0 @@
-[18684:26600:1009/205658.333:WARNING:chrome\browser\signin\account_consistency_mode_manager.cc:74] Desktop Identity Consistency cannot be enabled as no OAuth client ID and client secret have been configured.
-[18684:26600:1009/205658.351:WARNING:chrome\browser\extensions\external_provider_manager.cc:257] Found external version of extension ncennffkjdiamlpmcbajkmaiiiddgioo that is older than current version. Current version is: 4.1.3. New version is: 3.52.14. Keeping current version.
-[18684:16272:1009/205702.405:ERROR:google_apis\gcm\engine\registration_request.cc:291] Registration response error message: DEPRECATED_ENDPOINT
