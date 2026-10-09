@@ -85,10 +85,13 @@ public final class MarkdownRenderer {
     private static List<javafx.scene.Node> renderBlock(Node node) {
         List<javafx.scene.Node> out = new ArrayList<>();
         if (node instanceof Heading h) {
-            Label label = new Label(plainInline(h));
-            label.setWrapText(true);
-            label.getStyleClass().add("md-h" + Math.min(Math.max(h.getLevel(), 1), 4));
-            out.add(label);
+            // 标题用 TextFlow 而非 Label：Label 单字体无法把 emoji 段切给 emoji 字体（见 mdTexts）
+            javafx.scene.text.TextFlow flow = new javafx.scene.text.TextFlow();
+            for (javafx.scene.text.Text text : mdTexts(plainInline(h))) {
+                flow.getChildren().add(text);
+            }
+            flow.getStyleClass().add("md-h" + Math.min(Math.max(h.getLevel(), 1), 4));
+            out.add(flow);
         } else if (node instanceof Paragraph p) {
             out.addAll(paragraph(p));
         } else if (node instanceof FencedCodeBlock f) {
@@ -299,6 +302,11 @@ public final class MarkdownRenderer {
         scroller.setFitToWidth(true);
         scroller.setHbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.AS_NEEDED);
         scroller.setVbarPolicy(javafx.scene.control.ScrollPane.ScrollBarPolicy.NEVER);
+        // 纵向不滚动（VbarPolicy.NEVER），但 ScrollPane 的 prefHeight 只按内容「不折行」的单行高度计算；
+        // fitToWidth 下 TextFlow 会按视口宽折行，折出的额外行高超出单行 pref 即被裁切遮挡。
+        // 这里让容器高度跟随内容实际（折行后）高度动态撑开，锁 USE_PREF_SIZE 使 StackPane 采信该高度。
+        scroller.setMaxHeight(Region.USE_PREF_SIZE);
+        flow.heightProperty().addListener((obs, oldH, newH) -> scroller.setPrefHeight(newH.doubleValue()));
 
         Label copyIcon = new Label("\uE8C8");
         copyIcon.getStyleClass().add("md-copy-icon");
@@ -400,17 +408,18 @@ public final class MarkdownRenderer {
 
     private static void appendInline(Node node, List<javafx.scene.Node> out, boolean bold, boolean italic, boolean link) {
         if (node instanceof Text t) {
-            javafx.scene.text.Text text = mdText(t.getLiteral());
-            if (bold) {
-                text.getStyleClass().add("md-bold");
+            for (javafx.scene.text.Text text : mdTexts(t.getLiteral())) {
+                if (bold) {
+                    text.getStyleClass().add("md-bold");
+                }
+                if (italic) {
+                    text.getStyleClass().add("md-italic");
+                }
+                if (link) {
+                    text.getStyleClass().add("md-link");
+                }
+                out.add(text);
             }
-            if (italic) {
-                text.getStyleClass().add("md-italic");
-            }
-            if (link) {
-                text.getStyleClass().add("md-link");
-            }
-            out.add(text);
         } else if (node instanceof Code code) {
             // 行内码内嵌 Label 才能带底色/边框（Text 继承自 Shape，没有背景能力）
             Label chip = new Label(code.getLiteral());
@@ -449,6 +458,110 @@ public final class MarkdownRenderer {
         javafx.scene.text.Text text = new javafx.scene.text.Text(content);
         text.getStyleClass().add("md-text");
         return text;
+    }
+
+    /**
+     * 把一段文本按「emoji 簇 / 普通文本」切成若干 Text 节点：emoji 段额外挂 {@code md-emoji}
+     * 走 emoji 字体。根因——聊天区字体 Noto Sans SC 是直接 {@code loadFont} 的物理字体，JavaFX
+     * 对物理字体不做逐字形回退，其未覆盖的 emoji（📋🔁、键帽 1️⃣ 等）会渲染成豆腐块 ⊠。
+     */
+    private static List<javafx.scene.text.Text> mdTexts(String content) {
+        List<javafx.scene.text.Text> out = new ArrayList<>();
+        if (content == null || content.isEmpty()) {
+            out.add(mdText(""));
+            return out;
+        }
+        int n = content.length();
+        StringBuilder buf = new StringBuilder();
+        Boolean cur = null;
+        int i = 0;
+        while (i < n) {
+            int end = emojiClusterEnd(content, i);
+            boolean isEmoji = end > i;
+            int adv = isEmoji ? end - i : Character.charCount(content.codePointAt(i));
+            if (cur == null) {
+                cur = isEmoji;
+            } else if (cur != isEmoji) {
+                out.add(mdTextRun(buf.toString(), cur));
+                buf.setLength(0);
+                cur = isEmoji;
+            }
+            buf.append(content, i, i + adv);
+            i += adv;
+        }
+        if (buf.length() > 0) {
+            out.add(mdTextRun(buf.toString(), cur));
+        }
+        return out;
+    }
+
+    private static javafx.scene.text.Text mdTextRun(String s, boolean emoji) {
+        javafx.scene.text.Text text = mdText(s);
+        if (emoji) {
+            text.getStyleClass().add("md-emoji");
+        }
+        return text;
+    }
+
+    /**
+     * 若从 {@code i} 起是一个需交给 emoji 字体的 emoji 簇，返回簇结束下标（不含）；否则返回 {@code i}。
+     * 基字符由 {@link #isEmojiStart} 判定（增补平面 + BMP 符号块，Noto Sans SC 均不覆盖）；簇尾继续吸收
+     * 变体选择符 (FE0F/FE0E)、键帽 (20E3)、肤色 (1F3FB–1F3FF) 与 ZWJ(200D) 连接序列；数字/#/* 仅当后接
+     * 这些组合符（真键帽如 1️⃣）时才并入，避免误伤「3.」「100」等普通数字。
+     */
+    private static int emojiClusterEnd(String s, int i) {
+        int n = s.length();
+        int cp = s.codePointAt(i);
+        int j = i + Character.charCount(cp);
+        boolean emojiBase = isEmojiStart(cp);
+        boolean keycapBase = (cp >= '0' && cp <= '9') || cp == '#' || cp == '*';
+        if (!emojiBase && !keycapBase) {
+            return i;
+        }
+        boolean joined = false;
+        while (j < n) {
+            int nc = s.codePointAt(j);
+            int len = Character.charCount(nc);
+            if (nc == 0xFE0F || nc == 0xFE0E || nc == 0x20E3 || (nc >= 0x1F3FB && nc <= 0x1F3FF)) {
+                j += len;
+                joined = true;
+            } else if (nc == 0x200D && j + len < n) {
+                j += len;
+                int e = s.codePointAt(j);
+                j += Character.charCount(e);
+                joined = true;
+            } else {
+                break;
+            }
+        }
+        if (keycapBase && !joined) {
+            return i;
+        }
+        return j;
+    }
+
+    /**
+     * emoji 基字符判定：Noto Sans SC 不覆盖以下码点，须切给 emoji 字体否则成豆腐块。
+     * <ul>
+     *   <li>U+1F000–U+1FAFF：增补平面（象形文字/表情/交通/区域指示符/补充象形）；</li>
+     *   <li>U+2600–U+27BF：杂项符号与装饰符号（⚙ ☀ ⚠ ☑ ✅ ✨ ❌ ❗ 等）；</li>
+     *   <li>U+2B00–U+2B5F：⬆ ⬛ ⭐ ⭕ 等；</li>
+     *   <li>U+231A/231B/2328、U+23E9–23F3、U+23F8–23FA：⌚ ⌛ ⌨ ⏩ ⏸ 等；</li>
+     *   <li>©(00A9) ®(00AE) ™(2122) ℹ(2139) ↔↩↪(2194-21AA) ⌚ 及 3030/303D/3297/3299 等零散 emoji。</li>
+     * </ul>
+     * 注：普通箭头、数学符号、几何图形（如停止按钮用的 U+25A0 ■）不在此列，仍走正文字体，避免误伤。
+     */
+    private static boolean isEmojiStart(int cp) {
+        return (cp >= 0x1F000 && cp <= 0x1FAFF)
+                || (cp >= 0x2600 && cp <= 0x27BF)
+                || (cp >= 0x2B00 && cp <= 0x2B5F)
+                || cp == 0x231A || cp == 0x231B || cp == 0x2328
+                || (cp >= 0x23E9 && cp <= 0x23F3)
+                || (cp >= 0x23F8 && cp <= 0x23FA)
+                || cp == 0x00A9 || cp == 0x00AE || cp == 0x2122 || cp == 0x2139
+                || cp == 0x21A9 || cp == 0x21AA
+                || cp == 0x2934 || cp == 0x2935
+                || cp == 0x3030 || cp == 0x303D || cp == 0x3297 || cp == 0x3299;
     }
 
     /** 取节点下所有文本内容（标题、表格单元、图片 alt 等用），内联标记按纯文本拼接。 */

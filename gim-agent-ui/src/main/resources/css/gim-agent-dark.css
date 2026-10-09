@@ -110,6 +110,8 @@
 .md-code-com { -fx-fill: #7f848e; -fx-font-style: italic; }
 
 /* ---------- 启动画面（Preloader）：深色卡片 ---------- */
+/* 深色下投影不可见，透明壳仅保留留白（本身无底色，不会露出直角） */
+.splash-shell { -fx-effect: none; }
 .splash-root {
     -fx-background-color: -gim-bg;
     -fx-background-radius: 12;

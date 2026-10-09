@@ -438,6 +438,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 (title, msg) -> GimDialog.message(ownerWindow(), title, null, msg));
 
         // 侧栏导航切换主区页面（对话 / 定时任务 / 技能）
+        // 「新任务」项在对话页恒处于选中态，常驻底色会被读成“一直聚焦”，此处另挂样式类去掉底色，
+        // 只保留悬停与按下反馈（见 CSS 的 .nav-new-task）
+        navChat.getStyleClass().add("nav-new-task");
         mainPages.getChildren().setAll(chatPage);
         pageGroup.selectedToggleProperty().addListener((obs, o, t) -> {
             if (t == navTasks) {
@@ -466,6 +469,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         } else {
             switchToSession(scoped.get(0).getSessionId());
         }
+        // 启动焦点交接：不任由 JavaFX 把焦点给场景里首个可 Tab 到的控件（那是侧栏「新任务」导航项，
+        // 一开机就顶着一个焦点态）。焦点跟着内容走：有会话即落在该会话，空态即落在新任务输入区，
+        // 两种情形都是把光标交给输入框，导航按钮不参与。
+        Platform.runLater(this::focusComposer);
         // 「会话」标题行点击：整块区域展开/收起
         sessionsHeader.setOnMouseClicked(e -> sidebar.toggleSessionsSection());
         // 「最近会话」标题行点击：平级独立区展开/收起
@@ -937,12 +944,17 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         return providerAdminService.getDefaultModelCode().orElse(null);
     }
 
-    /** 供启动接线/托盘唤回：聚焦主窗输入框并把光标移到文末（主窗显隐由生命周期处理）。 */
+    /**
+     * 供启动接线/托盘唤回：聚焦主窗输入框并把光标移到文末（主窗显隐由生命周期处理）。
+     * <p>仅在对话页时生效：切到定时任务/技能/用量页时输入框已脱离场景树，聚焦会失败并
+     * 把焦点留在原处（可能正是侧栏导航项）。</p>
+     */
     public void focusComposer() {
-        if (inputField != null) {
-            inputField.requestFocus();
-            inputField.positionCaret(inputField.getLength());
+        if (inputField == null || navChat == null || !navChat.isSelected()) {
+            return;
         }
+        inputField.requestFocus();
+        inputField.positionCaret(inputField.getLength());
     }
 
     /**

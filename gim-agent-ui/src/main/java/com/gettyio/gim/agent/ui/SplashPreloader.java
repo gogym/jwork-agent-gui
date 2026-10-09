@@ -5,7 +5,9 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
+import javafx.scene.paint.Color;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 
@@ -34,13 +36,17 @@ public class SplashPreloader extends Preloader {
         status = new Label(I18n.t("splash.starting"));
         status.getStyleClass().add("splash-status");
 
-        VBox root = new VBox(14, title, indicator, status);
-        root.setAlignment(Pos.CENTER);
-        root.setPrefSize(320, 170);
-        root.getStyleClass().add("splash-root");
+        VBox card = new VBox(14, title, indicator, status);
+        card.setAlignment(Pos.CENTER);
+        card.setPrefSize(320, 170);
+        card.getStyleClass().add("splash-root");
+        // 外层透明边距：投影落在 Scene 内，同时不遮挡卡片圆角
+        StackPane shell = new StackPane(card);
+        shell.getStyleClass().add("splash-shell");
 
-        stage.initStyle(StageStyle.UNDECORATED);
-        Scene scene = new Scene(root);
+        // TRANSPARENT + 透明 Scene 填充：否则 Scene 默认白底会在四角露出直角背景，吃掉卡片圆角
+        stage.initStyle(StageStyle.TRANSPARENT);
+        Scene scene = new Scene(shell, Color.TRANSPARENT);
         UiTheme.apply(scene);
         stage.setScene(scene);
         stage.centerOnScreen();

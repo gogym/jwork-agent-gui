@@ -89,6 +89,12 @@ public class HarnessAgentGateway implements AutoCloseable {
     /** 主模型调用失败后的框架级重试次数（配合备用模型 failover） */
     private static final int FRAMEWORK_MAX_RETRIES = 2;
 
+    /**
+     * 框架内置的压缩默认配置（只读参照其默认阈值参数：reserved / keepTokens* ）。
+     * 不可变对象，作静态常量复用，避免每次装配智能体都新建一份。
+     */
+    private static final CompactionConfig FRAMEWORK_DEFAULT_COMPACTION = CompactionConfig.builder().build();
+
     /** 上下文窗口上限的 AppSetting 键：运行体自动压缩阈值与输入框占用条分母共用此单一来源。 */
     public static final String SETTING_CONTEXT_MAX_TOKENS = "agent.context.maxTokens";
 
@@ -285,17 +291,24 @@ public class HarnessAgentGateway implements AutoCloseable {
                 local = this.agent;
                 if (local == null) {
                     log.info("装配 HarnessAgent: id={}, name={}, workspace={}", agentId, agentName, workspace);
+                    Model harnessModel = modelSupplier.get();
+                    CompactionConfig autoCompaction = autoCompactionConfig(harnessModel);
+                    log.info("自动压缩阈值: agent={}, window={}, triggerTokens={}, keepTokens={}", agentId,
+                            effectiveContextWindow(harnessModel),
+                            autoCompaction.getTriggerTokens(), autoCompaction.getKeepTokens());
                     HarnessAgent.Builder builder = HarnessAgent.builder()
                             .name(agentName)
                             // 上下文目录键固定用编码：显示名可以改，改了也不影响既有会话的记忆
                             .agentId(agentId)
                             .sysPrompt(sysPrompt)
-                            .model(modelSupplier.get())
+                            .model(harnessModel)
                             .workspace(workspace)
-                            // 待办清单：开启后框架向模型提供内置 todo 工具（其调用会以工具卡片形式回显）；
-                            // 上下文窗口上限交给框架在超过时自动压缩（compaction 保持框架默认，不显式禁用）
+                            // 待办清单：开启后框架向模型提供内置 todo 工具（其调用会以工具卡片形式回显）
                             .enableTaskList(true)
                             .maxContextTokens(this.maxContextTokens)
+                            // 自动压缩：框架默认按「模型自报窗口 - 缓冲」动态推算阈值（模型未上报窗口时兜底 160k），
+                            // 与本应用占用条的分母（设置页的上下文上限）并非同一口径，故显式下发按上限推算的配置
+                            .compaction(autoCompaction)
                             // 初始权限上下文：真实档位由每次对话前的 setPermissionMode 设定；
                             // 副作用工具（文件写/Shell）在询问档下触发确认，交由 HITL 链路处理
                             .permissionContext(PermissionContextState.builder()
@@ -470,24 +483,52 @@ public class HarnessAgentGateway implements AutoCloseable {
     }
 
     /**
-     * 手动压缩的强制配置：{@code triggerMessages(1)} 保证非空上下文必然触发；尾部保留量复刻
-     * 框架 {@code CompactionMiddleware} 的动态公式（{@code min(最大, max(最小, 可用窗口×比例))}），
-     * 模型未报告上下文窗口时退回本运行体的上限（应用设置），保证仍按 token 截尾。
+     * 手动压缩的强制配置：{@code triggerMessages(1)} 保证非空上下文必然触发；尾部保留量与自动压缩
+     * 同口径（见 {@link #dynamicKeepTokens(int)}），差别只在不看消息条数、也不算是否超过阈值。
      */
     private CompactionConfig forceCompactionConfig(Model model) {
-        CompactionConfig defaults = CompactionConfig.builder().build();
-        int contextWindow = model.getContextWindowSize();
-        if (contextWindow <= 0) {
-            contextWindow = this.maxContextTokens;
-        }
-        int usable = contextWindow - defaults.getReserved();
-        int keepTokens = Math.min(defaults.getKeepTokensMax(),
-                Math.max(defaults.getKeepTokensMin(), (int) (usable * defaults.getKeepTokensRatio())));
-        CompactionConfig.Builder builder = CompactionConfig.builder().triggerMessages(1);
-        if (keepTokens > 0) {
-            builder.keepTokens(keepTokens);
-        }
-        return builder.build();
+        return CompactionConfig.builder()
+                .triggerMessages(1)
+                .keepTokens(dynamicKeepTokens(usableWindow(model)))
+                .build();
+    }
+
+    /**
+     * 自动压缩配置：把框架的动态阈值（{@code triggerTokens=0} → 按模型自报窗口推算，推算不出时兜底
+     * 160k）改为按本运行体的上下文上限推算，与输入框占用条同一分母。
+     * <p>不改的话，模型自报窗口为 1M（或干脆没上报）时阈值远高于用户看到并超过的上限，
+     * 占用条已经爆表也不会压缩。</p>
+     * <p>消息条数阈值沿用框架默认（50 条）：条数与 token 两个条件任一超出即压缩。</p>
+     */
+    private CompactionConfig autoCompactionConfig(Model model) {
+        int usable = usableWindow(model);
+        return FRAMEWORK_DEFAULT_COMPACTION.withEffective(usable, dynamicKeepTokens(usable));
+    }
+
+    /**
+     * 生效的上下文窗口：取应用设置上限与模型自报窗口的较小值；模型未上报窗口时只用上限。
+     */
+    private int effectiveContextWindow(Model model) {
+        int cap = this.maxContextTokens;
+        int window = model == null ? 0 : model.getContextWindowSize();
+        return window > 0 ? Math.min(window, cap) : cap;
+    }
+
+    /**
+     * 扣掉压缩自身开销后的可用窗口：压缩那轮要把整段前缀送给模型做摘要，必须留出缓冲；
+     * 缓冲取框架默认（20k）与窗口四分之一中的较小值，小窗口才不会被挤到刚起步就压缩。
+     */
+    private int usableWindow(Model model) {
+        int window = effectiveContextWindow(model);
+        int reserved = Math.min(FRAMEWORK_DEFAULT_COMPACTION.getReserved(), Math.max(1, window / 4));
+        return Math.max(1, window - reserved);
+    }
+
+    /** 尾部保留 token：复刻框架动态公式 {@code min(最大, max(最小, 可用窗口×比例))}。 */
+    private static int dynamicKeepTokens(int usableWindow) {
+        return Math.min(FRAMEWORK_DEFAULT_COMPACTION.getKeepTokensMax(),
+                Math.max(FRAMEWORK_DEFAULT_COMPACTION.getKeepTokensMin(),
+                        (int) (usableWindow * FRAMEWORK_DEFAULT_COMPACTION.getKeepTokensRatio())));
     }
 
     /** 在途生成计数 +1（订阅时调用，请与 {@link #releaseInflight} 配对）。 */
