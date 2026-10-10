@@ -398,6 +398,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 横幅当前展示的计划归属智能体（编辑/确认时定位 PLAN.md） */
     private String planBannerAgent;
 
+    /** 主窗基础最小宽度（与 GimAgentApplication 启动值同源）：810 聊天视口 + 290 窗口差。 */
+    private static final double MIN_WINDOW_WIDTH = 1100;
+    /** 右侧栏展开后的最小窗口宽度：窗口→分栏差约 290px、聊天区占分栏 62%（WorkspacePanel divider 0.62），
+     *  810 / 0.62 + 290 ≈ 1597 → 取 1600（聊天视口 ≈ 812 > 810），展开时应保证消息列排版不变。 */
+    private static final double MIN_WINDOW_WIDTH_WORKSPACE = 1600;
+
     @FXML
     private void initialize() {
         applyRoundedClip();
@@ -514,6 +520,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
         // 工作区右侧栏：文件树 + 就地阅读；把聊天内联 HTML/SVG 产物预览从弹窗改导入本面板
         workspacePanel = new com.gettyio.gim.agent.ui.chat.WorkspacePanel(workspaceSplit, gimPaths);
+        // 展开/收起前先校准窗口宽度：右栏占去分栏 38%，窗口过窄时聊天视口会跌破内容列完整阈值
+        workspacePanel.setVisibilityGuard(this::applyWorkspaceStageGuard);
+        // 聊天分栏底线宽：右栏 divider 拖拽不得把聊天视口压到内容列完整阈值
+        // （810 = 800 限宽列 + 10 滚动条，web/chat.css）之下，杜绝气泡挤压贴边
+        chatSplit.setMinWidth(810);
         com.gettyio.gim.agent.ui.chat.ArtifactPreviewWindow.setPreviewSink(
                 (owner, code, lang) -> workspacePanel.showArtifact(code, lang));
 
@@ -1425,6 +1436,43 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         if (workspacePanel != null) {
             workspacePanel.toggle();
         }
+    }
+
+    /**
+     * 右侧栏展开/收起时的窗口守护（经 {@link com.gettyio.gim.agent.ui.chat.WorkspacePanel} 的显隐回调触发）：
+     * 展开后聊天区只占分栏的 62%（divider 0.62），窗口过窄时聊天视口会跌破内容列完整阈值
+     * （810 = 800 限宽列 + 10 滚动条）造成气泡挤压贴边。故展开时把最小宽度抬到
+     * {@link #MIN_WINDOW_WIDTH_WORKSPACE}，不足则扩宽窗口（右缘将越出屏幕时先左移让位）；
+     * 收起时恢复基础最小宽度（窗口宽度不回收，避免收起时二次跳变）。
+     */
+    private void applyWorkspaceStageGuard(boolean opening) {
+        Window win = currentWindow();
+        if (!(win instanceof javafx.stage.Stage st)) {
+            return;
+        }
+        if (!opening) {
+            st.setMinWidth(MIN_WINDOW_WIDTH);
+            return;
+        }
+        double target = MIN_WINDOW_WIDTH_WORKSPACE;
+        // 最大化/全屏由系统掌控尺寸，不程序扩窗（大屏最大化下视口本身充足）
+        if (!st.isMaximized() && !st.isFullScreen() && st.getWidth() < target) {
+            javafx.geometry.Rectangle2D vb = screenBoundsOf(win);
+            double nx = Math.max(vb.getMinX(), Math.min(st.getX(), vb.getMaxX() - target));
+            if (nx != st.getX()) {
+                st.setX(nx);
+            }
+            st.setWidth(target);
+        }
+        st.setMinWidth(target);
+    }
+
+    /** 窗口所在屏幕的可视区边界（取与窗口相交的屏幕；无匹配回主屏），供扩窗的越屏守护使用。 */
+    private static javafx.geometry.Rectangle2D screenBoundsOf(Window win) {
+        javafx.stage.Screen hit = javafx.stage.Screen.getScreensForRectangle(
+                        win.getX(), win.getY(), Math.max(1, win.getWidth()), Math.max(1, win.getHeight()))
+                .stream().findFirst().orElse(null);
+        return (hit == null ? javafx.stage.Screen.getPrimary() : hit).getVisualBounds();
     }
 
     // ===================== 侧栏顶部：智能体切换卡 =====================

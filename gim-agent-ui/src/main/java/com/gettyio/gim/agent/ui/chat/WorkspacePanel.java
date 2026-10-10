@@ -71,6 +71,8 @@ public final class WorkspacePanel {
 
     private final SplitPane workspaceSplit;
     private final Path workspaceRoot;
+    /** 展开/收起前的宿主回调（可空）：宿主据此校准窗口宽度，保证聊天视口不因分栏挤压（见 MainController）。 */
+    private java.util.function.Consumer<Boolean> visibilityGuard;
 
     private final BorderPane root = new BorderPane();
     private final SplitPane inner = new SplitPane();
@@ -99,6 +101,11 @@ public final class WorkspacePanel {
         return root;
     }
 
+    /** 注入展开/收起时的宿主守护回调：true=挂入前、false=摘除后；宿主据此校准窗口宽度保聊天视口。 */
+    public void setVisibilityGuard(java.util.function.Consumer<Boolean> guard) {
+        this.visibilityGuard = guard;
+    }
+
     // ===================== 显隐（仿 TerminalDrawer：收起仅摘节点） =====================
 
     /** 面板是否已挂入右侧分栏。 */
@@ -106,21 +113,27 @@ public final class WorkspacePanel {
         return workspaceSplit != null && workspaceSplit.getItems().contains(root);
     }
 
-    /** 展开：未挂则挂入并把分栏位压到约 0.62，保证聊天不被挤窄。 */
+    /** 展开：未挂则先经宿主守护校准窗口（必要时扩窗），再挂入并把分栏位压到约 0.62。 */
     public void show() {
         if (workspaceSplit == null) {
             return;
         }
         if (!visible()) {
+            if (visibilityGuard != null) {
+                visibilityGuard.accept(Boolean.TRUE);
+            }
             workspaceSplit.getItems().add(root);
             workspaceSplit.setDividerPositions(0.62);
         }
     }
 
-    /** 收起：仅摘除节点（树与阅读状态保留）。 */
+    /** 收起：仅摘除节点（树与阅读状态保留），随后通知宿主恢复基础最小宽度。 */
     public void hide() {
         if (workspaceSplit != null && visible()) {
             workspaceSplit.getItems().remove(root);
+            if (visibilityGuard != null) {
+                visibilityGuard.accept(Boolean.FALSE);
+            }
         }
     }
 
