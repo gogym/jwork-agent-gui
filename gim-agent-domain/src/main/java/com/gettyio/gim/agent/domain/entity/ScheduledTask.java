@@ -27,11 +27,26 @@ public class ScheduledTask {
     /** 一次性任务的指定执行时刻（ISO-8601）；非空到时一次性触发，与 cron 互斥 */
     private LocalDateTime runAt;
 
+    /** 到期时间（ISO-8601）；非空时过期后不再触发（已注册的周期任务同步裁剪） */
+    private LocalDateTime endAt;
+
     /** 状态，见 TaskStatus */
     private String status;
 
     /** 是否一次性任务 */
     private Integer once = 0;
+
+    /** 输出模式，见 TaskOutputMode（MERGED/SEPARATE）；独立模式下每次执行创建独立会话 */
+    private String outputMode = "MERGED";
+
+    /** 是否无人值守运行：1 时执行中自动通过工具授权，0 时仅只读工具 */
+    private Integer unattended = 0;
+
+    /** 模型覆盖-提供方编码（与 {@link #modelCode} 成对生效；空则用智能体默认） */
+    private String providerCode;
+
+    /** 模型覆盖-模型编码（与 {@link #providerCode} 成对生效；空则用智能体默认） */
+    private String modelCode;
 
     private LocalDateTime lastRunAt;
 

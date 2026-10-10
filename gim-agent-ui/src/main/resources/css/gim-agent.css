@@ -1577,8 +1577,8 @@
     -fx-font-size: 44px;
     -fx-text-fill: -gim-empty-icon;
 }
-.empty-title { -fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: -gim-text-3; }
-.empty-desc  { -fx-font-size: 12px; -fx-text-fill: -gim-text-5; }
+.empty-title { -fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: -gim-text-3; -fx-text-alignment: center; }
+.empty-desc  { -fx-font-size: 12px; -fx-text-fill: -gim-text-5; -fx-text-alignment: center; }
 
 .skill-avatar {
     -fx-background-color: -gim-tint-3;
@@ -1973,3 +1973,75 @@
 }
 .splash-title { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
 .splash-status { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+
+/* ============================================================
+ * 自动化页：保持唤醒横幅 / 页签 / 卡片列表 / 新建编辑弹窗
+ * ============================================================ */
+.automation-banner {
+    -fx-background-color: -gim-info-bg;
+    -fx-background-radius: 10;
+    -fx-padding: 12 16 12 16;
+    -fx-spacing: 12;
+}
+.automation-banner-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 18px;
+    -fx-text-fill: -gim-badge-blue-fg;
+}
+.automation-banner-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.automation-banner-desc  { -fx-font-size: 12px; -fx-text-fill: -gim-text-5; }
+
+/* 页签行：自动化 / 模板 / 执行记录（文字型 ToggleButton，选中转主题绿加粗） */
+.page-tabs { -fx-padding: 0 0 2 0; }
+.page-tab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -gim-text-3;
+    -fx-font-size: 14px;
+    -fx-padding: 6 10 6 10;
+    -fx-cursor: hand;
+}
+.page-tab:hover { -fx-text-fill: -gim-text-title; }
+.page-tab:selected { -fx-text-fill: -gim-tint-fg-3; -fx-font-weight: bold; }
+
+.automation-list { -fx-padding: 2 2 12 2; }
+.automation-sched { -fx-font-size: 12px; -fx-text-fill: -gim-text-3; }
+.automation-expire { -fx-font-size: 12px; -fx-text-fill: -gim-text-5; }
+.automation-expire-warn { -fx-font-size: 12px; -fx-text-fill: -gim-badge-red-fg; }
+
+/* ---- 新建/编辑自动化弹窗（两栏布局） ---- */
+.automation-left { -fx-spacing: 8; }
+.automation-name-field {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -gim-border-4 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-padding: 6 2 6 2;
+}
+.automation-name-field:focused {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -gim-accent transparent;
+}
+.automation-prompt { -fx-font-size: 13px; -fx-padding: 2; }
+.automation-toolbar { -fx-padding: 2 0 0 0; -fx-spacing: 8; }
+.automation-tool {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -gim-text-3;
+    -fx-font-size: 12px;
+    -fx-padding: 5 10 5 10;
+    -fx-cursor: hand;
+}
+.automation-tool:hover { -fx-background-color: -gim-cell-hover; }
+.automation-combo { -fx-font-size: 12px; }
+.automation-combo .list-cell { -fx-padding: 3 6 3 6; }
+
+.automation-side { -fx-spacing: 16; }
+.automation-section { -fx-spacing: 8; }
+.automation-section-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.automation-hint { -fx-font-size: 11px; -fx-text-fill: -gim-text-5; -fx-line-spacing: 1; }
+.automation-error { -fx-font-size: 12px; -fx-text-fill: -gim-badge-red-fg; }
+.automation-actions { -fx-alignment: center-right; -fx-padding: 4 0 0 0; -fx-spacing: 10; }

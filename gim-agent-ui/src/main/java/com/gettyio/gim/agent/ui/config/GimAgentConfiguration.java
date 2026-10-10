@@ -27,6 +27,7 @@ import com.gettyio.gim.agent.domain.persist.ConnectionProvider;
 import com.gettyio.gim.agent.domain.persist.SqliteConnectionProvider;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 import com.gettyio.gim.agent.domain.security.SecretCipherFactory;
+import com.gettyio.gim.agent.scheduler.AgentTaskExecutor;
 import com.gettyio.gim.agent.scheduler.TaskSchedulerService;
 import com.gettyio.gim.agent.scheduler.tool.ScheduleTools;
 import com.gettyio.gim.agent.tools.ToolSecurityFacade;
@@ -288,8 +289,8 @@ public class GimAgentConfiguration {
 
     @Bean
     public TaskAdminService taskAdminService(GimDatabase db, TaskSchedulerService schedulerService,
-                                             ChatService chatService) {
-        return new TaskAdminService(db, schedulerService, chatService);
+                                             AgentTaskExecutor agentTaskExecutor) {
+        return new TaskAdminService(db, schedulerService, agentTaskExecutor);
     }
 
     @Bean
@@ -426,6 +427,13 @@ public class GimAgentConfiguration {
     @Bean
     public TaskSchedulerService taskSchedulerService(Scheduler scheduler, GimDatabase db) {
         return new TaskSchedulerService(scheduler, db.taskDao());
+    }
+
+    /** 自动化任务执行器：Quartz 调度触发（AgentTaskJob）与手动「立即执行」共用同一套执行语义。 */
+    @Bean
+    public AgentTaskExecutor agentTaskExecutor(GimDatabase db, ChatService chatService,
+                                               org.springframework.context.ApplicationEventPublisher eventPublisher) {
+        return new AgentTaskExecutor(db, chatService, eventPublisher);
     }
 
     @Bean

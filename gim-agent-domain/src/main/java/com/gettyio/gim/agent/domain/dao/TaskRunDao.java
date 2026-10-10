@@ -59,6 +59,12 @@ public class TaskRunDao {
         return findRecentByCode(taskCode, KEEP_PER_TASK);
     }
 
+    /** 全库最近若干条执行记录（时间倒序），供「执行记录」页签展示。 */
+    public List<TaskRun> findAllRecent(int limit) {
+        return runner.query("SELECT " + COLUMNS + " FROM task_runs ORDER BY id DESC LIMIT ?",
+                TaskRunDao::map, limit);
+    }
+
     /** 删除超出保留条数的旧记录（写入后调用），返回删除行数。 */
     public int purge(String taskCode) {
         return runner.update(

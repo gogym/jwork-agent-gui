@@ -446,7 +446,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 () -> GimDialog.message(ownerWindow(), I18n.t("voice.title"), null, I18n.t("voice.notConfigured")),
                 (title, msg) -> GimDialog.message(ownerWindow(), title, null, msg));
 
-        // 侧栏导航切换主区页面（对话 / 定时任务 / 技能）
+        // 自动化页「查看会话」：注入跳转回调（先切到会话归属的智能体，再打开会话）
+        tasksView.setSessionOpener(this::openTaskSession);
+
+        // 侧栏导航切换主区页面（对话 / 自动化 / 技能）
         // 「新任务」项在对话页恒处于选中态，常驻底色会被读成“一直聚焦”，此处另挂样式类去掉底色，
         // 只保留悬停与按下反馈（见 CSS 的 .nav-new-task）
         navChat.getStyleClass().add("nav-new-task");
@@ -1668,6 +1671,21 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             navChat.setSelected(true);
         }
         switchToSession(sessionId);
+    }
+
+    /** 自动化「查看会话」：刷新会话列表，切到该会话归属的智能体，再打开会话。 */
+    private void openTaskSession(String sessionId) {
+        refreshSessions();
+        ChatSession target = sessions.stream()
+                .filter(s -> sessionId.equals(s.getSessionId()))
+                .findFirst().orElse(null);
+        if (target == null) {
+            return;
+        }
+        if (target.getAgentCode() != null) {
+            selectAgent(target.getAgentCode());
+        }
+        openSessionById(sessionId);
     }
 
     /**

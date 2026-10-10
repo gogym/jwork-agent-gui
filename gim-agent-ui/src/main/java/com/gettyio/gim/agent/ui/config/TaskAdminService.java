@@ -1,21 +1,26 @@
 package com.gettyio.gim.agent.ui.config;
 
-import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ScheduledTask;
 import com.gettyio.gim.agent.domain.entity.TaskRun;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
+import com.gettyio.gim.agent.domain.enums.TaskOutputMode;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
+import com.gettyio.gim.agent.scheduler.AgentTaskExecutor;
 import com.gettyio.gim.agent.scheduler.TaskSchedulerService;
+import com.gettyio.gim.agent.ui.I18n;
 import org.quartz.CronExpression;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.text.ParseException;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
- * 定时任务管理：任务表增删改查 + Quartz 调度联动 + 手动触发。
+ * 自动化任务管理：任务表增删改查 + Quartz 调度联动 + 手动触发。
+ * <p>到期（end_at）语义：Quartz 触发器自动截止后不再触发，已过期的 READY 任务在列表读取
+ * 与启动恢复两处被落为 PAUSED（「到期后自动暂停，不再创建新的执行」）。</p>
  */
 public class TaskAdminService {
 
@@ -23,16 +28,27 @@ public class TaskAdminService {
 
     private final GimDatabase db;
     private final TaskSchedulerService schedulerService;
-    private final ChatService chatService;
+    private final AgentTaskExecutor agentTaskExecutor;
 
-    public TaskAdminService(GimDatabase db, TaskSchedulerService schedulerService, ChatService chatService) {
+    public TaskAdminService(GimDatabase db, TaskSchedulerService schedulerService,
+                            AgentTaskExecutor agentTaskExecutor) {
         this.db = db;
         this.schedulerService = schedulerService;
-        this.chatService = chatService;
+        this.agentTaskExecutor = agentTaskExecutor;
     }
 
+    /** 全部任务；顺便把已到期但仍是 READY 的任务落为 PAUSED。 */
     public List<ScheduledTask> list() {
-        return db.taskDao().findAll();
+        List<ScheduledTask> tasks = db.taskDao().findAll();
+        LocalDateTime now = LocalDateTime.now();
+        for (ScheduledTask t : tasks) {
+            if (TaskStatus.READY.name().equals(t.getStatus())
+                    && t.getEndAt() != null && t.getEndAt().isBefore(now)) {
+                t.setStatus(TaskStatus.PAUSED.name());
+                db.taskDao().update(t);
+            }
+        }
+        return tasks;
     }
 
     /**
@@ -48,6 +64,12 @@ public class TaskAdminService {
             task.setOnce(EnabledStatus.ENABLED);
         } else if (task.getOnce() == null) {
             task.setOnce(EnabledStatus.DISABLED);
+        }
+        if (task.getOutputMode() == null || task.getOutputMode().isBlank()) {
+            task.setOutputMode(TaskOutputMode.MERGED.name());
+        }
+        if (task.getUnattended() == null) {
+            task.setUnattended(EnabledStatus.DISABLED);
         }
         boolean exists = db.taskDao().findByCode(task.getTaskCode()).isPresent();
         if (exists) {
@@ -73,27 +95,40 @@ public class TaskAdminService {
         return db.taskRunDao().findByCode(taskCode);
     }
 
-    /** 暂停/恢复 */
+    /** 全库最近执行记录（时间倒序），供「执行记录」页签展示。 */
+    public List<TaskRun> recentRuns(int limit) {
+        return db.taskRunDao().findAllRecent(limit);
+    }
+
+    /** 暂停/恢复；已到期任务拒绝恢复（需先改到期时间再恢复）。 */
     public void setStatus(String taskCode, TaskStatus status) {
         db.taskDao().findByCode(taskCode).ifPresent(t -> {
+            if (status == TaskStatus.READY && isExpired(t)) {
+                throw new IllegalStateException(I18n.t("tasks.err.expiredResume"));
+            }
             t.setStatus(status.name());
             db.taskDao().update(t);
             syncSchedule(t);
         });
     }
 
-    /** 手动立即触发一次（异步，不等待结果） */
-    public void runNow(ScheduledTask task) {
-        String sessionId = "task-" + task.getTaskCode();
-        Thread t = new Thread(() -> {
-            try {
-                chatService.proactiveRun(sessionId, task.getAgentCode(), task.getPrompt());
-            } catch (Exception e) {
-                log.error("手动触发任务失败: {}", task.getTaskCode(), e);
-            }
-        }, "task-run-" + task.getTaskCode());
+    /** 手动立即执行一次（异步，不等待结果；执行语义、历史记录与完成通知与调度触发一致）。 */
+    public void runNow(String taskCode) {
+        Thread t = new Thread(() -> agentTaskExecutor.run(taskCode, null, false, null),
+                "task-run-" + taskCode);
         t.setDaemon(true);
         t.start();
+    }
+
+    /** 执行记录对应的会话是否已存在（存在才可「查看会话」）。 */
+    public boolean sessionExists(String sessionId) {
+        return sessionId != null && !sessionId.isBlank()
+                && db.sessionDao().findBySessionId(sessionId).isPresent();
+    }
+
+    /** 任务是否已到期。 */
+    public static boolean isExpired(ScheduledTask task) {
+        return task.getEndAt() != null && task.getEndAt().isBefore(LocalDateTime.now());
     }
 
     private void syncSchedule(ScheduledTask task) {
@@ -104,7 +139,7 @@ public class TaskAdminService {
                 schedulerService.unschedule(task.getTaskCode());
             }
         } catch (Exception e) {
-            throw new IllegalStateException("调度失败: " + e.getMessage(), e);
+            throw new IllegalStateException(I18n.t("tasks.err.schedule", e.getMessage()), e);
         }
     }
 
@@ -119,7 +154,7 @@ public class TaskAdminService {
         }
     }
 
-    /** 校验触发定义：cron 与 run_at 至少居其一；cron 非空则必须合法。二者不可同时提供。 */
+    /** 校验触发定义：cron 与 run_at 至少居其一且互斥；cron 非空则必须合法；到期时间必须晚于当前。 */
     private static void validateSchedule(ScheduledTask task) {
         boolean hasCron = task.getCronExpression() != null && !task.getCronExpression().isBlank();
         boolean hasRunAt = task.getRunAt() != null;
@@ -131,6 +166,14 @@ public class TaskAdminService {
         }
         if (hasCron) {
             validateCron(task.getCronExpression());
+        }
+        if (task.getEndAt() != null) {
+            if (!task.getEndAt().isAfter(LocalDateTime.now())) {
+                throw new IllegalArgumentException("到期时间必须晚于当前时间");
+            }
+            if (hasRunAt && task.getEndAt().isBefore(task.getRunAt())) {
+                throw new IllegalArgumentException("到期时间早于执行时刻，任务将不会执行");
+            }
         }
     }
 }

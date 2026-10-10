@@ -15,6 +15,7 @@ import org.quartz.impl.matchers.GroupMatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.List;
@@ -23,7 +24,8 @@ import java.util.Set;
 /**
  * 任务调度服务：把 SQLite 任务表映射为 Quartz 作业，并支持启动时恢复。
  * <p>两类触发器：周期性（cron）与一次性指定时刻（run_at）。misfire 语义：
- * 周期任务关机期间错过的不补（DoNothing），一次性任务重启后补跑一次（FireAndProceed）。</p>
+ * 周期任务关机期间错过的不补（DoNothing），一次性任务重启后补跑一次（FireAndProceed）。
+ * 到期时间（end_at）非空时由触发器 endAt 自动截止，恢复时已过期任务直接置为暂停。</p>
  */
 public class TaskSchedulerService {
 
@@ -40,18 +42,30 @@ public class TaskSchedulerService {
     }
 
     /**
-     * 启动时恢复所有 READY 任务
+     * 启动时恢复所有 READY 任务；已过期（end_at 早于当前）的任务不恢复，直接置为 PAUSED。
      */
     public void resumeReadyTasks() {
         List<ScheduledTask> tasks = taskDao.findByStatus(TaskStatus.READY.name());
+        int recovered = 0;
         for (ScheduledTask task : tasks) {
+            if (isExpired(task)) {
+                task.setStatus(TaskStatus.PAUSED.name());
+                taskDao.update(task);
+                log.info("任务已到期，跳过恢复并置为暂停: {}", task.getTaskCode());
+                continue;
+            }
             try {
                 schedule(task);
+                recovered++;
             } catch (Exception e) {
                 log.error("恢复任务失败: {}", task.getTaskCode(), e);
             }
         }
-        log.info("已恢复 {} 个定时任务", tasks.size());
+        log.info("已恢复 {} 个定时任务", recovered);
+    }
+
+    private static boolean isExpired(ScheduledTask task) {
+        return task.getEndAt() != null && task.getEndAt().isBefore(LocalDateTime.now());
     }
 
     public void schedule(ScheduledTask task) throws SchedulerException {
@@ -59,12 +73,14 @@ public class TaskSchedulerService {
         JobDetail job = JobBuilder.newJob(AgentTaskJob.class)
                 .withIdentity(jobKey(task.getTaskCode()))
                 .usingJobData(AgentTaskJob.DATA_TASK_CODE, task.getTaskCode())
-                .usingJobData(AgentTaskJob.DATA_SESSION_ID, sessionIdFor(task))
-                .usingJobData(AgentTaskJob.DATA_PROMPT, task.getPrompt())
                 .build();
 
         TriggerBuilder<Trigger> tb = TriggerBuilder.newTrigger()
                 .withIdentity(task.getTaskCode(), JOB_GROUP);
+        // 到期时间：非空时触发器自动截止，过期后不再触发（状态由恢复扫描/列表扫描置为暂停）
+        if (task.getEndAt() != null) {
+            tb.endAt(Date.from(task.getEndAt().atZone(ZoneId.systemDefault()).toInstant()));
+        }
         String cron = task.getCronExpression() == null ? null : task.getCronExpression().trim();
         boolean hasCron = cron != null && !cron.isBlank();
 
@@ -100,9 +116,5 @@ public class TaskSchedulerService {
 
     private static org.quartz.JobKey jobKey(String taskCode) {
         return org.quartz.JobKey.jobKey(taskCode, JOB_GROUP);
-    }
-
-    private static String sessionIdFor(ScheduledTask task) {
-        return "task-" + task.getTaskCode();
     }
 }

@@ -59,20 +59,38 @@ public class ChatService {
     }
 
     /**
-     * 主动消息运行（定时任务语义）：落盘系统指令 → 非流式应答 → 落盘助手消息（含本轮 token 用量）。
-     * <p>自主会话无 UI，走 {@code EXPLORE} 只读档：读类工具正常，副作用工具被明确拒绝，
-     * 不会阻塞等待确认也不会静默执行。</p>
+     * 主动消息运行（默认只读档）：等价于 {@code proactiveRun(sessionId, agentCode, prompt, EXPLORE, false, null, null)}。
      *
      * @return 助手应答文本（可能为空）
      */
     public String proactiveRun(String sessionId, String agentCode, String prompt) {
+        return proactiveRun(sessionId, agentCode, prompt,
+                io.agentscope.core.permission.PermissionMode.EXPLORE, false, null, null);
+    }
+
+    /**
+     * 主动消息运行（定时任务语义）：落盘系统指令 → 非流式应答 → 落盘助手消息（含本轮 token 用量）。
+     * <p>自主会话无 UI：{@code permissionMode} 传 {@code EXPLORE}（只读档）时读类工具正常、
+     * 副作用工具被明确拒绝；传 {@code ACCEPT_EDITS} 且 {@code autoApprove=true} 时（无人值守）
+     * 确认事件仍然触发拦截链评估，但 ASK 不弹窗直接放行。</p>
+     *
+     * @param providerCode 模型覆盖-提供方编码（与 modelCode 成对生效，空则用智能体默认）
+     * @param modelCode    模型覆盖-模型编码（与 providerCode 成对生效，空则用智能体默认）
+     * @return 助手应答文本（可能为空）
+     */
+    public String proactiveRun(String sessionId, String agentCode, String prompt,
+                               io.agentscope.core.permission.PermissionMode permissionMode,
+                               boolean autoApprove, String providerCode, String modelCode) {
         ensureSession(sessionId, agentCode, prompt);
         persistMessage(sessionId, agentCode, ConversationRole.SYSTEM, prompt);
         ChatRequest req = ChatRequest.builder()
                 .agentCode(agentCode)
                 .sessionId(sessionId)
                 .text(prompt)
-                .permissionMode(io.agentscope.core.permission.PermissionMode.EXPLORE)
+                .providerCode(providerCode)
+                .modelCode(modelCode)
+                .permissionMode(permissionMode)
+                .autoApprove(autoApprove)
                 .build();
         StringBuilder buf = new StringBuilder();
         StringBuilder thinkingBuf = new StringBuilder();

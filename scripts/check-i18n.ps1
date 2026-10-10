@@ -37,7 +37,15 @@ foreach ($j in $javaFiles) {
 }
 $used = $used | Sort-Object -Unique
 Write-Output ("used keys = {0}" -f @($used).Count)
-$missing = @($used | Where-Object { $ref -notcontains $_ })
+# Static prefixes of dynamically composed keys (code uses "prefix." + variable); suppress missing warnings by prefix
+$dynamicPrefixes = @('tasks.weekday.')
+$missing = @()
+foreach ($u in $used) {
+  if ($ref -contains $u) { continue }
+  $dyn = $false
+  foreach ($p in $dynamicPrefixes) { if ($u.StartsWith($p)) { $dyn = $true; break } }
+  if (-not $dyn) { $missing += $u }
+}
 Write-Output ("missing = {0}" -f $missing.Count)
 $missing | ForEach-Object { Write-Output ("   MISSING " + $_) }
 
