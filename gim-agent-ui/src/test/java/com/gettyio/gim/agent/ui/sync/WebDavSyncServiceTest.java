@@ -21,6 +21,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -29,8 +31,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link WebDavSyncService} 单测：配置读写（密码加密往返、URL 归一化）与
- * 同步上传（内嵌 HttpServer 模拟 WebDAV 的 PUT/PROPFIND），全部无外部依赖。
+ * {@link WebDavSyncService} 单测：配置读写（密码/口令加密往返、URL 归一化）、同步上传
+ * （明文与口令加密两类载荷、远端快照滚动清理）、云端恢复下载（校验后落 pending）。
+ * 全部基于内嵌 HttpServer 模拟 WebDAV（PUT/PROPFIND/DELETE/GET），无外部依赖。
  */
 class WebDavSyncServiceTest {
 
@@ -41,8 +44,10 @@ class WebDavSyncServiceTest {
     private GimPaths paths;
     private WebDavSyncService service;
     private HttpServer server;
-    /** 模拟远端收到的 PUT：路径 + 请求体 */
-    private final List<String[]> uploaded = new ArrayList<>();
+    /** 模拟远端存储：路径 → 内容 */
+    private final Map<String, byte[]> remote = new ConcurrentHashMap<>();
+    /** 模拟远端 PUT 顺序（路径），用于断言上传次序 */
+    private final List<String> putOrder = new ArrayList<>();
 
     @BeforeEach
     void setUp() throws IOException {
@@ -55,25 +60,40 @@ class WebDavSyncServiceTest {
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/dav/", exchange -> {
             String method = exchange.getRequestMethod();
-            if ("PUT".equals(method)) {
-                byte[] body = exchange.getRequestBody().readAllBytes();
-                synchronized (uploaded) {
-                    uploaded.add(new String[]{exchange.getRequestURI().getPath(), new String(body, StandardCharsets.ISO_8859_1)});
+            String path = exchange.getRequestURI().getPath();
+            switch (method) {
+                case "PUT" -> {
+                    byte[] body = exchange.getRequestBody().readAllBytes();
+                    remote.put(path, body);
+                    synchronized (putOrder) {
+                        putOrder.add(path);
+                    }
+                    exchange.sendResponseHeaders(201, -1);
                 }
-                exchange.sendResponseHeaders(201, -1);
-            } else if ("PROPFIND".equals(method)) {
-                byte[] xml = ("<?xml version=\"1.0\" encoding=\"utf-8\"?>"
-                        + "<D:multistatus xmlns:D=\"DAV:\"><D:response><D:href>/dav/</D:href>"
-                        + "<D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop>"
-                        + "<D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response></D:multistatus>")
-                        .getBytes(StandardCharsets.UTF_8);
-                exchange.getResponseHeaders().add("Content-Type", "application/xml");
-                exchange.sendResponseHeaders(207, xml.length);
-                try (OutputStream os = exchange.getResponseBody()) {
-                    os.write(xml);
+                case "DELETE" -> {
+                    remote.remove(path);
+                    exchange.sendResponseHeaders(204, -1);
                 }
-            } else {
-                exchange.sendResponseHeaders(405, -1);
+                case "GET" -> {
+                    byte[] body = remote.get(path);
+                    if (body == null) {
+                        exchange.sendResponseHeaders(404, -1);
+                    } else {
+                        exchange.sendResponseHeaders(200, body.length);
+                        try (OutputStream os = exchange.getResponseBody()) {
+                            os.write(body);
+                        }
+                    }
+                }
+                case "PROPFIND" -> {
+                    byte[] xml = propfindXml().getBytes(StandardCharsets.UTF_8);
+                    exchange.getResponseHeaders().add("Content-Type", "application/xml");
+                    exchange.sendResponseHeaders(207, xml.length);
+                    try (OutputStream os = exchange.getResponseBody()) {
+                        os.write(xml);
+                    }
+                }
+                default -> exchange.sendResponseHeaders(405, -1);
             }
             exchange.close();
         });
@@ -85,28 +105,48 @@ class WebDavSyncServiceTest {
         server.stop(0);
     }
 
+    /** 按模拟远端现状生成 multistatus：根目录 + 全部文件条目。 */
+    private String propfindXml() {
+        StringBuilder sb = new StringBuilder("<?xml version=\"1.0\" encoding=\"utf-8\"?>")
+                .append("<D:multistatus xmlns:D=\"DAV:\">")
+                .append("<D:response><D:href>/dav/</D:href><D:propstat><D:prop>")
+                .append("<D:resourcetype><D:collection/></D:resourcetype>")
+                .append("</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>");
+        for (Map.Entry<String, byte[]> e : remote.entrySet()) {
+            sb.append("<D:response><D:href>").append(e.getKey()).append("</D:href>")
+                    .append("<D:propstat><D:prop><D:resourcetype/>")
+                    .append("<D:getcontentlength>").append(e.getValue().length).append("</D:getcontentlength>")
+                    .append("</D:prop><D:status>HTTP/1.1 200 OK</D:status></D:propstat></D:response>");
+        }
+        return sb.append("</D:multistatus>").toString();
+    }
+
     private String davUrl() {
         return "http://127.0.0.1:" + server.getAddress().getPort() + "/dav/";
     }
 
     @Test
-    @DisplayName("save 归一化 URL 尾部斜杠，密码加密存储且可解密回读")
+    @DisplayName("save 归一化 URL 尾部斜杠，密码与口令加密存储且可解密回读")
     void saveAndReadBack() {
         assertFalse(service.isConfigured());
 
-        service.save(davUrl().substring(0, davUrl().length() - 1), "alice", "s3cret", 12);
+        service.save(davUrl().substring(0, davUrl().length() - 1), "alice", "s3cret", "pass123", 12);
         assertEquals(davUrl(), service.url());
         assertEquals("alice", service.username());
         assertEquals("s3cret", service.passwordPlain());
+        assertEquals("pass123", service.passphrasePlain());
         assertNotEquals("s3cret",
                 db.settingDao().getValue(WebDavSyncService.KEY_PASSWORD).orElseThrow());
+        assertNotEquals("pass123",
+                db.settingDao().getValue(WebDavSyncService.KEY_PASSPHRASE).orElseThrow());
         assertEquals(12, service.intervalHours());
         assertTrue(service.isConfigured());
 
-        // 无尾部斜杠自动补齐；空密码表示清除
-        service.save(davUrl(), "bob", "", 0);
+        // 无尾部斜杠自动补齐；空密码/口令表示清除
+        service.save(davUrl(), "bob", "", "", 0);
         assertEquals(davUrl(), service.url());
         assertEquals("", service.passwordPlain());
+        assertEquals("", service.passphrasePlain());
         assertEquals(0, service.intervalHours());
     }
 
@@ -126,27 +166,95 @@ class WebDavSyncServiceTest {
     }
 
     @Test
-    @DisplayName("syncNow 上传快照与 workspace 压缩包并记录时间；周期内 syncIfDue 不再触发")
-    void syncNowUploads() throws IOException {
-        // workspace 预置一个文件，压缩包应包含其内容
+    @DisplayName("默认明文上传：快照与 workspace 压缩包按序 PUT，周期内 syncIfDue 不再触发")
+    void syncNowUploadsPlain() throws IOException {
         Files.createDirectories(paths.workspaceDir());
         Files.writeString(paths.workspaceDir().resolve("note.md"), "hello sync", StandardCharsets.UTF_8);
 
-        service.save(davUrl(), "alice", "s3cret", 24);
+        service.save(davUrl(), "alice", "s3cret", "", 24);
         assertTrue(service.lastSyncAt().isEmpty());
 
         Path snapshot = service.syncNow();
         assertTrue(Files.exists(snapshot));
 
-        synchronized (uploaded) {
-            assertEquals(2, uploaded.size());
-            assertEquals("/dav/" + snapshot.getFileName(), uploaded.get(0)[0]);
-            assertTrue(uploaded.get(0)[1].startsWith("SQLite format 3"), "第一个 PUT 应为 SQLite 快照");
-            assertEquals("/dav/jwork-workspace-latest.zip", uploaded.get(1)[0]);
-            assertTrue(uploaded.get(1)[1].startsWith("PK"), "第二个 PUT 应为 zip 压缩包");
+        synchronized (putOrder) {
+            assertEquals(2, putOrder.size());
+            assertEquals("/dav/" + snapshot.getFileName(), putOrder.get(0));
         }
+        assertTrue(new String(remote.get("/dav/" + snapshot.getFileName()), StandardCharsets.ISO_8859_1)
+                .startsWith("SQLite format 3"), "第一个 PUT 应为 SQLite 快照");
+        byte[] zip = remote.get("/dav/jwork-workspace-latest.zip");
+        assertTrue(zip != null && zip.length > 0 && zip[0] == 'P', "第二个 PUT 应为 zip 压缩包");
         assertTrue(service.lastSyncAt().isPresent());
         // 刚同步过：24h 周期内不应再触发
         assertTrue(service.syncIfDue().isEmpty());
+    }
+
+    @Test
+    @DisplayName("配置同步口令后上传加密载荷（.enc 文件名 + GIMSYNC1 魔数）")
+    void syncNowUploadsEncrypted() throws IOException {
+        Files.createDirectories(paths.workspaceDir());
+        Files.writeString(paths.workspaceDir().resolve("note.md"), "secret sync", StandardCharsets.UTF_8);
+
+        service.save(davUrl(), "alice", "s3cret", "pass123", 0);
+        Path snapshot = service.syncNow();
+
+        String dbRemoteName = "/dav/" + snapshot.getFileName() + WebDavSyncService.ENC_SUFFIX;
+        byte[] dbBody = remote.get(dbRemoteName);
+        assertTrue(dbBody != null && dbBody.length > 0, "应上传加密后的数据库快照");
+        assertTrue(new String(dbBody, 0, SyncPayloadCipher.MAGIC.length, StandardCharsets.ISO_8859_1)
+                .equals(new String(SyncPayloadCipher.MAGIC, StandardCharsets.ISO_8859_1)), "载荷应为 GIMSYNC1 容器");
+        assertTrue(remote.containsKey("/dav/jwork-workspace-latest.zip" + WebDavSyncService.ENC_SUFFIX));
+    }
+
+    @Test
+    @DisplayName("远端快照滚动清理：上传后仅保留最新 7 份")
+    void purgeKeepsLatestSnapshots() throws IOException {
+        // 预置 12 份历史快照（时间戳均早于本次同步）
+        for (int i = 1; i <= 12; i++) {
+            remote.put("/dav/jwork-202601" + String.format("%02d", i) + "-000000.db", new byte[]{1, 2, 3});
+        }
+        service.save(davUrl(), "alice", "s3cret", "", 0);
+        service.syncNow();
+
+        List<WebDavSyncService.RemoteSnapshot> snapshots = service.listRemoteSnapshots();
+        assertEquals(WebDavSyncService.REMOTE_SNAPSHOT_KEEP, snapshots.size(), "远端应只保留滚动份数");
+        assertTrue(remote.containsKey("/dav/jwork-20260101-000000.db") == false, "最旧快照应被删除");
+        assertTrue(remote.containsKey("/dav/jwork-20260112-000000.db"), "较新快照应保留");
+    }
+
+    @Test
+    @DisplayName("从云端恢复：下载快照校验后落 pending 文件，展示名可读")
+    void restoreFromRemoteStagesPending() throws IOException {
+        service.save(davUrl(), "alice", "s3cret", "", 0);
+        Path snapshot = service.syncNow();
+
+        List<WebDavSyncService.RemoteSnapshot> snapshots = service.listRemoteSnapshots();
+        assertEquals(1, snapshots.size());
+        assertEquals(snapshot.getFileName().toString(), snapshots.get(0).name());
+        assertNotEquals(snapshots.get(0).name(), snapshots.get(0).display(), "展示名应为可读时间");
+
+        Path pending = service.restoreFromRemote(snapshots.get(0).name());
+        assertEquals(paths.pendingRestoreFile(), pending);
+        assertTrue(Files.exists(pending));
+        assertTrue(new String(Files.readAllBytes(pending), 0, 15, StandardCharsets.ISO_8859_1)
+                .startsWith("SQLite format 3"), "pending 应为有效数据库快照");
+    }
+
+    @Test
+    @DisplayName("加密快照恢复：口令往返解密后落 pending；口令缺失时报错")
+    void restoreEncryptedRoundTrip() throws IOException {
+        service.save(davUrl(), "alice", "s3cret", "pass123", 0);
+        Path snapshot = service.syncNow();
+        String remoteName = snapshot.getFileName() + WebDavSyncService.ENC_SUFFIX;
+
+        Path pending = service.restoreFromRemote(remoteName);
+        assertTrue(Files.exists(pending));
+        // 清掉待恢复文件与口令后再试：无口令应拒绝加密快照
+        Files.deleteIfExists(pending);
+        service.save(davUrl(), "alice", "s3cret", "", 0);
+        IOException e = assertThrows(IOException.class, () -> service.restoreFromRemote(remoteName));
+        assertTrue(e.getMessage().contains("口令"));
+        assertFalse(Files.exists(pending), "失败时不应留下 pending 文件");
     }
 }

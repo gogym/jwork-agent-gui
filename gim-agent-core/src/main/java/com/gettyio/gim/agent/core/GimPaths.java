@@ -54,6 +54,16 @@ public class GimPaths {
         return root.resolve("backups");
     }
 
+    /** 云端恢复暂存目录：下载校验后的待应用快照落此，重启时由恢复器替换当前库 */
+    public Path restoreDir() {
+        return root.resolve("restore");
+    }
+
+    /** 待应用的云端恢复快照：存在即表示下次启动时需先执行库替换 */
+    public Path pendingRestoreFile() {
+        return restoreDir().resolve("pending.db");
+    }
+
     public Path skillsDir() {
         return workspaceDir().resolve("skills");
     }

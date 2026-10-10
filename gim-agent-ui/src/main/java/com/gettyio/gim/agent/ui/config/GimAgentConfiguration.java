@@ -17,6 +17,7 @@ import com.gettyio.gim.agent.core.model.ModelProbe;
 import com.gettyio.gim.agent.core.model.ModelSpec;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
+import com.gettyio.gim.agent.domain.backup.RestoreApplier;
 import com.gettyio.gim.agent.domain.dao.AgentDefinitionDao;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
@@ -78,6 +79,8 @@ public class GimAgentConfiguration {
 
     @Bean
     public ConnectionProvider connectionProvider(GimPaths paths) {
+        // 云端恢复：待恢复快照如果存在，必须在打开任何 SQLite 连接前完成库文件替换
+        RestoreApplier.applyIfPresent(paths.dbFile(), paths.pendingRestoreFile(), paths.backupsDir());
         return new SqliteConnectionProvider(paths.dbFile());
     }
 

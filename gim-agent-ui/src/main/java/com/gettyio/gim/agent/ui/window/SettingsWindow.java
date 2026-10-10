@@ -42,7 +42,8 @@ import java.util.Map;
 /**
  * 设置窗口：左侧分类菜单（含搜索）+ 右侧内容页（对标 Qoder 设置风格）。
  * <p>分页：个人资料 / 外观（主题·字体·语言，接入 {@link UiTheme}/{@link I18n}）/
- * 记忆（开关·沉淀档位·按作用域管理记忆文件）/ 通用（数据与路径）/ 更新（检查·下载·安装）/ 智能体 /
+ * 记忆（开关·沉淀档位·按作用域管理记忆文件）/ 通用（数据与路径）/
+ * 备份与恢复（本地备份·导出·WebDAV 云同步与恢复）/ 更新（检查·下载·安装）/ 智能体 /
  * 模型提供商 / 模型 / 默认模型 / 技能 / MCP 服务 / 安全（工具防护·文件防护·授权管理）。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
  * 外观页改动即时生效；语言切换时整窗重建以刷新全部文案。</p>
  * <p>本类为薄编排层：仅负责整窗骨架（菜单/页面容器/语言重建）与各设置页子面板的装配及整表刷新驱动，
@@ -160,16 +161,26 @@ public class SettingsWindow {
         return appearancePanel;
     }
 
-    /** 通用子面板（抽自本类）：懒加载单例，持有「最近备份」标签就地刷新。 */
+    /** 通用子面板（抽自本类）：懒加载单例，承载路径/启动关闭/上下文/预算/语音/图像配置。 */
     private GeneralSettingsPanel generalPanel;
 
     private GeneralSettingsPanel generalPanel() {
         if (generalPanel == null) {
             generalPanel = new GeneralSettingsPanel(this, gimPaths, appLifecycle, globalHotkeyService,
-                    dbBackupService, exportService, database, webDavSyncService, voiceInputService,
-                    ttsService, securityAdminService, agentGateway);
+                    database, voiceInputService, ttsService, securityAdminService, agentGateway);
         }
         return generalPanel;
+    }
+
+    /** 备份与恢复子面板（抽自本类）：懒加载单例，承载本地备份/导出与 WebDAV 云同步/恢复。 */
+    private BackupRestoreSettingsPanel backupRestorePanel;
+
+    private BackupRestoreSettingsPanel backupRestorePanel() {
+        if (backupRestorePanel == null) {
+            backupRestorePanel = new BackupRestoreSettingsPanel(this, gimPaths, dbBackupService,
+                    exportService, webDavSyncService);
+        }
+        return backupRestorePanel;
     }
 
     /** 记忆子面板（抽自本类）：懒加载单例；开关/沉淀档位写 AppSetting 后即时失效运行体。 */
@@ -355,6 +366,7 @@ public class SettingsWindow {
         addMenu(personal, "\uE790", I18n.t("settings.menu.appearance"), buildAppearancePage());
         addMenu(personal, "\uE7C3", I18n.t("settings.menu.memory"), buildMemoryPage());
         addMenu(personal, "\uE713", I18n.t("settings.menu.general"), buildGeneralPage());
+        addMenu(personal, "\uE7B5", I18n.t("settings.menu.backupRestore"), buildBackupRestorePage());
         addMenu(personal, "\uE777", I18n.t("settings.menu.update"), buildUpdatePage());
 
         Label model = addSection(I18n.t("settings.section.model"));
@@ -442,6 +454,10 @@ public class SettingsWindow {
 
     private VBox buildGeneralPage() {
         return generalPanel().build();
+    }
+
+    private VBox buildBackupRestorePage() {
+        return backupRestorePanel().build();
     }
 
     private VBox buildUpdatePage() {
