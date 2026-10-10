@@ -935,7 +935,11 @@
 .workspace-tree { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 4; }
 .workspace-tree .tree-cell { -fx-background-color: transparent; -fx-text-fill: -gim-text; -fx-font-size: 12px; }
 .workspace-tree .tree-cell:selected { -fx-background-color: -gim-hover; -fx-text-fill: -gim-text-title; }
-.workspace-tree-icon { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; }
+.workspace-tree-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 13px;
+    -fx-text-fill: -gim-text-4;
+}
 .workspace-viewer { -fx-background-color: -gim-bg; }
 .workspace-viewer-body { -fx-padding: 16; }
 .workspace-scroll { -fx-background-color: transparent; -fx-border-color: transparent; }

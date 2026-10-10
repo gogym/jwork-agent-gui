@@ -44,6 +44,10 @@ import java.nio.file.DirectoryStream;
 
 /**
  * 工作区右侧栏：把 {@code ~/.jwork/workspace} 下的产物/文件以「文件树 + 就地阅读」的形式挂进聊天页右侧分栏。
+ * 文件树首层两个入口：「当前会话」指向 {@code <workspace>/<会话ID>/}——智能体全部文件工具都经 Harness
+ * 命名空间隔离（RuntimeContext 只传 sessionId）落在该目录，产物即此处所见，入口随 {@link #followSession}
+ * 跟随会话切换、展开面板与每轮收尾时就地刷新（{@link #refreshCurrent()}）；「共享工作区」指向 workspace 根，
+ * agents/attachments/memory/skills 等共享内容不受会话影响。
  * <p>外层横向 {@link SplitPane}（左聊天、右本面板），与聊天并存、可拖拽调宽；收起仅摘除节点（{@link #hide()}），
  * 树与已读内容状态保留。面板内部再分「阅读区」与「文件树」两块，默认单面板（一次只显示其一），
  * 头部按钮可扩为三列（阅读区 + 文件树并排）。</p>
@@ -73,6 +77,15 @@ public final class WorkspacePanel {
     private final Path workspaceRoot;
     /** 展开/收起前的宿主回调（可空）：宿主据此校准窗口宽度，保证聊天视口不因分栏挤压（见 MainController）。 */
     private java.util.function.Consumer<Boolean> visibilityGuard;
+
+    /** 当前跟随的会话 ID（可空=尚无会话）：文件树「当前会话」入口指向它。 */
+    private String sessionId;
+    /** 当前会话的专属工作区目录（= 智能体实际工作目录，可空）：{@code <workspaceRoot>/<sessionId>}。 */
+    private Path sessionDir;
+    /** 「当前会话」入口树项（可空）；刷新时整体替换该子树，摆脱一次性懒加载的陈旧内容。 */
+    private TreeItem<FileNode> sessionItem;
+    /** 「共享工作区」入口树项：workspace 根，不受会话切换影响。 */
+    private TreeItem<FileNode> sharedItem;
 
     private final BorderPane root = new BorderPane();
     private final SplitPane inner = new SplitPane();
@@ -113,7 +126,7 @@ public final class WorkspacePanel {
         return workspaceSplit != null && workspaceSplit.getItems().contains(root);
     }
 
-    /** 展开：未挂则先经宿主守护校准窗口（必要时扩窗），再挂入并把分栏位压到约 0.62。 */
+    /** 展开：未挂则先经宿主守护校准窗口（必要时扩窗），再挂入并把分栏位压到约 0.62；每次展开刷新会话入口。 */
     public void show() {
         if (workspaceSplit == null) {
             return;
@@ -124,6 +137,8 @@ public final class WorkspacePanel {
             }
             workspaceSplit.getItems().add(root);
             workspaceSplit.setDividerPositions(0.62);
+            // 面板收起期间智能体可能又落了新产物：展开即重建会话入口，所见即所得
+            refreshCurrent();
         }
     }
 
@@ -147,6 +162,64 @@ public final class WorkspacePanel {
     }
 
     // ===================== 对外入口 =====================
+
+    /**
+     * 跟随会话：把文件树「当前会话」入口切到 {@code <workspaceRoot>/<sessionId>/}（智能体实际工作目录）。
+     * <p>整树重建，目录已存在时自动展开；{@code sessionId} 为空（新任务空态）时只显示共享工作区。
+     * 宿主在启动接线、切换会话、首条消息建会话处调用；同一会话重复调用保持现状（保留展开状态）。</p>
+     */
+    public void followSession(String sessionId) {
+        String sid = sessionId == null || sessionId.isBlank() ? null : sessionId.trim();
+        if (sid != null && sid.equals(this.sessionId) && sessionItem != null) {
+            return;
+        }
+        this.sessionId = sid;
+        this.sessionDir = sessionDirOf(workspaceRoot, sid);
+        rebuildTree();
+    }
+
+    /**
+     * 就地刷新「当前会话」入口：整体替换为未加载的新子树（下次展开重列目录），
+     * 清掉一次性懒加载缓存的陈旧内容。面板展开、每轮流式收尾后由宿主调用；无会话时为空操作。
+     */
+    public void refreshCurrent() {
+        if (sessionDir == null || tree.getRoot() == null) {
+            return;
+        }
+        TreeItem<FileNode> fresh = dirItem(new FileNode(sessionDir, true, I18n.t("chat.workspace.currentSession")));
+        sessionItem = fresh;
+        tree.getRoot().getChildren().set(0, fresh);
+        if (Files.isDirectory(sessionDir)) {
+            fresh.setExpanded(true);
+        }
+    }
+
+    /** 语言切换：两个入口标签重取文案（子节点是文件名，与语言无关）。 */
+    public void applyI18n() {
+        if (sessionItem != null && sessionItem.getValue() != null) {
+            sessionItem.setValue(new FileNode(sessionDir, true, I18n.t("chat.workspace.currentSession")));
+        }
+        if (sharedItem != null && sharedItem.getValue() != null) {
+            sharedItem.setValue(new FileNode(workspaceRoot, true, I18n.t("chat.workspace.shared")));
+        }
+    }
+
+    /** 重建整树：合成根（不渲染）下挂「当前会话」（若有）与「共享工作区」两个入口。 */
+    private void rebuildTree() {
+        TreeItem<FileNode> syntheticRoot = new TreeItem<>();
+        sessionItem = sessionDir == null ? null
+                : dirItem(new FileNode(sessionDir, true, I18n.t("chat.workspace.currentSession")));
+        if (sessionItem != null) {
+            syntheticRoot.getChildren().add(sessionItem);
+        }
+        sharedItem = dirItem(new FileNode(workspaceRoot, true, I18n.t("chat.workspace.shared")));
+        syntheticRoot.getChildren().add(sharedItem);
+        tree.setRoot(syntheticRoot);
+        // 挂树后再展开（事件沿根到达树）：目录已在则子项即时上树，免得用户再点一次
+        if (sessionItem != null && Files.isDirectory(sessionDir)) {
+            sessionItem.setExpanded(true);
+        }
+    }
 
     /**
      * 把聊天内联 HTML/SVG 产物导入阅读区（{@link ArtifactPreviewWindow.PreviewSink} 目标）。
@@ -250,8 +323,9 @@ public final class WorkspacePanel {
 
     private void buildTree() {
         tree.getStyleClass().add("workspace-tree");
-        tree.setShowRoot(true);
-        tree.setRoot(dirItem(workspaceRoot));
+        // 合成根不渲染：首层直接是「当前会话 / 共享工作区」两个入口（见 rebuildTree）
+        tree.setShowRoot(false);
+        tree.setRoot(new TreeItem<>());
         tree.setCellFactory(v -> new FileCell());
         // 展开目录时懒列子项（TreeItem 无 childrenFactory，用占位子项 + 展开事件实现）
         tree.addEventHandler(TreeItem.<FileNode>branchExpandedEvent(), e -> onExpand(e.getTreeItem()));
@@ -453,6 +527,15 @@ public final class WorkspacePanel {
         return t.startsWith(r);
     }
 
+    /** 会话专属工作区 = {@code <root>/<sessionId>}；空会话 ID 或归一化后越出根（含分隔符/..）返回 {@code null}。 */
+    static Path sessionDirOf(Path root, String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return null;
+        }
+        Path dir = root.resolve(sessionId).toAbsolutePath().normalize();
+        return isWithin(root, dir) ? dir : null;
+    }
+
     /** 是否超过给定字节上限。 */
     static boolean tooLarge(long size, long cap) {
         return size > cap;
@@ -478,11 +561,17 @@ public final class WorkspacePanel {
         return dot < 0 ? "" : name.substring(dot + 1);
     }
 
-    /** 面包屑：{@code workspace › 相对子路径}。 */
+    /** 面包屑：会话内文件为「当前会话 › 相对子路径」，共享区仍为「workspace › 相对子路径」。 */
     private String crumbFor(Path target) {
+        Path base = workspaceRoot;
+        String head = workspaceRoot.getFileName().toString();
+        if (sessionDir != null && isWithin(sessionDir, target)) {
+            base = sessionDir;
+            head = I18n.t("chat.workspace.currentSession");
+        }
         List<String> parts = new ArrayList<>();
-        parts.add(workspaceRoot.getFileName().toString());
-        Path rel = workspaceRoot.relativize(target);
+        parts.add(head);
+        Path rel = base.relativize(target);
         for (Path seg : rel) {
             parts.add(seg.toString());
         }
@@ -491,8 +580,16 @@ public final class WorkspacePanel {
 
     // ===================== 文件树数据与单元 =====================
 
-    /** 树节点值：路径 + 是否目录。 */
-    record FileNode(Path path, boolean directory) {
+    /** 树节点值：路径 + 是否目录 + 显示名覆写（可空，用于「当前会话/共享工作区」两个入口）。 */
+    record FileNode(Path path, boolean directory, String label) {
+        FileNode(Path path, boolean directory) {
+            this(path, directory, null);
+        }
+
+        /** 单元格显示名：覆写优先，否则取路径末段。 */
+        String displayName() {
+            return label != null ? label : path.getFileName().toString();
+        }
     }
 
     /** 读盘结果载荷：类型 + 文本（md/html/text/doc）+ 字节（image）。 */
@@ -501,12 +598,17 @@ public final class WorkspacePanel {
 
     /** 目录节点：挂一个空值占位子项以出现展开箭头，真正子项在展开时懒列。 */
     private TreeItem<FileNode> dirItem(Path p) {
-        TreeItem<FileNode> item = new TreeItem<>(new FileNode(p, true));
+        return dirItem(new FileNode(p, true));
+    }
+
+    /** 目录节点（带显示名覆写）：「当前会话/共享工作区」两个入口节点复用。 */
+    private TreeItem<FileNode> dirItem(FileNode node) {
+        TreeItem<FileNode> item = new TreeItem<>(node);
         item.getChildren().add(new TreeItem<>());
         return item;
     }
 
-    /** 展开目录时把占位子项替换为真实列表（仅首次，子项仍为占位则再懒列）。 */
+    /** 展开目录时把占位子项替换为真实列表（仅首次，子项仍为占位则再懒列；已加载目录的陈旧内容由会话入口重建刷新）。 */
     private void onExpand(TreeItem<FileNode> item) {
         if (item == null || item.getValue() == null || !item.getValue().directory()) {
             return;
@@ -563,7 +665,7 @@ public final class WorkspacePanel {
             Label icon = new Label(item.directory() ? "\uE8B7" : "\uE7C3");
             icon.getStyleClass().add("workspace-tree-icon");
             setGraphic(icon);
-            setText(item.path().getFileName().toString());
+            setText(item.displayName());
         }
     }
 }

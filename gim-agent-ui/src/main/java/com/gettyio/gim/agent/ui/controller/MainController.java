@@ -527,6 +527,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         chatSplit.setMinWidth(810);
         com.gettyio.gim.agent.ui.chat.ArtifactPreviewWindow.setPreviewSink(
                 (owner, code, lang) -> workspacePanel.showArtifact(code, lang));
+        // 文件树「当前会话」入口跟随启动时恢复的会话（欢迎页空态则只显示共享工作区）
+        workspacePanel.followSession(currentSessionId);
 
         applyI18n();
         toolbar.buildThemeMenu();
@@ -662,6 +664,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         if (sidebarToggle != null) {
             sidebarToggle.refreshLabel();
+        }
+        if (workspacePanel != null) {
+            workspacePanel.applyI18n();
         }
         if (modelBannerText != null) {
             modelBannerText.setText(I18n.t("chat.banner.noModel"));
@@ -851,6 +856,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         if (currentSessionId == null) {
             // 首条消息才建会话，归属当前选中的智能体；先让侧栏看到这一行，不等回复跑完
             currentSessionId = chatService.createSession(currentAgentCode());
+            // 工作区右栏即时挂上该会话的专属目录入口（首次产出前为空，收尾后自动刷新）
+            if (workspacePanel != null) {
+                workspacePanel.followSession(currentSessionId);
+            }
             refreshSessions();
         }
         List<ImageAttachment> images = attachmentBar.snapshotImages();
@@ -975,6 +984,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         if (currentSessionId == null) {
             // 与发送首条消息同口径：生图也建会话，归属当前选中的智能体
             currentSessionId = chatService.createSession(currentAgentCode());
+            if (workspacePanel != null) {
+                workspacePanel.followSession(currentSessionId);
+            }
             refreshSessions();
         }
         String sid = currentSessionId;
@@ -1055,6 +1067,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                                 chatView.streamEnd(streamId);
                                 exitStreamingUi();
                                 refreshSessions();
+                                refreshWorkspaceAfterTurn(sessionId);
                             });
                         },
                         () -> Platform.runLater(() -> {
@@ -1062,6 +1075,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                             refreshSessions();
                             // 完成：从库重放，令刚落的助手/用户气泡拿到真实主键与操作能力
                             historyPager.render(sessionId);
+                            // 本轮新落的产物就地可见（面板收起时由展开时刷新兜底）
+                            refreshWorkspaceAfterTurn(sessionId);
                             // 规划轮跑完：展示并让用户确认/编辑计划文件
                             if (planTurn) {
                                 reviewPlan(agentOfSession(sessionId));
@@ -1070,6 +1085,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                             checkMonthlyBudget();
                         })
                 );
+    }
+
+    /** 每轮对话收尾（完成/失败）：工作区右栏若正跟随该会话，就地重建会话入口刷新文件树。 */
+    private void refreshWorkspaceAfterTurn(String sessionId) {
+        if (workspacePanel != null && sessionId != null && sessionId.equals(currentSessionId)) {
+            workspacePanel.refreshCurrent();
+        }
     }
 
     /**
@@ -1231,6 +1253,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         // 高亮当前会话行
         sidebar.renderSessions();
         updateHeaderTitle();
+        // 工作区右栏跟随会话：文件树「当前会话」入口切到该会话的专属目录（智能体产物实际落点）
+        if (workspacePanel != null) {
+            workspacePanel.followSession(sessionId);
+        }
     }
 
     // ===================== 消息气泡操作：复制 / 重生成 / 编辑重发 / 删除 =====================
@@ -1395,6 +1421,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         chatView.clear();
         chatEmpty.set(true);
         updateHeaderTitle();
+        // 无会话：文件树收回到「共享工作区」单入口视图
+        if (workspacePanel != null) {
+            workspacePanel.followSession(null);
+        }
     }
 
     @Override
