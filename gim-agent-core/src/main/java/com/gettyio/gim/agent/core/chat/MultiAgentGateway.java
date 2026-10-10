@@ -25,7 +25,8 @@ import java.util.function.Consumer;
  * <ul>
  *   <li>systemPrompt 为空 → 工作区 AGENTS.md（装配方提供的 fallbackPrompt）；</li>
  *   <li>providerCode/modelCode 未同时指定 → 应用默认模型；</li>
- *   <li>workspaceDir 为空 → 共享工作区目录；相对路径被限制在该目录之内。</li>
+ *   <li>workspaceDir 为空 → 默认专属目录 {@code agents/&lt;编码&gt;/}（默认智能体除外——
+ *       它是全局记忆的载体，保持共享工作区）；相对路径被限制在共享目录之内。</li>
  * </ul>
  * <p>技能与 MCP 则相反，走<b>严格白名单</b>：由 {@link AgentCapabilityResolver} 按定义的
  * skills_json / mcp_servers_json 下发，未声明即无能力。</p>
@@ -37,8 +38,14 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
     /** 内置默认智能体编码：会话/定时任务未指定智能体时使用 */
     public static final String DEFAULT_AGENT_CODE = "gim-agent";
 
+    /** 默认专属工作区的父目录名：未配置 workspace_dir 的智能体各占 {@code agents/<编码>/} 一个 */
+    public static final String AGENTS_DIR = "agents";
+
     /** 运行体缓存键的分隔符：用不可见控制字符，避免与真实编码冲突 */
     private static final char RUNTIME_KEY_SEP = '\u0000';
+
+    /** 合法智能体编码：内部生成 {@code gim-agent} / {@code agent-<uuid8>} 形态，可直接用作目录名 */
+    private static final java.util.regex.Pattern AGENT_DIR_CODE = java.util.regex.Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
 
     private final AgentDefinitionDao agentDao;
     /** 智能体定义 + 消息级模型覆盖 → 模型实例（由装配方提供，通常自带实例缓存） */
@@ -107,11 +114,18 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
 
     /**
      * 解析指定智能体的工作区目录（与运行时装配同一套回退逻辑）：定义缺失或未填 {@code workspace_dir}
-     * 时回退共享工作区。供应用级记忆/知识管理页定位该智能体的 {@code MEMORY.md} 与 {@code knowledge/}。
+     * 时走默认落点（见 {@link #defaultWorkspaceFor}）。供应用级记忆/知识管理页定位该智能体的
+     * {@code MEMORY.md} 与 {@code knowledge/}。
      */
     public Path workspaceForAgent(String agentCode) {
-        AgentDefinition def = agentDao.findByCode(normalize(agentCode)).orElse(null);
-        return def == null ? fallbackWorkspace : workspaceFor(def);
+        String code = normalize(agentCode);
+        AgentDefinition def = agentDao.findByCode(code).orElse(null);
+        return def == null ? defaultWorkspaceFor(code) : workspaceFor(def);
+    }
+
+    /** 共享工作区目录：默认智能体（全局记忆载体）的家。 */
+    public Path sharedWorkspace() {
+        return fallbackWorkspace;
     }
 
     public void invalidateAll() {
@@ -224,11 +238,11 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         return gateway;
     }
 
-    /** 智能体专属工作区：相对共享目录解析，越界或创建失败则回退共享目录 */
+    /** 智能体专属工作区：相对共享目录解析，越界或创建失败则回退共享目录；未配置时用默认落点 */
     private Path workspaceFor(AgentDefinition def) {
         String relative = def.getWorkspaceDir();
         if (blank(relative)) {
-            return fallbackWorkspace;
+            return defaultWorkspaceFor(def.getAgentCode());
         }
         Path candidate = fallbackWorkspace.resolve(relative).normalize();
         if (!candidate.startsWith(fallbackWorkspace)) {
@@ -239,6 +253,30 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
             Files.createDirectories(candidate);
         } catch (IOException e) {
             log.warn("创建智能体工作区失败，回退共享目录: {}", candidate, e);
+            return fallbackWorkspace;
+        }
+        return candidate;
+    }
+
+    /**
+     * 未配置工作区时的默认落点：默认智能体保持共享工作区（它是全局记忆的载体），
+     * 其余智能体各得 {@code <共享目录>/agents/<编码>/} 专属工作区并即时创建；
+     * 编码非法或创建失败时回退共享目录（不阻断对话）。
+     */
+    private Path defaultWorkspaceFor(String agentCode) {
+        String code = normalize(agentCode);
+        if (DEFAULT_AGENT_CODE.equals(code)) {
+            return fallbackWorkspace;
+        }
+        if (!AGENT_DIR_CODE.matcher(code).matches()) {
+            log.warn("智能体编码不能用作目录名，工作区回退共享目录: {}", code);
+            return fallbackWorkspace;
+        }
+        Path candidate = fallbackWorkspace.resolve(AGENTS_DIR).resolve(code).normalize();
+        try {
+            Files.createDirectories(candidate);
+        } catch (IOException e) {
+            log.warn("创建智能体默认专属工作区失败，回退共享目录: {}", candidate, e);
             return fallbackWorkspace;
         }
         return candidate;

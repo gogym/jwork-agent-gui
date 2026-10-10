@@ -150,7 +150,7 @@ final class AgentSettingsPanel {
                 SettingsLayout.kvLine(I18n.t("settings.agent.prompt"), SettingsLayout.preview(a.getSystemPrompt())),
                 SettingsLayout.kvLine(I18n.t("settings.agent.model"), model),
                 SettingsLayout.kvLine(I18n.t("settings.agent.params"), params),
-                SettingsLayout.kvLine(I18n.t("settings.agent.workspace"), a.getWorkspaceDir()),
+                SettingsLayout.kvLine(I18n.t("settings.agent.workspace"), workspace(a)),
                 SettingsLayout.kvLine(I18n.t("settings.agent.project"), a.getProjectPath()),
                 SettingsLayout.kvLine(I18n.t("settings.agent.skills"), capability(agentAdminService.declaredSkillNames(a.getSkillsJson()))),
                 SettingsLayout.kvLine(I18n.t("settings.agent.mcp"), capability(agentAdminService.declaredMcpNames(a.getMcpServersJson()))),
@@ -161,6 +161,19 @@ final class AgentSettingsPanel {
         card.setPrefWidth(SettingsLayout.CARD_WIDTH);
         card.setMaxWidth(SettingsLayout.CARD_WIDTH);
         return card;
+    }
+
+    /**
+     * 工作区行文本：显式目录原样展示；留空即默认专属 agents/<编码>/（默认智能体为共享工作区）。
+     */
+    private String workspace(AgentDefinition a) {
+        String dir = a.getWorkspaceDir();
+        if (dir != null && !dir.isBlank()) {
+            return dir;
+        }
+        return agentAdminService.isDefault(a.getAgentCode())
+                ? I18n.t("settings.agent.workspace.shared")
+                : I18n.t("settings.agent.workspace.default", a.getAgentCode());
     }
 
     /**

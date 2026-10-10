@@ -1458,6 +1458,18 @@
 }
 .memory-editor .content { -fx-background-color: -gim-input-bg; -fx-background-radius: 8; }
 
+/* 记忆详情页区块标题（section-title 的扁平变体）：去掉卡片式内衬边距（12 12 2 12），
+   标题与页面内容左对齐；上下边距归零后包围盒与文字同高，标题行右侧按钮与文字中线精确居中。
+   双类选择器特异性高于 .section-title，仅本页标题受控 */
+.label.memory-section-title { -fx-padding: 0; }
+
+/* 记忆作用域（文件夹卡片）行的文件夹图标：主色微放大，作为行的视觉锚点 */
+.memory-scope-icon {
+    -fx-font-size: 20px;
+    -fx-text-fill: -gim-accent;
+    -fx-min-width: 26;
+}
+
 /* ============================================================
  * 内容页（定时任务 / 技能）：页头 + 卡片网格 + 空状态
  * ============================================================ */
@@ -1500,6 +1512,9 @@
     -fx-cursor: hand;
 }
 .icon-btn:hover { -fx-background-color: -gim-cell-hover; }
+/* 图标按钮危险变体（删除记忆等）：图标红色，悬停淡红底 */
+.icon-btn-danger .icon { -fx-text-fill: -gim-badge-red-fg; }
+.icon-btn-danger:hover { -fx-background-color: -gim-badge-red-bg; }
 .search-field {
     -fx-pref-width: 220;
     -fx-background-radius: 8;

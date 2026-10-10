@@ -246,6 +246,30 @@
         s.addRange(r);
     }
 
+    // ---------- 键盘删除（Backspace/Delete，Java 键盘链本地注入） ----------
+
+    /**
+     * 键盘语义删除：与字符输入同一 JS 链路（合成 AWT 键盘转发在键盘经 JavaFX 路由时
+     * 不产生 Chromium 编辑效果——同 Shift+Enter 的处理）。非折叠选区整体删除；折叠
+     * caret 用 Selection.modify 按「字符/词组」粒度扩展选区后 execCommand('delete')。
+     * forward=true 为 Delete（向前删）；byWord=true（Ctrl 修饰）按词删。
+     */
+    function deleteByKeyboard(forward, byWord) {
+        editor.focus();
+        var sel = window.getSelection();
+        if (!sel || sel.rangeCount === 0) {
+            return;
+        }
+        if (sel.getRangeAt(0).collapsed) {
+            sel.modify('extend', forward ? 'forward' : 'backward', byWord ? 'word' : 'character');
+            if (sel.getRangeAt(0).collapsed) {
+                return; // 已在文档边界：无可删内容
+            }
+        }
+        document.execCommand('delete');
+        reportState();
+    }
+
     // ---------- Java→JS API ----------
 
     window.ComposerAPI = {
@@ -267,6 +291,9 @@
             editor.focus();
             document.execCommand('insertLineBreak');
             reportState();
+        },
+        deleteText: function (forward, byWord) {
+            deleteByKeyboard(!!forward, !!byWord);
         },
         focus: function () {
             editor.focus();

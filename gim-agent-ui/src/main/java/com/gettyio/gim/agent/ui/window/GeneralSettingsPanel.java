@@ -16,6 +16,7 @@ import com.gettyio.gim.agent.ui.sync.WebDavSyncService;
 import com.gettyio.gim.agent.ui.voice.TtsService;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import javafx.application.Platform;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -524,7 +525,11 @@ final class GeneralSettingsPanel {
         hint.setWrapText(true);
 
         FlowPane buttons = new FlowPane(8, 8, backup, exportSession, exportFull, openBackup, openRoot);
-        VBox card = new VBox(8, hint, buttons);
+        VBox body = new VBox(8, hint, buttons);
+        // 行式卡片的内容内衬 = 卡片 4px + settings-row 14px；本卡为手工内容无行包装，在内层无样式类
+        // 容器上补足等量内衬（直接给卡片 setPadding 会被 settings-group 样式表的 -fx-padding 覆盖）
+        body.setPadding(new Insets(14, 0, 14, 0));
+        VBox card = new VBox(body);
         card.getStyleClass().add("settings-group");
         return new VBox(6, gt, card);
     }

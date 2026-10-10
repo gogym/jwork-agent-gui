@@ -36,7 +36,10 @@ import java.util.function.Consumer;
  * <ul>
  *   <li><b>字符输入</b>：JavaFX KEY_TYPED 经 {@code ComposerAPI.insertText}（execCommand）注入 DOM——
  *       彩色 emoji / 增补平面字符天然支持（executeScript 有 ASCII 转义护栏）；</li>
- *   <li><b>功能键</b>（Backspace/方向/Home/End 等与 Ctrl 组合快捷键）：合成 AWT KeyEvent 转发
+ *   <li><b>编辑键</b>（Backspace/Delete 及 Ctrl 组合）：与字符输入同一 JS 注入链路
+ *       （{@code ComposerAPI.deleteText}）——合成 AWT 键盘转发在键盘经 JavaFX 路由时
+ *       不产生 Chromium 编辑效果（同 Shift+Enter 软换行的处理教训）；</li>
+ *   <li><b>其余功能键</b>（方向/Home/End 等与 Ctrl 组合快捷键）：合成 AWT KeyEvent 转发
  *       （{@link JcefOsrView#forwardKeyEvent}），Chromium 原生处理；</li>
  *   <li><b>中文 IME</b>：系统输入法事件由 JavaFX 层接管（{@link InputMethodRequests} +
  *       {@code onInputMethodTextChanged}，焦点节点两者齐备才会启用 IME 事件）——组合文本经桥渲染为
@@ -103,7 +106,7 @@ public final class JcefComposer {
         // 鼠标按下即抢 JavaFX 焦点：IME 事件只路由给焦点节点；鼠标转发由 JcefOsrView 内部完成
         host.addEventFilter(MouseEvent.MOUSE_PRESSED, e -> host.requestFocus());
 
-        // 键盘：功能键/快捷键转发到 Chromium；字符输入走 JS 注入；Enter 拦截为提交
+        // 键盘：编辑键/字符输入走 JS 注入；其余功能键转发到 Chromium；Enter 拦截为提交
         host.addEventFilter(KeyEvent.KEY_PRESSED, this::onKeyPressed);
         host.addEventFilter(KeyEvent.KEY_RELEASED, this::onKeyReleased);
         host.addEventFilter(KeyEvent.KEY_TYPED, this::onKeyTyped);
@@ -256,6 +259,13 @@ public final class JcefComposer {
             } else if (onSubmit != null) {
                 onSubmit.run();
             }
+            return;
+        }
+        if (code == KeyCode.BACK_SPACE || code == KeyCode.DELETE) {
+            // 删除键本地注入：不依赖合成 AWT 键盘转发（键盘经 JavaFX 路由时该链路
+            // 不产生 Chromium 编辑效果——同 Shift+Enter 换行的处理）；Ctrl 修饰按词删
+            e.consume();
+            execJs("ComposerAPI.deleteText(" + (code == KeyCode.DELETE) + ", " + e.isControlDown() + ");");
             return;
         }
         if (isPassthroughKey(code)) {

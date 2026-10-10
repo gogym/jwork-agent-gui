@@ -181,6 +181,9 @@ public class GimAgentConfiguration {
                     // 知识检索工具：knowledge_search——向量召回知识块，与 KNOWLEDGE.md 文件树路线并存
                     gw.registerToolTarget(new com.gettyio.gim.agent.core.knowledge.KnowledgeSearchTools(
                             embeddingIndexer, gw::getAgentId));
+                    // 分类记忆工具：memory_write——按主题写入 memory/<分类>.md（可搜索、随沉淀合并进 MEMORY.md；
+                    // 记忆关闭时网关侧与框架记忆工具同门禁跳过）
+                    gw.registerToolTarget(new com.gettyio.gim.agent.core.memory.MemoryWriteTool(gw.getWorkspace()));
                     // 图像生成工具：generate_image——配置实时取用，产物落 workspace/generated 后由模型以 Markdown 引用展示
                     gw.registerToolTarget(new ImageGenerationTools(imageGenerationClient, () -> paths.generatedDir()));
                     // Docker 沙箱：自动通过档且设置开启时，Shell 走一次性容器执行；握手失败自动回退本地
@@ -213,16 +216,14 @@ public class GimAgentConfiguration {
 
     /** 依 AppSetting 下发长期记忆装配：
      * <ul>
-     *   <li>{@code agent.memory.enabled}：{@code "false"} 即关闭（其余/缺省为开）；</li>
-     *   <li>{@code agent.memory.flushMode}：{@code always}（默认）/ {@code throttled}（≥ 10min）/ {@code never}。</li>
+     *   <li>{@link HarnessAgentGateway#SETTING_MEMORY_ENABLED}：{@code "false"} 即关闭（其余/缺省为开）；</li>
+     *   <li>{@link HarnessAgentGateway#SETTING_MEMORY_FLUSH_MODE}：{@code always}（默认）/ {@code throttled}（≥ 10min）/ {@code never}。</li>
      * </ul>
      */
     private static void applyMemorySettings(HarnessAgentGateway gw, GimDatabase db) {
-        boolean enabled = db.settingDao().getValue("agent.memory.enabled")
-                .map(v -> !"false".equalsIgnoreCase(v.trim()))
-                .orElse(true);
+        boolean enabled = readBool(db, HarnessAgentGateway.SETTING_MEMORY_ENABLED, true);
         gw.setMemoryEnabled(enabled);
-        String flushMode = db.settingDao().getValue("agent.memory.flushMode")
+        String flushMode = db.settingDao().getValue(HarnessAgentGateway.SETTING_MEMORY_FLUSH_MODE)
                 .map(v -> v.trim().toLowerCase(java.util.Locale.ROOT))
                 .orElse("always");
         MemoryConfig.FlushTrigger trigger = switch (flushMode) {

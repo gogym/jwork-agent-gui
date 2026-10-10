@@ -11,18 +11,15 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 /**
- * 拓展整页：内容区左上角两个 Tab —— 「技能」与「MCP 服务」。
- * <p>技能 Tab 复用 {@link SkillsView}，MCP Tab 复用自包含组件 {@link McpView}
- * （与「设置」中的 MCP 服务共用同一实现，各自独立实例）。语言切换时刷新 Tab 文案。</p>
+ * 拓展整页：内容区左上角三个 Tab —— 「技能」「知识」与「MCP 服务」。
+ * <p>技能 Tab 复用 {@link SkillsView}，知识 Tab 复用 {@link KnowledgeView}，MCP Tab 复用自包含组件
+ * {@link McpView}（与「设置」中的 MCP 服务共用同一实现，各自独立实例）。语言切换时刷新 Tab 文案。</p>
  */
 @Component
 public class ExtensionsView {
 
     @Autowired
     private SkillsView skillsView;
-
-    @Autowired
-    private MemoryView memoryView;
 
     @Autowired
     private KnowledgeView knowledgeView;
@@ -37,7 +34,6 @@ public class ExtensionsView {
     private final StackPane root = new StackPane();
     private final TabPane tabPane = new TabPane();
     private final Tab skillsTab = new Tab();
-    private final Tab memoryTab = new Tab();
     private final Tab knowledgeTab = new Tab();
     private final Tab mcpTab = new Tab();
     private McpView mcpView;
@@ -64,19 +60,16 @@ public class ExtensionsView {
         mcpView = new McpView(mcpAdminService, marketService);
         // 拓展页内隐藏一级标题（与 Tab 名重复）；设置页的 MCP 仍保留标题
         skillsView.showHeaderTitle(false);
-        memoryView.showHeaderTitle(false);
         knowledgeView.showHeaderTitle(false);
         mcpView.showHeaderTitle(false);
 
         skillsTab.setClosable(false);
-        memoryTab.setClosable(false);
         knowledgeTab.setClosable(false);
         mcpTab.setClosable(false);
         skillsTab.setContent(skillsView.getNode());
-        memoryTab.setContent(memoryView.getNode());
         knowledgeTab.setContent(knowledgeView.getNode());
         mcpTab.setContent(mcpView.getNode());
-        tabPane.getTabs().setAll(skillsTab, memoryTab, knowledgeTab, mcpTab);
+        tabPane.getTabs().setAll(skillsTab, knowledgeTab, mcpTab);
         tabPane.setTabClosingPolicy(TabPane.TabClosingPolicy.UNAVAILABLE);
         tabPane.getStyleClass().add("extensions-tabs");
 
@@ -90,7 +83,6 @@ public class ExtensionsView {
 
     private void applyI18n() {
         skillsTab.setText(I18n.t("skills.title"));
-        memoryTab.setText(I18n.t("memory.title"));
         knowledgeTab.setText(I18n.t("knowledge.title"));
         mcpTab.setText(I18n.t("settings.menu.mcp"));
     }
@@ -101,9 +93,6 @@ public class ExtensionsView {
         Tab selected = tabPane.getSelectionModel().getSelectedItem();
         if (selected == mcpTab) {
             mcpView.reload();
-        } else if (selected == memoryTab) {
-            memoryView.showHeaderTitle(false);
-            memoryView.reload();
         } else if (selected == knowledgeTab) {
             knowledgeView.showHeaderTitle(false);
             knowledgeView.reload();

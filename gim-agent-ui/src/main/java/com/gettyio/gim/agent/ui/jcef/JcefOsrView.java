@@ -89,6 +89,11 @@ public final class JcefOsrView {
     private int pressedButton = java.awt.event.MouseEvent.NOBUTTON;
     /** resize 停止后的 trailing 下发器：保证最终尺寸一定送达 CEF（仅 FX 线程）。 */
     private javafx.animation.PauseTransition sizeFlushDelay;
+    /** 最近一次尺寸变化事件时刻（ns）：resize 观测日志据此度量「静止了多久才下发」（FX 写、AWT 读）。 */
+    private volatile long lastSizeEventNs = 0L;
+    /** 页面「贴底跟随」状态提供者（聊天页报 atBottom）：过渡帧垂直锚定据此贴底/顶对齐；
+     *  未设置（null）视为非贴底——文档流页面顶端对齐（重排保留 scrollTop，视口顶端不动）。 */
+    private volatile java.util.function.BooleanSupplier bottomPinnedSupplier;
     /** 「重排敏感期」截止（ns）：CEF 收到新尺寸后，在新布局光栅化完成前会持续输出「旧场景+新场景」
      *  的分块拼贴半成品帧（实测：快速拉大时出现上半旧布局+下半新布局的错位画面；CEF 官方
      *  issue #4166 确认 OnPaint 会间歇给出「全幅但视觉不完整的中间合成帧」且无就绪信号）。
@@ -99,6 +104,11 @@ public final class JcefOsrView {
     private volatile long resizeGuardStartNs = 0L;
     /** 本代际（本轮 setSize 后）是否已收到过帧：false 时任何帧都不得即时上屏（防首帧晚到绕开敏感期）。 */
     private volatile boolean resizeFirstFrameSeen = true;
+    /** 最近一张完整帧（stableFrame）的锐度基准（FX 线程）：敏感期 settle 的锐度闸门据此辨别
+     *  拉伸/未光栅完成的模糊帧（其相邻像素差峰值显著低于原生渲染帧）。-1 = 尚未采样。 */
+    private int stableSharpness = -1;
+    /** 本代际是否已打印过「settle 被闸门拒绝」日志（连续拒绝只记首条，防帧流刷屏）。 */
+    private boolean settleRejectLogged;
     /** 敏感期内上一帧的采样签名（FX 线程）：连续两帧签名一致 = 画面已稳定（重排完成）。 */
     private byte[] prevFrameSig;
     private int prevFrameSigW = -1;
@@ -109,8 +119,32 @@ public final class JcefOsrView {
     private java.lang.reflect.Method invalidateMethod;
     /** 重排收尾的「帧流平静」定时器（仅 FX 线程）：每帧续期；平静后发起 invalidate 取验证帧。 */
     private javafx.animation.PauseTransition resizeHold;
-    /** 重排收尾平静阈值（ms）：跨过 Chromium 分块光栅化的批次间隙（间隙内的半成品帧不得上屏）。 */
-    private static final long RESIZE_QUIET_MS = 500;
+    /** 重排收尾平静阈值（ms）：跨过 Chromium 分块光栅化的批次间隙（间隙内的半成品帧不得上屏）。
+     *  220ms：聊天页光栅化批次间隙为几十 ms 量级，220 已覆盖并留余量；原 500ms 使「单帧流」
+     *  收尾（平静→invalidate→比对）多等约 280ms。若偶发提前收尾（半成品上屏），后续修正帧
+     *  会在冷却期内走比对路径重新 settle 覆盖，兜底自愈。 */
+    private static final long RESIZE_QUIET_MS = 220;
+    /** 尺寸静止后下发 CEF 的静默阈值（ms）：resize 事件流每来一次即重置计时，只有真正静止
+     *  才下发最终尺寸。80ms 足以合并一次动作的多批布局 pass（脉冲间隔 16-33ms），同时把终端
+     *  开合/最大化等一次性变化的等待从 150ms 缩短——画布跟手与锚定重绘已保证过渡视觉，
+     *  多余的等待纯属滞后。 */
+    private static final long SIZE_FLUSH_MS = 80;
+    /** 后续验证轮次的平静间隔（ms）：首轮用 {@link #RESIZE_QUIET_MS} 跨批次间隙；后续轮次画面
+     *  已临近完成，缩短等待加速收尾（每轮省 120ms）。 */
+    private static final long RESIZE_QUIET_TAIL_MS = 100;
+    /** 锐度闸门采样线数：均匀取水平线段，统计相邻像素 |ΔG| 峰值的 P90 作为帧锐度。 */
+    private static final int SHARPNESS_LINES = 64;
+    /** 每条采样线的连续像素数（产生 31 个 1px 相邻对）。 */
+    private static final int SHARPNESS_SEG = 32;
+    /** 锐度闸门启用下限：基准锐度低于此值（低对比/空白页面）时放弃检测，不误拒。 */
+    private static final int SHARPNESS_BASELINE_MIN = 40;
+    /** 锐度闸门比率：帧锐度 < 基准×该值 → 判为拉伸/未光栅完成的模糊帧，不允许收敛上屏。 */
+    private static final double SHARPNESS_MIN_RATIO = 0.5;
+    /** 方向结构闸门：十字采样臂的峰值一方达「强」、另一方低于「弱」→ 记一个失衡点。 */
+    private static final int AXIS_STRONG = 60;
+    private static final int AXIS_WEAK = 12;
+    /** 失衡点占比超过该比例（21/64）→ 判为压缩/错位中间态帧，不允许收敛上屏。 */
+    private static final int AXIS_MISMATCH_MAX = 64 / 3;
     /** 敏感期/冷却长度（ms）：setSize 后及收尾后各延长一次——防拖后滚动帧误即时上屏、防收尾过早。 */
     private static final long RESIZE_GUARD_MS = 1200;
     /** 连续帧流兜底（ms）：帧流不断（页面动画/流式叠加拖动）时放弃攒帧保护回到即时，防画面冻结。 */
@@ -297,13 +331,20 @@ public final class JcefOsrView {
                     img.getPixelWriter().setPixels(0, 0, w, h,
                             PixelFormat.getByteBgraPreInstance(), arr, 0, stride);
                     lastFrame = img;
+                    // 帧锐度（相邻像素差峰值 P90）：拉伸放大/未光栅完成的帧高频能量显著偏低，
+                    // 敏感期 settle 用其辨别「旧纹理拉伸」的半成品（见 handleFrameInResizeSensitive）。
+                    final int sharp = estimateSharpness(arr, w, h, stride);
+                    // 方向失衡采样：内容被压缩/错位的中间态（如卡片文字挤成一排竖线）锐度反而极高，
+                    // 但其「一侧强结构、另一侧近乎无」的采样点占比远超正常渲染——第三道闸门据此拦截。
+                    final int mismatch = estimateAxisMismatch(arr, w, h, stride);
                     // 重排敏感期（或本代际首帧尚未到达）内的帧多为「旧场景+新场景」的拼贴半成品，
                     // 一律不上屏——保持稳定帧过渡绘制，直至验证出稳定（见 handleFrameInResizeSensitive）。
                     final long nowNs = System.nanoTime();
                     if (nowNs < resizeGuardUntilNs || !resizeFirstFrameSeen) {
-                        handleFrameInResizeSensitive(img, w, h, nowNs);
+                        handleFrameInResizeSensitive(img, w, h, sharp, mismatch, nowNs);
                     } else {
                         stableFrame = img; // 非重排期帧 = 完整帧，同步为「拖动重绘可用的可信帧」
+                        stableSharpness = sharp;
                         paintFrameNow();
                     }
                 });
@@ -638,6 +679,12 @@ public final class JcefOsrView {
         this.loadEnd = runnable;
     }
 
+    /** 设置页面「贴底跟随」状态提供者（如聊天页的 atBottom 上报）：过渡帧垂直锚定在贴底时机
+     *  选择帧底贴画布底——配合页面侧 resize 补滚保持贴底，视口高度变化收尾零跳变。 */
+    public void setBottomPinnedSupplier(java.util.function.BooleanSupplier supplier) {
+        this.bottomPinnedSupplier = supplier;
+    }
+
     /** 宿主节点：控制器把它放进容器并撑满（对齐旧 ChatWebView.node() 语义）。 */
     public StackPane node() {
         return host;
@@ -737,9 +784,10 @@ public final class JcefOsrView {
     /**
      * 尺寸同步：驱动 OSR native resize，使 CEF 按新视口重排重绘。
      *
-     * <p>「视觉跟手」与「CEF 重排」解耦：画布立即对齐新尺寸并把现有帧原尺寸居中重绘（拖动
-     * 即刻跟手且内容零变形，不等 CEF 大图重排）；真实重排只在尺寸停止变化 150ms 后（trailing）
-     * 一次性下发——拖动期间不让 CEF 对中间尺寸重排（其分块中间态帧会造成内容短暂错位/漂移）。</p>
+     * <p>「视觉跟手」与「CEF 重排」解耦：画布立即对齐新尺寸并把现有帧按锚定规则原尺寸重绘（拖动
+     * 即刻跟手且内容零变形，不等 CEF 大图重排）；真实重排只在尺寸停止变化 {@link #SIZE_FLUSH_MS}ms
+     * 后（trailing）一次性下发——拖动期间不让 CEF 对中间尺寸重排（其分块中间态帧会造成内容短暂
+     * 错位/漂移）。</p>
      */
     public void syncSize(double w, double h) {
         if (w < 2 || h < 2) {
@@ -768,13 +816,14 @@ public final class JcefOsrView {
         if (iw <= 0 || ih <= 0) {
             return;
         }
-        // 1) 视觉跟手：画布立即对齐槽位尺寸，现有帧原尺寸居中重绘（不等 CEF 重排）
+        // 1) 视觉跟手：画布立即对齐槽位尺寸，现有帧原尺寸重绘（水平居中 + 垂直贴滚动语义，不等 CEF 重排）
         applyCanvasLayout(iw, ih);
-        // 2) 真实重排仅 trailing：停止变化 150ms 后一次性下发最终尺寸。拖动期间绝不下发——
+        // 2) 真实重排仅 trailing：停止变化 SIZE_FLUSH_MS 后一次性下发最终尺寸。拖动期间绝不下发——
         //    CEF 对中间尺寸的分块重排会产出「半新半旧」的布局中间态帧，实测快速缩小时
         //    内容错位/漂移；拖动期间画面完全由现有稳定帧 + 留白伸缩表现（内容静止）。
+        lastSizeEventNs = System.nanoTime();
         if (sizeFlushDelay == null) {
-            sizeFlushDelay = new javafx.animation.PauseTransition(javafx.util.Duration.millis(150));
+            sizeFlushDelay = new javafx.animation.PauseTransition(javafx.util.Duration.millis(SIZE_FLUSH_MS));
             sizeFlushDelay.setOnFinished(e -> flushSizeToCef());
         }
         sizeFlushDelay.playFromStart();
@@ -792,10 +841,13 @@ public final class JcefOsrView {
                 }
                 lastSetSizeW = tw;
                 lastSetSizeH = th;
+                log.info("OSR resize 下发: {}x{}（尺寸变化静默 {}ms）", tw, th,
+                        lastSizeEventNs == 0 ? -1 : (System.nanoTime() - lastSizeEventNs) / 1_000_000L);
                 // 进入「重排敏感期」：期内 CEF 输出的是「旧+新」分块拼贴半成品，由 onPaint 攒住
                 // 不上屏（保持稳定帧过渡绘制），验证稳定后收尾上屏。每轮 setSize 重置敏感期与
                 // 首帧标记（首帧无论多晚到达都必须走敏感路径，防其在保护窗外被当完整帧上屏）。
                 resizeFirstFrameSeen = false;
+                settleRejectLogged = false;
                 resizeGuardStartNs = System.nanoTime();
                 resizeGuardUntilNs = resizeGuardStartNs + RESIZE_GUARD_MS * 1_000_000L;
                 try {
@@ -806,9 +858,9 @@ public final class JcefOsrView {
     }
 
     /**
-     * 画布即时跟手：尺寸对齐槽位，并把现有帧按「原始像素尺寸居中」重绘。
-     * <p>不缩放不拉伸（内容零变形）；居中锚点与 CEF 重排后的居中列布局一致，过渡零跳变。
-     * 帧小于画布时四周留白以帧边缘色（页面背景）填充，避免露出异构底色。</p>
+     * 画布即时跟手：尺寸对齐槽位，并把现有帧按「原始像素尺寸」重绘（水平居中 + 垂直贴滚动语义）。
+     * <p>不缩放不拉伸（内容零变形）；锚点与 CEF 重排后的最终位置一致（居中列 / scrollTop 保持 / 贴底），
+     * 过渡零跳变。帧小于画布时空缺以帧边缘色（页面背景）填充，避免露出异构底色。</p>
      */
     private void applyCanvasLayout(final int w, final int h) {
         final Runnable r = () -> {
@@ -827,11 +879,13 @@ public final class JcefOsrView {
     }
 
     /**
-     * 把稳定帧以原始像素尺寸居中绘制到画布：绝不缩放拉伸（内容零变形）；目标坐标取整，
-     * 避免半像素偏移触发双线性重采样（整幅发虚）。水平/垂直统一锚定「帧心 = 画布心」——
-     * 与 CEF 重排后的「居中列」布局几何一致（列在视口居中），拖动全程内容渐进滑向最终位置、
-     * 收尾零跳变；帧超出画布的部分（两侧/上下）自然裁掉（minWidth 已保证居中列不超画布，
-     * 裁到的只是页边留白）。帧四周留白以「对应边缘 1px 列/行」延伸填充；另做滚动条搬运：
+     * 把稳定帧以原始像素尺寸绘制到画布：绝不缩放拉伸（内容零变形）；目标坐标取整，
+     * 避免半像素偏移触发双线性重采样（整幅发虚）。水平居中——与 CEF 重排后的「居中列」
+     * 布局几何一致（列在视口居中），拖动全程内容渐进滑向最终位置、收尾零跳变；垂直贴合
+     * 页面滚动语义——默认顶端对齐（重排保留 scrollTop，视口顶端内容不动，底部裁剪/延展），
+     * 页面贴底跟随时底部对齐（帧底贴画布底，顶部裁剪）——两者均与重排后的最终位置一致，
+     * 收尾零跳变。帧超出画布的部分自然裁掉（minWidth 已保证居中列不超画布，水平裁到的
+     * 只是页边留白）。帧四周留白以「对应边缘 1px 列/行」延伸填充；另做滚动条搬运：
      * 帧右缘 {@link #EDGE_BAR}px 带（滚动条所在）复制到画布右缘——帧右缘仍在画布内时原位
      * 以边距背景列覆盖。全程不做 clear：各带/角/主帧几何全域覆盖且帧不透明。
      */
@@ -844,12 +898,14 @@ public final class JcefOsrView {
         final GraphicsContext gc = canvas.getGraphicsContext2D();
         final double iw = img.getWidth();
         final double ih = img.getHeight();
-        // 水平/垂直统一居中（帧心对齐画布心）：与重排后的「居中列」布局几何一致，拖动全程
-        // 内容是「向中心汇拢/向外扩展」的连续渐变，收尾上屏零跳变（此前缩小走锚左——内容左端
+        // 水平居中（帧心对齐画布心）：与重排后的「居中列」布局几何一致，拖动全程内容是
+        // 「向中心汇拢/向外扩展」的连续渐变，收尾上屏零跳变（此前缩小走锚左——内容左端
         // 静止而收尾瞬间跳回居中位；那是 minWidth 保底前的防裁切方案，现已不需要）。取整保证
         // 像素对齐。
         final double left = Math.round((cw - iw) / 2.0);
-        final double top = Math.round((ch - ih) / 2.0);
+        // 垂直贴合滚动语义（不同于水平居中）：默认顶对齐——重排保留 scrollTop，视口顶端内容
+        // 不动；贴底跟随时底对齐——帧底贴画布底（配合页面侧 resize 补滚，两处锚定一致）。取整保证像素对齐。
+        final double top = bottomPinned() ? Math.round(ch - ih) : 0;
         final double right = left + iw;
         final double bottom = top + ih;
         // 滚动条左侧的边距列（背景色源）：避开滚动条带本身
@@ -890,6 +946,19 @@ public final class JcefOsrView {
         }
     }
 
+    /** 页面当前是否贴底跟随（提供者未设置或取值异常时按否处理）。 */
+    private boolean bottomPinned() {
+        final java.util.function.BooleanSupplier s = bottomPinnedSupplier;
+        if (s == null) {
+            return false;
+        }
+        try {
+            return s.getAsBoolean();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /**
      * 用稳定帧按当前画布尺寸上屏：帧与画布一致 → 1:1 绘制（稳态/最终清晰帧）；不一致 = resize
      * 过渡中（画布已先行跟手放大/缩小），把本帧原尺寸居中绘制（绝不缩放变形，与重排后的居中
@@ -921,17 +990,27 @@ public final class JcefOsrView {
      * 请求一帧来验证（{@link #onResizeHoldElapsed()} 循环，最多 {@link #RESIZE_VERIFY_MAX} 轮）。
      * 兜底：帧流持续不断（页面动画/流式叠加拖动）超过 {@link #RESIZE_HARD_MAX_MS} 时放弃攒帧保护
      * 回到即时上屏，防画面永久冻结。
+     *
+     * <p>「连续两帧一致」还须过三道闸门才允许 settle：① 帧尺寸 = 最近下发的目标尺寸（防在途旧尺寸帧）；
+     * ② 帧锐度达标——CEF 重排过渡期会输出「旧纹理拉伸放大」的合成帧，模糊使 16×16 亮度签名比对
+     * 失敏（两帧同模糊极易判一致），但锐度（相邻像素差峰值）显著低于原生渲染，据此拒绝其收敛；
+     * ③ 方向结构均衡——另一类中间态（内容被横向/纵向压缩错位，如卡片文字挤成一排竖线）锐度反而
+     * 极高，但「水平强结构而纵向近乎无」的失衡采样点占比远超正常渲染（正常文本/卡片两个方向都有
+     * 边缘），据此拦截。旧帧/白块过渡保持到真实清晰帧到达（届时签名依旧一致、三道闸门通过）后
+     * 一次性直接切清晰。</p>
      */
-    private void handleFrameInResizeSensitive(WritableImage img, int w, int h, long now) {
+    private void handleFrameInResizeSensitive(WritableImage img, int w, int h, int sharp, int mismatch, long now) {
         resizeFirstFrameSeen = true;
         if (now - resizeGuardStartNs > RESIZE_HARD_MAX_MS * 1_000_000L) {
             // 帧流持续超时（动画/流式叠加拖动）：无法等到平静，放弃保护回到即时，防画面冻结
+            log.info("OSR resize 帧流超时 {}ms 未平静，放弃攒帧保护即时上屏", RESIZE_HARD_MAX_MS);
             resizeGuardUntilNs = 0L;
             prevFrameSig = null;
             prevFrameSigW = -1;
             prevFrameSigH = -1;
             invalidateRetries = 0;
             stableFrame = img;
+            stableSharpness = sharp;
             paintFrameNow();
             return;
         }
@@ -939,18 +1018,65 @@ public final class JcefOsrView {
         final byte[] sig = sampleFrameSignature(img, w, h);
         if (prevFrameSig != null && prevFrameSigW == w && prevFrameSigH == h
                 && sigDiff(prevFrameSig, sig) <= 2) {
-            // 连续两帧一致：重排产出的画面已稳定，当前帧即完整帧——收尾上屏
-            settleShow(img);
-            return;
+            // 连续两帧一致：画面已停止演进；再过三道闸门（尺寸/锐度/方向结构）确认是「完整帧」才上屏
+            if (!frameSizeIsTarget(w, h)) {
+                if (!settleRejectLogged) {
+                    settleRejectLogged = true;
+                    log.info("OSR resize 帧 {}x{} 未达目标 {}x{}，暂不上屏", w, h, lastSetSizeW, lastSetSizeH);
+                }
+            } else if (!sharpnessOk(sharp)) {
+                if (!settleRejectLogged) {
+                    settleRejectLogged = true;
+                    log.info("OSR resize 帧锐度不足（疑似拉伸/未光栅完成帧）: sharp={} base={}，继续等待",
+                            sharp, stableSharpness);
+                }
+            } else if (!structureOk(mismatch)) {
+                if (!settleRejectLogged) {
+                    settleRejectLogged = true;
+                    log.info("OSR resize 帧方向失衡（疑似压缩/错位中间态）: 失衡采样={}/64，继续等待", mismatch);
+                }
+            } else {
+                log.info("OSR resize 稳定收尾: 帧 {}x{} 连续一致（距 setSize {}ms，sharp={}/{}，失衡={}/64）", w, h,
+                        (now - resizeGuardStartNs) / 1_000_000L, sharp, stableSharpness, mismatch);
+                settleShow(img);
+                return;
+            }
         }
         prevFrameSig = sig;
         prevFrameSigW = w;
         prevFrameSigH = h;
+        armResizeHold();
+    }
+
+    /** 复臂「帧流平静」定时器：首轮用 {@link #RESIZE_QUIET_MS} 跨光栅化批次间隙，后续轮次画面
+     *  已临近完成，缩短为 {@link #RESIZE_QUIET_TAIL_MS} 加速收尾。 */
+    private void armResizeHold() {
         if (resizeHold == null) {
             resizeHold = new javafx.animation.PauseTransition(javafx.util.Duration.millis(RESIZE_QUIET_MS));
             resizeHold.setOnFinished(e -> onResizeHoldElapsed());
         }
+        resizeHold.setDuration(javafx.util.Duration.millis(
+                invalidateRetries == 0 ? RESIZE_QUIET_MS : RESIZE_QUIET_TAIL_MS));
         resizeHold.playFromStart();
+    }
+
+    /** 帧尺寸是否已等于最近下发的目标尺寸（避免在途旧尺寸帧被判定为完整帧上屏）。 */
+    private boolean frameSizeIsTarget(int w, int h) {
+        return lastSetSizeW <= 0 || lastSetSizeH <= 0 || (w == lastSetSizeW && h == lastSetSizeH);
+    }
+
+    /** 锐度闸门：帧锐度低于基准的一定比率即判为拉伸/未光栅完成的模糊帧；基准过低或不可算时放行。 */
+    private boolean sharpnessOk(int sharp) {
+        if (sharp < 0 || stableSharpness < SHARPNESS_BASELINE_MIN) {
+            return true; // 页面本身低对比/空白：放弃检测，不误拒
+        }
+        return sharp >= stableSharpness * SHARPNESS_MIN_RATIO;
+    }
+
+    /** 方向结构闸门：方向单边（水平强/纵向弱或反向）的失衡采样点占比超 {@link #AXIS_MISMATCH_MAX}
+     *  → 疑似压缩/错位中间态；不可算时放行（验证耗尽后的兜底上屏不受闸门限制，不会卡死）。 */
+    private boolean structureOk(int mismatchPoints) {
+        return mismatchPoints < 0 || mismatchPoints <= AXIS_MISMATCH_MAX;
     }
 
     /**
@@ -963,11 +1089,95 @@ public final class JcefOsrView {
     private void onResizeHoldElapsed() {
         if (invalidateRetries < RESIZE_VERIFY_MAX && invalidateForVerify()) {
             invalidateRetries++;
+            log.info("OSR resize 平静无新帧，invalidate 请求验证帧（第 {}/{} 轮）",
+                    invalidateRetries, RESIZE_VERIFY_MAX);
             resizeGuardUntilNs = System.nanoTime() + RESIZE_GUARD_MS * 1_000_000L; // 续期敏感期，保证验证帧走比对路径
-            resizeHold.playFromStart(); // 再等 RESIZE_QUIET_MS 收验证帧
+            armResizeHold(); // 再等一轮平静收验证帧（后续轮次间隔递减）
             return;
         }
+        log.info("OSR resize 验证耗尽/不可用，尽力上屏最后帧（距 setSize {}ms）",
+                resizeGuardStartNs == 0 ? -1 : (System.nanoTime() - resizeGuardStartNs) / 1_000_000L);
         settleShow(lastFrame); // 验证耗尽/不可用：尽力上屏最后帧（含冷却，防后续批次漏出）
+    }
+
+    /** lenient 版锐度采样：相邻像素 |ΔG| 峰值的 P90（64 线 × 31 对，全在原始字节上算，微秒级）。
+     *  指标对「线性插值放大」敏感（峰值 ≈ 原值 / 放大率），对内容差异（背景/文本不同）鲁棒。
+     *  返回 -1 表示不可算（尺寸过小/缓冲异常）。 */
+    private static int estimateSharpness(byte[] bgra, int w, int h, int stride) {
+        if (bgra == null || w < SHARPNESS_SEG + 8 || h < 8) {
+            return -1;
+        }
+        final int seg = Math.min(SHARPNESS_SEG, w - 8);
+        final int lines = Math.min(SHARPNESS_LINES, h);
+        final int[] peaks = new int[lines];
+        for (int r = 0; r < lines; r++) {
+            final int y = (r * 2 + 1) * h / (lines * 2);
+            final int row = y * stride;
+            final int x0 = (int) ((long) r * 977 % Math.max(1, w - seg - 1));
+            int max = 0;
+            for (int x = x0; x < x0 + seg; x++) {
+                final int i1 = row + x * 4 + 1;      // G 通道
+                final int i2 = i1 + 4;
+                int d = (bgra[i1] & 0xFF) - (bgra[i2] & 0xFF);
+                if (d < 0) {
+                    d = -d;
+                }
+                if (d > max) {
+                    max = d;
+                }
+            }
+            peaks[r] = max;
+        }
+        java.util.Arrays.sort(peaks);
+        return peaks[Math.min(lines - 1, (int) (lines * 0.9))];
+    }
+
+    /** 布局失衡采样：8×8 网格取 64 个十字点（横/竖臂各 32px），统计「水平强结构而纵向近乎无」
+     *  或反向的失衡点数——「内容被压成竖线/横条」类压缩/错位中间态的失衡点占比远高于正常渲染
+     *  （正常文本/卡片点在两个方向都有边缘）。返回失衡点数（0-64），-1 = 不可算。 */
+    private static int estimateAxisMismatch(byte[] bgra, int w, int h, int stride) {
+        if (bgra == null || w < 40 || h < 40) {
+            return -1;
+        }
+        final int arm = 16;
+        int mismatched = 0;
+        for (int j = 0; j < 8; j++) {
+            final int cy = (j * 2 + 1) * h / 16;
+            final int row = cy * stride;
+            for (int i = 0; i < 8; i++) {
+                final int cx = (i * 2 + 1) * w / 16;
+                final int x1 = Math.max(1, cx - arm);
+                final int x2 = Math.min(w - 2, cx + arm);
+                int hMax = 0;
+                for (int x = x1; x < x2; x++) {
+                    int d = (bgra[row + x * 4 + 1] & 0xFF) - (bgra[row + (x + 1) * 4 + 1] & 0xFF);
+                    if (d < 0) {
+                        d = -d;
+                    }
+                    if (d > hMax) {
+                        hMax = d;
+                    }
+                }
+                final int y1 = Math.max(1, cy - arm);
+                final int y2 = Math.min(h - 2, cy + arm);
+                final int colOff = cx * 4 + 1;
+                int vMax = 0;
+                for (int y = y1; y < y2; y++) {
+                    int d = (bgra[y * stride + colOff] & 0xFF) - (bgra[(y + 1) * stride + colOff] & 0xFF);
+                    if (d < 0) {
+                        d = -d;
+                    }
+                    if (d > vMax) {
+                        vMax = d;
+                    }
+                }
+                if ((hMax >= AXIS_STRONG && vMax < AXIS_WEAK)
+                        || (vMax >= AXIS_STRONG && hMax < AXIS_WEAK)) {
+                    mismatched++;
+                }
+            }
+        }
+        return mismatched;
     }
 
     /** 收尾上屏（FX 线程）：设为稳定帧显示，清空比对状态，并延长敏感期作为「冷却」（防收尾过早漏出）。 */

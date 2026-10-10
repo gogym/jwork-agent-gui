@@ -1,5 +1,6 @@
 package com.gettyio.gim.agent.core.chat;
 
+import com.gettyio.gim.agent.core.memory.MemoryWriteTool;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.ConfirmResult;
@@ -104,6 +105,12 @@ public class HarnessAgentGateway implements AutoCloseable {
      */
     public static final int DEFAULT_MAX_CONTEXT_TOKENS = 128_000;
 
+    /** 长期记忆总开关的 AppSetting 键：{@code "false"} 即关闭记忆工具/沉淀与 MEMORY.md 注入（其余/缺省为开）。 */
+    public static final String SETTING_MEMORY_ENABLED = "agent.memory.enabled";
+
+    /** 记忆自动沉淀档位的 AppSetting 键：{@code always}（默认）/ {@code throttled}（≥ 10min）/ {@code never}。 */
+    public static final String SETTING_MEMORY_FLUSH_MODE = "agent.memory.flushMode";
+
     /** 不可变标识（= agentCode）：上下文存储的目录键，不随显示名改动 */
     private final String agentId;
     private final String agentName;
@@ -136,7 +143,7 @@ public class HarnessAgentGateway implements AutoCloseable {
     private volatile int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS;
     /** 长期记忆配置（{@code null} 沿用 Harness 内置默认）：由装配方按应用设置下发 flush 节流等。 */
     private volatile MemoryConfig memoryConfig;
-    /** 长期记忆开关（默认开）：关闭时不下发记忆工具与记忆钩子，但保留工作区上下文注入。 */
+    /** 长期记忆开关（默认开）：关闭时不下发记忆工具与记忆钩子，MEMORY.md 也不再注入工作区上下文。 */
     private volatile boolean memoryEnabled = true;
     /** 计划模式开关（默认开）：开启后注册 plan_enter/plan_write/plan_exit 工具与只读中间件，供规划轮使用。 */
     private volatile boolean planModeEnabled = true;
@@ -176,6 +183,11 @@ public class HarnessAgentGateway implements AutoCloseable {
         return agentId;
     }
 
+    /** 智能体工作区（装配前即可用）：供宿主注册绑定落点的专属工具（如分类记忆写入） */
+    public Path getWorkspace() {
+        return workspace;
+    }
+
     /** 注入备用模型供体：装配时解析一次，有备用则启用框架级重试 + failover；null 表示不启用 */
     public void setFallbackSupplier(Supplier<Model> fallbackSupplier) {
         this.fallbackSupplier = fallbackSupplier;
@@ -201,7 +213,10 @@ public class HarnessAgentGateway implements AutoCloseable {
         this.memoryConfig = memoryConfig;
     }
 
-    /** 长期记忆总开关；关闭后不再注册 memory_save/search/get 工具与沉淀钩子（保留工作区上下文注入）。 */
+    /**
+     * 长期记忆总开关；关闭后不再注册 memory_save/search/get/session_search 工具与沉淀钩子，
+     * 且 MEMORY.md 不再注入工作区上下文（框架 includeMemoryContext 同关；AGENTS.md 等注入不受影响）。
+     */
     public void setMemoryEnabled(boolean memoryEnabled) {
         this.memoryEnabled = memoryEnabled;
     }
@@ -257,9 +272,14 @@ public class HarnessAgentGateway implements AutoCloseable {
         }
         toolTargets.add(target);
         HarnessAgent local = this.agent;
-        if (local != null) {
+        if (local != null && memoryToolAllowed(target)) {
             local.getToolkit().registerTool(target);
         }
+    }
+
+    /** 记忆类自定义工具（如分类记忆写入）与框架记忆工具同门禁：记忆关闭时不注册。 */
+    private boolean memoryToolAllowed(Object target) {
+        return this.memoryEnabled || !(target instanceof MemoryWriteTool);
     }
 
     /**
@@ -367,7 +387,8 @@ public class HarnessAgentGateway implements AutoCloseable {
                         builder = builder.memory(memCfg);
                     }
                     if (!this.memoryEnabled) {
-                        // 仅关闭记忆工具与沉淀钩子；工作区上下文（AGENTS.md/MEMORY.md 注入）照常
+                        // 关记忆工具与沉淀钩子；框架据此同步关闭 <memory_context> 注入（MEMORY.md 不再进上下文），
+                        // 其余工作区上下文（AGENTS.md / 知识索引）照常
                         builder = builder.disableMemoryTools().disableMemoryHooks();
                     }
                     List<SubagentDeclaration> subs = this.subagentDeclarations;
@@ -395,6 +416,10 @@ public class HarnessAgentGateway implements AutoCloseable {
                         }
                     }
                     for (Object target : toolTargets) {
+                        // 记忆关闭：分类记忆工具与框架记忆工具（memory_save 等）同门禁，一并跳过
+                        if (!memoryToolAllowed(target)) {
+                            continue;
+                        }
                         local.getToolkit().registerTool(target);
                     }
                     this.agent = local;

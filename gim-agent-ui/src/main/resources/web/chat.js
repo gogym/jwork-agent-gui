@@ -22,6 +22,7 @@
     var LABELS = {};              // Java 经 setTheme 推入的本地化文案
     var flags = { lastAssistantId: 0, lastUserId: 0 };
     var followBottom = true;      // 是否自动跟随到底部
+    var wasAtBottom = true;       // 最近一次滚动事件时是否已贴底（视口尺寸变化时据此补滚回底）
     var streaming = {};           // id -> {raw, thinking, node, ...}
 
     function esc(s) {
@@ -571,11 +572,19 @@
         var scrollable = h > ch + 4;
         var atBottom = (h - ch - y) <= 48;
         followBottom = atBottom || (h - ch - y) <= 120;
+        wasAtBottom = atBottom;
         if (bridge()) {
             if (y <= 4) { bridge().onScrollTop(); }
             reportScrollState(atBottom, scrollable);
         }
     }, { passive: true });
+
+    // 视口尺寸变化（窗口缩放 / 终端抽屉开合）：CEF 重排只会保留 scrollTop，贴底位置会漂离
+    // 底部（最新内容被裁到折叠线下方）；曾贴底则补滚回底——与 OSR 过渡帧的贴底锚定一致，
+    // 收尾零跳变（未贴底时不干预：重排保留滚动位置，过渡帧顶端对齐即最终位置）。
+    window.addEventListener('resize', function () {
+        if (wasAtBottom) { scrollToBottom(false); }
+    });
 
     // 原生右键：拦截并回调 Java（Java 弹原生 ContextMenu）
     document.addEventListener('contextmenu', function (ev) {

@@ -37,6 +37,8 @@ public final class ChatWebView {
     private final ObjectMapper mapper = new ObjectMapper();
 
     private volatile boolean ready;
+    /** 页面最近一次上报的贴底状态（OSR 过渡帧垂直锚定用；默认贴底）。 */
+    private volatile boolean atBottom = true;
     /** 就绪前的待执行脚本队列（FX 线程读写）。 */
     private final Deque<String> pending = new ArrayDeque<>();
 
@@ -47,6 +49,9 @@ public final class ChatWebView {
     public ChatWebView(MessageActionListener actions, ChatViewEventsHolder events) {
         this.bridge = new ChatBridge(actions, events);
         this.view = new JcefOsrView(QUERY_FN, CANCEL_FN, this::dispatch);
+        // 贴底状态回传 OSR：垂直尺寸变化时过渡帧据此锚定（贴底→帧底对齐，否则→顶端对齐），
+        // 与页面侧 resize 补滚一致，消除上下开合/缩放收尾的跳变。
+        this.view.setBottomPinnedSupplier(() -> atBottom);
         this.view.setOnLoadEnd(this::onPageReady);
         try {
             this.view.loadUrl(JcefResources.chatShell(QUERY_FN));
@@ -101,7 +106,11 @@ public final class ChatWebView {
                 case "onAction" -> bridge.onAction(str(a, 0), lng(a, 1), str(a, 2));
                 case "onContext" -> bridge.onContext(lng(a, 0), dbl(a, 1), dbl(a, 2));
                 case "onScrollTop" -> bridge.onScrollTop();
-                case "onScrollState" -> bridge.onScrollState(bool(a, 0), bool(a, 1));
+                case "onScrollState" -> {
+                    // 先记录贴底状态供 OSR 过渡帧锚定，再转控制器（回到底部按钮显隐）
+                    atBottom = bool(a, 0);
+                    bridge.onScrollState(atBottom, bool(a, 1));
+                }
                 case "onLink" -> bridge.onLink(str(a, 0));
                 case "onImage" -> bridge.onImage(str(a, 0));
                 case "onCopyCode" -> bridge.onCopyCode(str(a, 0));

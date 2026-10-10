@@ -118,10 +118,34 @@ class MultiAgentGatewayTest {
     }
 
     @Test
-    @DisplayName("工作区：定义缺失回退共享目录")
-    void workspaceFallsBackWhenDefMissing() {
+    @DisplayName("工作区：定义缺失按默认专属落点解析并创建")
+    void workspaceDefaultsForMissingDef() {
         when(dao.findByCode("X")).thenReturn(Optional.empty());
-        assertEquals(shared, gateway.workspaceForAgent("X"));
+        Path got = gateway.workspaceForAgent("X");
+        assertEquals(shared.resolve("agents").resolve("X"), got);
+        assertTrue(Files.isDirectory(got), "默认专属工作区应被创建");
+    }
+
+    @Test
+    @DisplayName("工作区：未配置 workspace_dir 的智能体默认专属 agents/<编码>/")
+    void workspaceDefaultsToAgentDir() {
+        AgentDefinition d = new AgentDefinition();
+        d.setAgentCode("agent-abc12345");
+        when(dao.findByCode("agent-abc12345")).thenReturn(Optional.of(d));
+
+        Path got = gateway.workspaceForAgent("agent-abc12345");
+        assertEquals(shared.resolve("agents").resolve("agent-abc12345"), got);
+        assertTrue(Files.isDirectory(got), "默认专属工作区应被创建");
+    }
+
+    @Test
+    @DisplayName("工作区：默认智能体未配置时保持共享根（全局记忆载体）")
+    void defaultAgentKeepsSharedWorkspace() {
+        AgentDefinition d = new AgentDefinition();
+        d.setAgentCode(MultiAgentGateway.DEFAULT_AGENT_CODE);
+        when(dao.findByCode(MultiAgentGateway.DEFAULT_AGENT_CODE)).thenReturn(Optional.of(d));
+
+        assertEquals(shared, gateway.workspaceForAgent(MultiAgentGateway.DEFAULT_AGENT_CODE));
     }
 
     @Test
