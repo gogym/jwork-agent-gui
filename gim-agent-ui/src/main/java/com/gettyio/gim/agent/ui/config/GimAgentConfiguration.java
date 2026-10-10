@@ -313,6 +313,12 @@ public class GimAgentConfiguration {
         return new SecurityAdminService(db, cipher);
     }
 
+    /** 本地登录认证（软锁）：凭证与会话存 ~/.jwork/security/auth.json，启动门/唤回/安全页账号卡共用。 */
+    @Bean
+    public com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService(GimPaths paths) {
+        return new com.gettyio.gim.agent.domain.security.LocalAuthService(paths.authFile());
+    }
+
     @Bean
     public UsageStatsService usageStatsService(GimDatabase db) {
         return new UsageStatsService(db);

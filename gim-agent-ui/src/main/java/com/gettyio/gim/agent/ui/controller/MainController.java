@@ -336,6 +336,14 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @Autowired
     private SecurityAdminService securityAdminService;
 
+    /** 本地登录认证（软锁）：发送消息视为活跃使用，顺延免登录会话（写盘节流在服务内）。 */
+    @Autowired
+    private com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService;
+
+    /** 应用生命周期：齿轮菜单「退出登录」清除会话并在窗口内呈现登录页 */
+    @Autowired
+    private com.gettyio.gim.agent.ui.window.AppLifecycle appLifecycle;
+
     @Autowired
     private KnowledgeService knowledgeService;
 
@@ -659,6 +667,16 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 I18n.t("about.body", gimPaths.root()));
     }
 
+    /** 齿轮菜单底部「退出登录」：确认后清除会话并在窗口内呈现登录页（与安全页账号卡同一套登录门）。 */
+    @Override
+    public void signOut() {
+        if (!GimDialog.confirm(currentWindow(), I18n.t("settings.security.account.signout"),
+                I18n.t("settings.security.account.signout.confirm"))) {
+            return;
+        }
+        appLifecycle.lockToLogin();
+    }
+
     /** 附件条「存入知识库」：抽文本落盘到当前智能体 knowledge/ 并回报结果（与本轮发送无关）。 */
     @Override
     public void importAttachmentToKnowledge(FileAttachment attachment) {
@@ -869,6 +887,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 对比流的生命周期编排：逐列订阅 → 全部列终态后退出流式态；发出即清勾选（对比为一次性动作）。 */
     private void runCompare(String body, List<ImageAttachment> images,
                             List<com.gettyio.gim.agent.ui.chat.ToolbarPickers.CompareTarget> targets) {
+        // 对比发送同样视为活跃使用（与 runStream 同一续期口径）
+        localAuthService.touch();
         String agentCode = currentAgentCode();
         // 逐列累计明文/用量/起始时间（收尾定格到底部行），与 WebView 内的列同序
         final List<StringBuilder> raws = new ArrayList<>();
@@ -1142,6 +1162,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
      * 若智能体工作区已生成 {@code plans/PLAN.md}，弹出可编辑面板供用户确认/修改计划。
      */
     private void runStream(Flux<StreamEvent> flux, String sessionId, boolean planTurn) {
+        // 发送/重生成都算活跃使用：顺延免登录有效期（已锁定/已过期会话不受影响）
+        localAuthService.touch();
         final long streamId = --streamSeq;
         chatEmpty.set(false);
         chatView.streamStart(streamId);

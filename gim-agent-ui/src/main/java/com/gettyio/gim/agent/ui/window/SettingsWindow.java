@@ -121,12 +121,17 @@ public class SettingsWindow {
     @Autowired
     private SkillsView skillsView;
 
+    /** 本地登录认证（软锁）：安全页「账号与登录」卡片直接读写凭证文件。 */
+    @Autowired
+    private com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService;
+
     /** 安全设置子面板（抽自本类）：懒加载单例，语言切换重建时复用同一实例、容器内容随之重绘。 */
     private SecuritySettingsPanel securityPanel;
 
     private SecuritySettingsPanel securityPanel() {
         if (securityPanel == null) {
-            securityPanel = new SecuritySettingsPanel(this, securityAdminService, gimPaths, dockerAvailabilityProbe);
+            securityPanel = new SecuritySettingsPanel(this, securityAdminService, gimPaths, dockerAvailabilityProbe,
+                    localAuthService);
         }
         return securityPanel;
     }
@@ -506,6 +511,14 @@ public class SettingsWindow {
     /** 宿主窗口：作为无边框对话框的 owner（窗口模态并居中）。 */
     Window hostWindow() {
         return hostScene == null ? null : hostScene.getWindow();
+    }
+
+    /** 退出登录（安全页账号卡入口）：先退回主界面，再清除会话并在窗口内呈现登录页。 */
+    void signOutApp() {
+        if (onBack != null) {
+            onBack.run();
+        }
+        appLifecycle.lockToLogin();
     }
 
     /** 即时反馈：以统一对话框呈现需要用户知晓的结果/错误（不驻留，避免跨页面残留）。 */

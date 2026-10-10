@@ -1,6 +1,7 @@
 package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.security.LocalAuthService;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.notify.TrayNotifier;
 import javafx.application.Platform;
@@ -56,6 +57,10 @@ public class AppLifecycle {
 
     @Autowired
     private TrayNotifier trayNotifier;
+
+    /** 本地登录认证（软锁）：唤回主窗时校验会话，超期/锁定先弹独立登录小窗。 */
+    @Autowired
+    private LocalAuthService localAuthService;
 
     private Stage stage;
 
@@ -134,18 +139,56 @@ public class AppLifecycle {
         trayNotifier.notify(I18n.t("notify.trayTitle", "Jwork"), I18n.t("notify.tray.hint"));
     }
 
-    /** 从托盘唤回主窗（AWT 线程回调，转投 FX 线程）。 */
+    /**
+     * 退出登录（安全页账号卡入口）：清除会话并隐藏主窗，弹出独立登录小窗——认证通过重新显示
+     * 主窗，取消（关闭登录窗）则隐藏到托盘。
+     */
+    public void lockToLogin() {
+        localAuthService.lock();
+        if (stage == null) {
+            return;
+        }
+        stage.hide();
+        LoginGate.ensureAuthenticated(localAuthService, authed -> {
+            if (!authed) {
+                hideToTray();
+                return;
+            }
+            stage.show();
+            stage.toFront();
+            stage.requestFocus();
+        });
+    }
+
+    /** 从托盘唤回主窗（AWT 线程回调，转投 FX 线程）；会话超期/锁定时主窗保持隐藏、先弹登录小窗，取消则停留托盘。 */
     public void openMainWindow() {
         Platform.runLater(() -> {
             if (stage == null) {
                 return;
             }
-            if (!stage.isShowing()) {
-                stage.show();
-            }
-            stage.toFront();
-            stage.requestFocus();
             Platform.setImplicitExit(false);
+            if (stage.isShowing()) {
+                // 已显示：直接置前
+                stage.toFront();
+                stage.requestFocus();
+                return;
+            }
+            if (localAuthService.isSessionValid()) {
+                localAuthService.touch();
+                stage.show();
+                stage.toFront();
+                stage.requestFocus();
+                return;
+            }
+            // 会话超期/锁定：独立登录小窗（主窗保持隐藏）；认证通过才显示主窗，取消则停留托盘
+            LoginGate.ensureAuthenticated(localAuthService, authed -> {
+                if (!authed) {
+                    return;
+                }
+                stage.show();
+                stage.toFront();
+                stage.requestFocus();
+            });
         });
     }
 

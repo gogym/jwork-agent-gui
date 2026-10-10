@@ -9,6 +9,7 @@ import java.nio.file.Paths;
  * ~/.jwork/
  *   jwork.db
  *   secret.key
+ *   security/auth.json
  *   workspace/
  *   logs/
  *   backups/
@@ -39,6 +40,19 @@ public class GimPaths {
 
     public Path secretKeyFile() {
         return root.resolve("secret.key");
+    }
+
+    /** 认证目录：登录凭证与会话状态（auth.json）存放处 */
+    public Path securityDir() {
+        return root.resolve("security");
+    }
+
+    /**
+     * 登录凭证文件：账号 + 加盐哈希 + 会话状态。明文存放不依赖 DPAPI（重装系统/换 Windows 账户后仍可验证）；
+     * 编辑 reset 标志或删除本文件即可重置登录，不影响数据库中的任何数据。
+     */
+    public Path authFile() {
+        return securityDir().resolve("auth.json");
     }
 
     public Path workspaceDir() {

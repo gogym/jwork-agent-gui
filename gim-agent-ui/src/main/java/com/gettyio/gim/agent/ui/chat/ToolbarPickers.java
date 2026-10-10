@@ -41,7 +41,7 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 输入框工具条上的三个下拉：齿轮（主题/语言/关于）、模型选择、审批档位。
+ * 输入框工具条上的三个下拉：齿轮（设置/外观/语言/关于/退出登录）、模型选择、审批档位。
  * <p>各自复用单一 {@link ContextMenu} 实例并做开关切换，避免反复点击累积弹出。持有当前选中的
  * 模型与审批档位，供发送流程读取。由 {@code MainController} 在 FXML 注入后构造并委托。</p>
  */
@@ -162,9 +162,9 @@ public class ToolbarPickers {
         approval = approvalForDefault(securityAdminService.getApprovalDefault());
     }
 
-    // ===================== 齿轮：设置/外观/语言/关于 =====================
+    // ===================== 齿轮：设置/外观/语言/关于/退出登录 =====================
 
-    /** 底部齿轮：弹出设置菜单（设置 / 外观▶ / 语言▶ / 关于），对标 Qoder 交互 */
+    /** 底部齿轮：弹出设置菜单（设置 / 外观▶ / 语言▶ / 关于 / 退出登录），对标 Qoder 交互 */
     public void buildThemeMenu() {
         if (themeMenu == null) {
             themeMenu = new ContextMenu();
@@ -226,8 +226,13 @@ public class ToolbarPickers {
         MenuItem about = new MenuItem(I18n.t("menu.about"), UiTheme.icon("\uE946"));
         about.setOnAction(e -> host.showAbout());
 
+        // 最底部「退出登录」：清除会话并在窗口内回到登录页（与设置页账号卡同一套登录门）
+        MenuItem signOut = new MenuItem(I18n.t("settings.security.account.signout"), UiTheme.icon("\uE7E8"));
+        signOut.setOnAction(e -> host.signOut());
+
         menu.getItems().addAll(settings, new SeparatorMenuItem(),
-                appearance, langMenu, new SeparatorMenuItem(), about);
+                appearance, langMenu, new SeparatorMenuItem(), about,
+                new SeparatorMenuItem(), signOut);
         // 左键/右键统一弹出菜单，固定锚定在按钮左上角；超出屏幕时 JavaFX 自动调整
         themeMenuButton.setOnAction(e -> showThemeMenu());
         themeMenuButton.setOnContextMenuRequested(e -> {

@@ -33,4 +33,9 @@ public interface ChatHost {
      * 请求生成图片：由宿主弹出提示词对话框并在当前会话直插一轮「提示词 + 生成图」的本地对话。
      */
     void requestImageGeneration();
+
+    /**
+     * 退出登录（齿轮菜单底部入口）：确认后清除会话并在主窗内直接呈现登录页。
+     */
+    void signOut();
 }

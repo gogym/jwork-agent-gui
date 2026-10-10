@@ -1252,6 +1252,69 @@
 .dialog-message { -fx-font-size: 13px; -fx-text-fill: -gim-text-2; -fx-line-spacing: 2; }
 .dialog-actions { -fx-alignment: center-right; -fx-padding: 4 0 0 0; }
 
+/* ---------- 登录门（独立认证小窗）：品牌区与表单卡片单列居中 ---------- */
+/* 同款标题栏（品牌标识）在上；内容列紧凑居中 */
+.auth-main { -fx-padding: 24 40 30 40; }
+/* 品牌徽标：标题栏 .title-logo 的放大版（带柔和绿色光晕） */
+.auth-logo {
+    -fx-background-color: -gim-accent;
+    -fx-background-radius: 999;
+    -fx-min-width: 56px; -fx-min-height: 56px;
+    -fx-pref-width: 56px; -fx-pref-height: 56px;
+    -fx-alignment: center;
+    -fx-text-fill: -gim-bg;
+    -fx-font-weight: bold;
+    -fx-font-size: 26px;
+    -fx-effect: dropshadow(gaussian, rgba(47, 158, 95, 0.30), 16, 0.10, 0, 5);
+}
+.auth-hero-title { -fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.auth-intro { -fx-font-size: 13px; -fx-text-fill: -gim-text-3; -fx-line-spacing: 6; }
+/* 表单卡片：白底圆角浮于暖灰画布之上 */
+.auth-form-card {
+    -fx-background-color: -gim-bg;
+    -fx-background-radius: 14;
+    -fx-border-color: -gim-border-5;
+    -fx-border-radius: 14;
+    -fx-padding: 22 24 24 24;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.06), 14, 0, 0, 3);
+}
+.auth-notice { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+/* 卡片内输入框：加宽横向内衬（聚焦描边由全局样式承担） */
+.auth-form-card .text-field, .auth-form-card .password-field { -fx-padding: 7 12 7 12; }
+/* 账号行：浅绿底圆角行 + 首字圆徽 */
+.auth-account {
+    -fx-background-color: -gim-tint-3;
+    -fx-background-radius: 10;
+    -fx-padding: 10 14 10 14;
+}
+.auth-account-avatar {
+    -fx-background-color: -gim-accent;
+    -fx-background-radius: 999;
+    -fx-min-width: 26px; -fx-min-height: 26px;
+    -fx-pref-width: 26px; -fx-pref-height: 26px;
+    -fx-alignment: center;
+    -fx-text-fill: -gim-bg;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+.auth-account-name { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+/* 通栏主按钮 */
+.auth-submit { -fx-padding: 9 28 9 28; -fx-font-size: 14px; }
+/* 标题栏语言切换：图标 + 当前语言本族语名（与窗口按钮同高，悬停同款反馈） */
+.lang-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-min-width: 92px;
+    -fx-min-height: 38px; -fx-pref-height: 38px;
+    -fx-padding: 0 12 0 10;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+}
+.lang-btn:hover   { -fx-background-color: -gim-hover; }
+.lang-btn:pressed { -fx-background-color: -gim-press; }
+.lang-btn .icon   { -fx-font-size: 13px; -fx-text-fill: -gim-text-2; }
+.lang-btn-text    { -fx-font-size: 12px; -fx-text-fill: -gim-text-2; }
+
 /* ============================================================
  * 设置窗口：左侧分类菜单 + 右侧内容页
  * ============================================================ */

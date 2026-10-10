@@ -1,8 +1,10 @@
 package com.gettyio.gim.agent.ui;
 
+import com.gettyio.gim.agent.domain.security.LocalAuthService;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.AppLifecycle;
 import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.LoginGate;
 import com.gettyio.gim.agent.ui.window.StageResizer;
 import javafx.application.Application;
 import javafx.application.Platform;
@@ -63,6 +65,8 @@ public class GimAgentApplication extends Application {
                 log.warn("调度错误提示失败，仅保留日志记录", nested);
             }
         });
+        // 登录门（软锁）凭证服务：首次启动须设置账号密码、会话超期/锁定后须重新登录
+        LocalAuthService localAuth = springContext.getBean(LocalAuthService.class);
         // 去掉系统顶部程序 bar，改用自绘标题栏；TRANSPARENT 使窗口可呈现四角圆角（须在建 Scene 前设置）
         stage.initStyle(StageStyle.TRANSPARENT);
         // 关闭 OS 可调整大小：避免 Windows 为可调整的无边框/透明窗口叠加一圈不可见 resize 边框（WS_THICKFRAME），
@@ -91,11 +95,25 @@ public class GimAgentApplication extends Application {
         stage.setMinWidth(1100);
         stage.setMinHeight(620);
         stage.setScene(scene);
-        stage.show();
-        // 依屏幕分辨率自适应启动尺寸并居中：TRANSPARENT 无边框窗口的首显尺寸由根 pref 决定，
-        // 故在 show 之后显式设定宽高（与标题栏最大化同款手段，可靠生效）
-        applyAdaptiveStartupSize(stage);
 
+        // 登录门（软锁）：独立小窗先行（主窗保持隐藏）——首次启动须设置账号密码、会话超期/锁定后须
+        // 重新登录；取消认证视为放弃进入（直接退出）。认证通过才显示主窗并继续装配热键。
+        LoginGate.ensureAuthenticated(localAuth, authed -> {
+            if (!authed) {
+                Platform.exit();
+                return;
+            }
+            stage.show();
+            // 依屏幕分辨率自适应启动尺寸并居中：TRANSPARENT 无边框窗口的首显尺寸由根 pref 决定，
+            // 故在 show 之后显式设定宽高（与标题栏最大化同款手段，可靠生效）
+            applyAdaptiveStartupSize(stage);
+            setupAfterAuthenticated(stage, loader, localAuth, lifecycle);
+        });
+    }
+
+    /** 认证通过后的启动装配：更新检查 + 全局热键（主窗已显示、主界面此前已就绪）。 */
+    private void setupAfterAuthenticated(Stage stage, FXMLLoader loader, LocalAuthService localAuth,
+                                         AppLifecycle lifecycle) {
         // 更新检查：若开关开启且当日未查过，后台静默比对服务器最新版（发现新版：强更弹模态，否则发托盘气泡）
         springContext.getBean(com.gettyio.gim.agent.ui.update.UpdateChecker.class).maybeCheckOnStartup(stage);
 
@@ -109,10 +127,34 @@ public class GimAgentApplication extends Application {
                 springContext.getBean(com.gettyio.gim.agent.ui.desktop.SelectionAssistant.class);
         com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService hotkeys =
                 springContext.getBean(com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService.class);
-        hotkeys.setOnQuickAsk(() -> Platform.runLater(quickAsk::toggle));
-        hotkeys.setOnScreenshot(() -> Platform.runLater(controller::captureScreenshotToComposer));
-        hotkeys.setOnSelection(selection::trigger);
+        hotkeys.setOnQuickAsk(() -> Platform.runLater(() -> {
+            if (sessionActive(localAuth, lifecycle)) {
+                quickAsk.toggle();
+            }
+        }));
+        hotkeys.setOnScreenshot(() -> Platform.runLater(() -> {
+            if (sessionActive(localAuth, lifecycle)) {
+                controller.captureScreenshotToComposer();
+            }
+        }));
+        hotkeys.setOnSelection(() -> {
+            if (sessionActive(localAuth, lifecycle)) {
+                selection.trigger();
+            }
+        });
         hotkeys.start();
+    }
+
+    /**
+     * 全局热键的会话门：会话超期/已锁定时不放行热键功能，转走主窗登录门
+     * （openMainWindow 内含同一认证门），避免绕过登录直接使用 AI。
+     */
+    private static boolean sessionActive(LocalAuthService auth, AppLifecycle lifecycle) {
+        if (auth.isSessionValid()) {
+            return true;
+        }
+        lifecycle.openMainWindow();
+        return false;
     }
 
     /**
