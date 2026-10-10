@@ -18,6 +18,9 @@ public interface ChatViewEvents {
     /** 滚动状态变化：控制「回到底部」按钮显隐。 */
     void chatScrollState(boolean atBottom, boolean scrollable);
 
+    /** 前端顶部回收（贴底且 DOM 过重）：{@code newOldestId} 为回收后 DOM 首条主键，宿主前移补页游标。 */
+    void chatTrimmed(long newOldestId);
+
     /** 正文外链点击。 */
     void chatLink(String url);
 

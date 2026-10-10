@@ -7,7 +7,6 @@ import com.gettyio.gim.agent.core.chat.FileAttachment;
 import com.gettyio.gim.agent.core.knowledge.KnowledgeService;
 import com.gettyio.gim.agent.core.plan.PlanService;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
-import com.gettyio.gim.agent.core.chat.MessageMetadataCodec;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.core.chat.StreamEvent;
@@ -28,7 +27,6 @@ import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.export.ExportService;
-import com.gettyio.gim.agent.ui.export.SessionImageExporter;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TerminalView;
 import com.gettyio.gim.agent.ui.view.TasksView;
@@ -40,7 +38,6 @@ import com.gettyio.gim.agent.ui.window.ImageGenerateDialog;
 import com.gettyio.gim.agent.ui.window.SessionSearchDialog;
 import com.gettyio.gim.agent.ui.window.SettingsWindow;
 import com.gettyio.gim.agent.ui.window.TitleBar;
-import io.agentscope.core.permission.PermissionMode;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
 import javafx.collections.FXCollections;
@@ -78,11 +75,11 @@ import javafx.scene.input.KeyCode;
 import javafx.scene.input.KeyCodeCombination;
 import javafx.scene.input.KeyCombination;
 import javafx.scene.input.KeyEvent;
+import javafx.scene.input.TransferMode;
 import javafx.geometry.Bounds;
 import javafx.geometry.Insets;
 import javafx.geometry.Side;
 import javafx.stage.DirectoryChooser;
-import javafx.stage.FileChooser;
 import javafx.stage.Window;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,16 +91,12 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
 import java.io.ByteArrayInputStream;
-import java.io.File;
 import java.io.IOException;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -116,7 +109,8 @@ import java.util.Optional;
 @Component
 public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSidebarHost,
         com.gettyio.gim.agent.ui.chat.MessageActionListener,
-        com.gettyio.gim.agent.ui.chat.ChatWebView.ChatViewEventsHolder {
+        com.gettyio.gim.agent.ui.chat.ChatWebView.ChatViewEventsHolder,
+        com.gettyio.gim.agent.ui.chat.CompareRunner.Host {
 
     private static final Logger log = LoggerFactory.getLogger(MainController.class);
 
@@ -284,6 +278,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 协作类：输入框附件条（待发图片/文件引用、回形针菜单、缩略图），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.AttachmentBar attachmentBar;
 
+    /** 拖拽投放提示层（拖入文件悬停时浮出「松开以添加附件」），在 initialize() 中构造 */
+    private StackPane dropOverlay;
+    private Label dropOverlayLabel;
+
     /** 协作类：工具条三个下拉（齿轮/模型/审批），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.ToolbarPickers toolbar;
 
@@ -298,6 +296,15 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     /** 协作类：工作区右侧栏（文件树 + 就地阅读），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.WorkspacePanel workspacePanel;
+
+    /** 协作类：会话历史分页（重放/补页/顶部回收游标），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.ChatHistoryPager historyPager;
+
+    /** 协作类：会话导出命令（长图/独立网页），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.SessionExporter sessionExporter;
+
+    /** 协作类：多模型对比运行器（发送校验/逐列订阅/停止分流），在 initialize() 中构造 */
+    private com.gettyio.gim.agent.ui.chat.CompareRunner compareRunner;
 
     @Autowired
     private ChatService chatService;
@@ -386,17 +393,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private Disposable activeStream;
     /** 在途流所属会话：停止时需告知网关中断哪个会话的 Agent 循环 */
     private String streamingSessionId;
-    /** 在途多模型对比：逐列订阅句柄（停止时全部取消）；仅在 FX 线程读写 */
-    private final List<Disposable> compareStreams = new ArrayList<>();
-    /** 在途对比的临时会话 id（每列一个，停止时逐个通知网关中断） */
-    private final List<String> compareSessions = new ArrayList<>();
-    /** 在途对比归属的智能体编码（停止时用）；无对比在途时为 null */
-    private String compareAgentCode;
-    /** 是否有对比在途（isBusy 判定与停止分流） */
-    private boolean comparing;
-    /** 本轮对比的总列数与已完成列数：全部列终结（完成/出错/停止）后退出流式态 */
-    private int compareDoneTotal;
-    private int compareCompleted;
     /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
     private ContextMenu templateMenu;
     /** 横幅当前展示的计划归属智能体（编辑/确认时定位 PLAN.md） */
@@ -422,6 +418,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         inputField.setOnSubmit(this::handleSend);
         attachmentBar = new com.gettyio.gim.agent.ui.chat.AttachmentBar(
                 attachChipsBox, inputField, attachButton, gimPaths, this);
+        installFileDropTarget();
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
                 themeMenuButton, modelButton, approvalButton, templateButton, compareButton, inputField,
                 providerAdminService, securityAdminService, promptTemplateAdminService, this);
@@ -443,6 +440,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                         return chatService.compact(agentOfSession(sessionId), sessionId);
                     }
                 });
+        historyPager = new com.gettyio.gim.agent.ui.chat.ChatHistoryPager(
+                chatService, chatView, payload, statusBar, chatEmpty, this::currentSessionId, this::isBusy);
+        sessionExporter = new com.gettyio.gim.agent.ui.chat.SessionExporter(exportService, this::ownerWindow);
+        compareRunner = new com.gettyio.gim.agent.ui.chat.CompareRunner(this,
+                toolbar, providerAdminService, rateGovernor, agentGateway, chatService, chatView,
+                payload, attachmentBar, inputField, statusBar, localAuthService, chatEmpty);
         // 无消息时展示居中欢迎页：Java 侧在发送/重放/清空时直接置位，JS 就绪时亦经桥回抛 onEmpty 校准
         welcomePane.visibleProperty().bind(chatEmpty);
         welcomePane.managedProperty().bind(welcomePane.visibleProperty());
@@ -577,6 +580,40 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         sidebarMargin.setClip(clip);
     }
 
+    /**
+     * 系统拖拽投放：从资源管理器拖入文件/文件夹即成为待发附件——图片走 Base64 多模态、
+     * pdf/docx/xlsx/txt/md/csv 走正文抽取、文件夹/其它文件走路径引用（与回形针菜单同一分流，
+     * 见 {@link com.gettyio.gim.agent.ui.chat.AttachmentBar#addDroppedFiles}）。
+     * JCEF 画布不消费 JavaFX 拖拽事件，在页面容器 chatPage 上统一拦截即可覆盖消息区与输入区；
+     * 悬停期间在聊天区浮出提示层，离开或投放后收起。
+     */
+    private void installFileDropTarget() {
+        dropOverlayLabel = new Label(I18n.t("chat.drop.hint"));
+        dropOverlay = new StackPane(dropOverlayLabel);
+        dropOverlay.getStyleClass().add("drop-overlay");
+        dropOverlay.setMouseTransparent(true);
+        dropOverlay.setVisible(false);
+        chatHost.getChildren().add(dropOverlay);
+
+        chatPage.setOnDragOver(e -> {
+            if (e.getDragboard().hasFiles()) {
+                e.acceptTransferModes(TransferMode.COPY);
+                dropOverlay.setVisible(true);
+                e.consume();
+            }
+        });
+        chatPage.setOnDragExited(e -> dropOverlay.setVisible(false));
+        chatPage.setOnDragDropped(e -> {
+            dropOverlay.setVisible(false);
+            if (!e.getDragboard().hasFiles()) {
+                return;
+            }
+            boolean done = attachmentBar.addDroppedFiles(e.getDragboard().getFiles()) > 0;
+            e.setDropCompleted(done);
+            e.consume();
+        });
+    }
+
     /** 依据当前语言刷新主窗口静态文案（FXML 中的文本节点）。 */
     private void applyI18n() {
         navChatLabel.setText(I18n.t("nav.newTask"));
@@ -591,6 +628,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         welcomeSubtitle.setText(I18n.t("welcome.subtitle"));
         privacyHint.setText(I18n.t("input.privacy"));
         inputField.setPromptText(I18n.t("input.prompt"));
+        if (dropOverlayLabel != null) {
+            dropOverlayLabel.setText(I18n.t("chat.drop.hint"));
+        }
         if (templateButton != null) {
             if (templateButton.getTooltip() == null) {
                 templateButton.setTooltip(new Tooltip());
@@ -781,7 +821,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
         // 对比模式：工具条勾选了 ≥2 个模型时走并行对比链路（只读、不落库、不进历史）
         if (toolbar.compareEnabled()) {
-            sendCompare(text, hasText, hasImages, hasRefs, hasDocs);
+            compareRunner.send(text, hasText, hasImages, hasRefs, hasDocs);
             return;
         }
         // 发送前的两道硬拦：非视觉模型禁用图片发送、模型速率（RPM/TPM）超限节流。拦下时保留草稿不建会话
@@ -834,188 +874,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         rateGovernor.recordRequest(gateModel);
         runStream(chatService.chat(req), sessionId, req.isPlanMode());
         statusBar.updateContext();
-    }
-
-    /**
-     * 对比发送：组装正文 → 上屏用户气泡 → 挂对比卡片 → 每列独立订阅网关流。
-     * <p>对比固定只读模式（EXPLORE：读类工具正常、副作用工具被拒且不弹确认），不落库：
-     * 每列走临时会话 id，与真实会话状态互不影响；文档附件暂不支持（正文抽取链路在 ChatService 内）。</p>
-     */
-    private void sendCompare(String text, boolean hasText, boolean hasImages, boolean hasRefs, boolean hasDocs) {
-        List<com.gettyio.gim.agent.ui.chat.ToolbarPickers.CompareTarget> targets = toolbar.compareTargets();
-        if (hasDocs) {
-            GimDialog.message(ownerWindow(), I18n.t("compare.menu.title"), null, I18n.t("compare.doc.unsupported"));
-            return;
-        }
-        if (hasImages) {
-            List<String> noVision = targets.stream()
-                    .filter(t -> !providerAdminService.modelSupportsVision(t.modelCode()))
-                    .map(com.gettyio.gim.agent.ui.chat.ToolbarPickers.CompareTarget::label)
-                    .toList();
-            if (!noVision.isEmpty()) {
-                GimDialog.message(ownerWindow(), I18n.t("vision.blocked.title"), I18n.t("vision.blocked.title"),
-                        I18n.t("compare.vision.blocked", String.join("、", noVision)));
-                return;
-            }
-        }
-        for (com.gettyio.gim.agent.ui.chat.ToolbarPickers.CompareTarget t : targets) {
-            String rateBlocked = rateGovernor.blockedReason(t.modelCode());
-            if (rateBlocked != null) {
-                GimDialog.message(ownerWindow(), I18n.t("rate.limit.title"),
-                        I18n.t("rate.limit.title"), rateBlocked);
-                return;
-            }
-        }
-        String body = hasText ? text : "";
-        if (hasRefs) {
-            String refBlock = attachmentBar.renderRefBlock();
-            if (!refBlock.isEmpty()) {
-                body = body.isEmpty() ? refBlock : body + "\n\n" + refBlock;
-            }
-        }
-        List<ImageAttachment> images = attachmentBar.snapshotImages();
-        inputField.clear();
-        List<StoredAttachment> liveFiles = attachmentBar.previewDocRefs();
-        attachmentBar.clearPending();
-        // 与普通发送一致：用户气泡先上屏（不落库，主键 0）
-        chatEmpty.set(false);
-        chatView.appendMessage(payload.userLive(0, body, images, liveFiles));
-        runCompare(body, images, targets);
-        statusBar.updateContext();
-    }
-
-    /** 对比流的生命周期编排：逐列订阅 → 全部列终态后退出流式态；发出即清勾选（对比为一次性动作）。 */
-    private void runCompare(String body, List<ImageAttachment> images,
-                            List<com.gettyio.gim.agent.ui.chat.ToolbarPickers.CompareTarget> targets) {
-        // 对比发送同样视为活跃使用（与 runStream 同一续期口径）
-        localAuthService.touch();
-        String agentCode = currentAgentCode();
-        // 逐列累计明文/用量/起始时间（收尾定格到底部行），与 WebView 内的列同序
-        final List<StringBuilder> raws = new ArrayList<>();
-        final List<com.gettyio.gim.agent.core.chat.TokenUsage> usages = new ArrayList<>();
-        final List<Long> starts = new ArrayList<>();
-        List<Map<String, Object>> cols = new ArrayList<>();
-        for (com.gettyio.gim.agent.ui.chat.ToolbarPickers.CompareTarget t : targets) {
-            raws.add(new StringBuilder());
-            usages.add(null);
-            starts.add(System.currentTimeMillis());
-            Map<String, Object> c = new LinkedHashMap<>();
-            c.put("label", t.label());
-            c.put("running", I18n.t("compare.running"));
-            cols.add(c);
-        }
-        chatView.compareStart(cols);
-
-        comparing = true;
-        compareAgentCode = agentCode;
-        compareSessions.clear();
-        compareStreams.clear();
-        compareDoneTotal = targets.size();
-        compareCompleted = 0;
-        enterStreamingUi(null);
-
-        for (int i = 0; i < targets.size(); i++) {
-            final int idx = i;
-            com.gettyio.gim.agent.ui.chat.ToolbarPickers.CompareTarget t = targets.get(i);
-            // 临时会话 id：与真实会话隔离（不进历史，停止时按它逐个中断网关侧生成）
-            String tempSession = "cmp-" + java.util.UUID.randomUUID();
-            compareSessions.add(tempSession);
-            ChatRequest req = ChatRequest.builder()
-                    .agentCode(agentCode)
-                    .sessionId(tempSession)
-                    .text(body)
-                    .providerCode(t.providerCode())
-                    .modelCode(t.modelCode())
-                    .images(images)
-                    .permissionMode(PermissionMode.EXPLORE)
-                    .build();
-            rateGovernor.recordRequest(t.modelCode());
-            Disposable stream = agentGateway.stream(req)
-                    .bufferTimeout(256, FRAME_WINDOW)
-                    .subscribeOn(Schedulers.boundedElastic())
-                    .doOnCancel(() -> Platform.runLater(() -> {
-                        chatView.compareEnd(idx, "stopped", compareFoot("stopped", usages.get(idx), starts.get(idx)));
-                        compareColumnDone();
-                    }))
-                    .subscribe(
-                            batch -> Platform.runLater(() -> {
-                                for (StreamEvent e : batch) {
-                                    if (e.getType() == StreamEventType.TEXT_DELTA && e.getText() != null) {
-                                        raws.get(idx).append(e.getText());
-                                        chatView.compareDelta(idx, e.getText());
-                                    } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null) {
-                                        raws.get(idx).append('\n').append(I18n.t("chat.toolCall", e.getToolName()));
-                                        chatView.compareNote(idx, "\n" + I18n.t("chat.toolCall", e.getToolName()));
-                                    } else if (e.getType() == StreamEventType.USAGE) {
-                                        if (e.getUsage() != null && !e.getUsage().isEmpty()) {
-                                            usages.set(idx, e.getUsage());
-                                        }
-                                    }
-                                }
-                            }),
-                            err -> Platform.runLater(() -> {
-                                log.warn("对比流失败: model={}", t.modelCode(), err);
-                                String msg = err.getMessage() == null || err.getMessage().isBlank()
-                                        ? I18n.t("common.error.unknown") : err.getMessage();
-                                String note = "\n" + I18n.t("chat.failed", msg);
-                                raws.get(idx).append(note);
-                                chatView.compareDelta(idx, note);
-                                chatView.compareEnd(idx, "failed", compareFoot("failed", usages.get(idx), starts.get(idx)));
-                                compareColumnDone();
-                            }),
-                            () -> Platform.runLater(() -> {
-                                chatView.compareEnd(idx, "done", compareFoot("done", usages.get(idx), starts.get(idx)));
-                                compareColumnDone();
-                            }));
-            compareStreams.add(stream);
-        }
-        toolbar.clearCompareSelection();
-        toolbar.renderCompareButton();
-    }
-
-    /** 对比列定格页脚：徽章文案 + 耗时（秒，一位小数）· 总 tokens（无用量回报时只显耗时）。 */
-    private Map<String, Object> compareFoot(String state, com.gettyio.gim.agent.core.chat.TokenUsage usage,
-                                            long startMillis) {
-        Map<String, Object> foot = new LinkedHashMap<>();
-        foot.put("badge", I18n.t(switch (state) {
-            case "done" -> "compare.done";
-            case "failed" -> "compare.failed";
-            default -> "compare.stopped";
-        }));
-        double seconds = Math.max(0, System.currentTimeMillis() - startMillis) / 1000.0;
-        String time = String.format(Locale.ROOT, "%.1f", seconds);
-        if (usage == null) {
-            foot.put("text", I18n.t("compare.foot.time", time));
-        } else {
-            foot.put("text", I18n.t("compare.foot", time, String.valueOf(usage.inputTokens() + usage.outputTokens())));
-        }
-        return foot;
-    }
-
-    /** 停止对比：先打断各列网关侧的模型/工具循环，再取消订阅（doOnCancel 逐列收尾为「已停止」）。 */
-    private void stopCompare() {
-        String agent = compareAgentCode;
-        for (String sid : List.copyOf(compareSessions)) {
-            if (agent != null) {
-                chatService.stop(agent, sid);
-            }
-        }
-        for (Disposable stream : List.copyOf(compareStreams)) {
-            stream.dispose();
-        }
-    }
-
-    /** 一列终结（完成/出错/停止）：全部列终结后退出流式态并清在途记录。 */
-    private void compareColumnDone() {
-        compareCompleted++;
-        if (compareCompleted < compareDoneTotal) {
-            return;
-        }
-        comparing = false;
-        compareAgentCode = null;
-        compareStreams.clear();
-        compareSessions.clear();
-        exitStreamingUi();
     }
 
     /**
@@ -1131,7 +989,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 chatService.insertLocalExchange(sid, agent, prompt, md);
                 refreshSessions();
                 if (sid.equals(currentSessionId) && !isBusy()) {
-                    renderSessionMessages(sid);
+                    historyPager.render(sid);
                 } else {
                     chatView.streamDelta(genId, "\n" + md);
                     chatView.streamEnd(genId);
@@ -1192,7 +1050,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                             exitStreamingUi();
                             refreshSessions();
                             // 完成：从库重放，令刚落的助手/用户气泡拿到真实主键与操作能力
-                            renderSessionMessages(sessionId);
+                            historyPager.render(sessionId);
                             // 规划轮跑完：展示并让用户确认/编辑计划文件
                             if (planTurn) {
                                 reviewPlan(agentOfSession(sessionId));
@@ -1296,13 +1154,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     /** 是否有任何在途生成（普通流式或对比）：发送互斥与停止分流的统一判定。 */
     private boolean isBusy() {
-        return activeStream != null || comparing;
+        return activeStream != null || compareRunner.isRunning();
     }
 
     /** 停止生成：对比在途时停对比；否则先打断网关侧的模型/工具循环，再取消订阅（doOnCancel 落盘半截应答）。 */
     private void handleStop() {
-        if (comparing) {
-            stopCompare();
+        if (compareRunner.isRunning()) {
+            compareRunner.stop();
             return;
         }
         String session = streamingSessionId;
@@ -1317,7 +1175,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     }
 
     /** 进入流式态：发送按钮原地变「停止」（Segoe Stop 图标、保持可点），记录在途会话。 */
-    private void enterStreamingUi(String sessionId) {
+    @Override
+    public void enterStreamingUi(String sessionId) {
         streamingSessionId = sessionId;
         Node graphic = sendButton.getGraphic();
         if (graphic instanceof Label icon) {
@@ -1328,7 +1187,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     }
 
     /** 退出流式态：恢复发送图标并释放在途句柄。 */
-    private void exitStreamingUi() {
+    @Override
+    public void exitStreamingUi() {
         activeStream = null;
         streamingSessionId = null;
         Node graphic = sendButton.getGraphic();
@@ -1356,97 +1216,10 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private void switchToSession(String sessionId) {
         currentSessionId = sessionId;
         hidePlanBanner();
-        renderSessionMessages(sessionId);
+        historyPager.render(sessionId);
         // 高亮当前会话行
         sidebar.renderSessions();
         updateHeaderTitle();
-    }
-
-    /** 已加载的最旧历史主键（游标）；0 表示无可补页 */
-    private long oldestLoadedId;
-    /** 还有更早历史未加载 */
-    private boolean hasMoreOlder;
-    /** 向上补页进行中（防抖） */
-    private boolean loadingOlder;
-
-    /**
-     * 从库重放当前会话的消息：只拉最新一页（{@link ChatService#HISTORY_PAGE_SIZE}）避免长会话全量上屏，
-     * 滚动到顶再向上补页；逐条按角色上屏，携带主键以供删除/编辑/重生成/分支。
-     */
-    private void renderSessionMessages(String sessionId) {
-        // 先复位分页态：整页重放会把滚动拉回顶部，不能让旧会话的补页态误触发
-        hasMoreOlder = false;
-        loadingOlder = false;
-        oldestLoadedId = 0;
-        chatView.clear();
-        if (sessionId == null) {
-            return;
-        }
-        List<ChatConversation> history = chatService.recentHistory(sessionId, ChatService.HISTORY_PAGE_SIZE);
-        List<java.util.Map<String, Object>> msgs = new ArrayList<>();
-        long lastAssistantId = 0;
-        long lastUserId = 0;
-        for (ChatConversation c : history) {
-            msgs.add(toPayload(c));
-            long id = c.getId() == null ? 0L : c.getId();
-            if (ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole())) {
-                lastUserId = id;
-            } else {
-                lastAssistantId = id;
-            }
-        }
-        chatView.renderHistory(com.gettyio.gim.agent.ui.chat.ChatMessagePayload.toJson(msgs));
-        chatView.setFlags(lastAssistantId, lastUserId);
-        // 欢迎页显隐跟 Java 侧真实数据走，不依赖 JS 桥存活
-        chatEmpty.set(history.isEmpty());
-        hasMoreOlder = history.size() >= ChatService.HISTORY_PAGE_SIZE;
-        if (!history.isEmpty() && history.get(0).getId() != null) {
-            oldestLoadedId = history.get(0).getId();
-        }
-        statusBar.updateUsageFromSession(sessionId);
-        statusBar.updateContext();
-    }
-
-    /** 把一条历史消息转为 WebView 载荷（用户：正文+附件；助手：正文+工具解码+思考+时间+中断标记）。 */
-    private java.util.Map<String, Object> toPayload(ChatConversation c) {
-        long id = c.getId() == null ? 0L : c.getId();
-        String content = c.getContent() == null ? "" : c.getContent();
-        MessageMetadataCodec.MessageMetadata meta = MessageMetadataCodec.read(c.getMetadata());
-        if (ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole())) {
-            return payload.user(id, content, meta.attachments());
-        }
-        return payload.assistant(id, content, c.getToolCalls(), meta.thinking(), c.getCreatedAt(), meta.interrupted());
-    }
-
-    /**
-     * 滚动到顶补页：拉取游标之前的一页历史前置到 WebView 顶部（前端保持视觉位置不跳）。
-     * 补满一整页才认为可能还有更早（与首页同口径）。
-     */
-    private void loadOlderMessages() {
-        if (loadingOlder || !hasMoreOlder || isBusy()) {
-            return;
-        }
-        String sid = currentSessionId;
-        if (sid == null || oldestLoadedId <= 0) {
-            return;
-        }
-        loadingOlder = true;
-        List<ChatConversation> older = chatService.historyBefore(sid, oldestLoadedId, ChatService.HISTORY_PAGE_SIZE);
-        hasMoreOlder = older.size() >= ChatService.HISTORY_PAGE_SIZE;
-        if (older.isEmpty()) {
-            loadingOlder = false;
-            return;
-        }
-        // older 升序（旧→新），按序组载荷后整体 prepend（前端按新增高度补偿滚动）
-        List<java.util.Map<String, Object>> msgs = new ArrayList<>();
-        for (ChatConversation c : older) {
-            msgs.add(toPayload(c));
-        }
-        chatView.prependOlder(com.gettyio.gim.agent.ui.chat.ChatMessagePayload.toJson(msgs));
-        if (older.get(0).getId() != null) {
-            oldestLoadedId = older.get(0).getId();
-        }
-        loadingOlder = false;
     }
 
     // ===================== 消息气泡操作：复制 / 重生成 / 编辑重发 / 删除 =====================
@@ -1503,7 +1276,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         // regenerate 组装时已同步删掉库里的最后一条助手消息；先重放去掉旧气泡，再流式补新的
         ChatRequest req = buildRequest(sid, text);
         Flux<StreamEvent> flux = chatService.regenerate(req);
-        renderSessionMessages(sid);
+        historyPager.render(sid);
         runStream(flux, sid, req.isPlanMode());
     }
 
@@ -1528,7 +1301,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         // editAndResend 组装时已截断该条及其后全部并落了新的用户消息；重放后再流式应答
         ChatRequest req = buildRequest(sid, edited.get());
         Flux<StreamEvent> flux = chatService.editAndResend(req, conversationId);
-        renderSessionMessages(sid);
+        historyPager.render(sid);
         runStream(flux, sid, req.isPlanMode());
     }
 
@@ -1545,7 +1318,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             return;
         }
         chatService.deleteMessage(sid, conversationId);
-        renderSessionMessages(sid);
+        historyPager.render(sid);
         refreshSessions();
     }
 
@@ -1753,79 +1526,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 侧栏「导出长图」：弹保存框后以话题卡片 HTML 离屏快照为 PNG（成功/失败弹框反馈）。 */
     @Override
     public void exportSessionImage(String sessionId) {
-        ChatSession session = exportService.findSession(sessionId).orElse(null);
-        if (session == null) {
-            GimDialog.message(ownerWindow(), I18n.t("session.export.image"), null, I18n.t("settings.export.noSession"));
-            return;
-        }
-        File file = chooseExportTarget(I18n.t("session.export.image"), session, ".png", "PNG (*.png)");
-        if (file == null) {
-            return;
-        }
-        Path target = withExtension(file.toPath(), ".png");
-        // 长图须在 FX 线程快照：先在后台备好 HTML，回 FX 线程交给导出器（其内部再异步写盘）
-        Thread t = new Thread(() -> {
-            String html;
-            try {
-                html = exportService.renderSessionHtml(sessionId);
-            } catch (RuntimeException e) {
-                log.warn("导出会话长图：HTML 渲染失败", e);
-                Platform.runLater(() -> GimDialog.message(ownerWindow(), I18n.t("session.export.image"), null,
-                        I18n.t("settings.data.fail", String.valueOf(e.getMessage()))));
-                return;
-            }
-            Platform.runLater(() -> SessionImageExporter.export(ownerWindow(), html, target,
-                    saved -> GimDialog.message(ownerWindow(), I18n.t("session.export.image"), null,
-                            I18n.t("settings.export.done", saved.getFileName())),
-                    err -> GimDialog.message(ownerWindow(), I18n.t("session.export.image"), null, err)));
-        }, "session-image-render");
-        t.setDaemon(true);
-        t.start();
+        sessionExporter.exportImage(sessionId);
     }
 
     /** 侧栏「导出网页」：话题卡片式独立 HTML（样式与本地图片内嵌，单文件可分享）；渲染在后台线程。 */
     @Override
     public void exportSessionHtml(String sessionId) {
-        ChatSession session = exportService.findSession(sessionId).orElse(null);
-        if (session == null) {
-            GimDialog.message(ownerWindow(), I18n.t("session.export.html"), null, I18n.t("settings.export.noSession"));
-            return;
-        }
-        File file = chooseExportTarget(I18n.t("session.export.html"), session, ".html", "HTML (*.html)");
-        if (file == null) {
-            return;
-        }
-        Path target = withExtension(file.toPath(), ".html");
-        Thread t = new Thread(() -> {
-            try {
-                Path saved = exportService.exportSessionHtml(sessionId, target);
-                Platform.runLater(() -> GimDialog.message(ownerWindow(), I18n.t("session.export.html"), null,
-                        I18n.t("settings.export.done", saved.getFileName())));
-            } catch (RuntimeException e) {
-                log.warn("导出会话网页失败", e);
-                Platform.runLater(() -> GimDialog.message(ownerWindow(), I18n.t("session.export.html"), null,
-                        I18n.t("settings.data.fail", String.valueOf(e.getMessage()))));
-            }
-        }, "session-html-export");
-        t.setDaemon(true);
-        t.start();
-    }
-
-    /** 弹「另存为」对话框（标题、建议文件名与扩展名过滤器按导出格式定制）；取消返回 null。 */
-    private File chooseExportTarget(String title, ChatSession session, String ext, String filterText) {
-        FileChooser chooser = new FileChooser();
-        chooser.setTitle(title);
-        chooser.setInitialFileName(exportService.suggestedFileName(
-                session.getTitle() == null || session.getTitle().isBlank() ? session.getSessionId() : session.getTitle(),
-                ext));
-        chooser.getExtensionFilters().add(new FileChooser.ExtensionFilter(filterText, "*" + ext));
-        return chooser.showSaveDialog(ownerWindow());
-    }
-
-    /** 用户未按选中格式补后缀时自动补上（与设置页导出同规则）。 */
-    private static Path withExtension(Path p, String ext) {
-        String name = p.getFileName().toString().toLowerCase(Locale.ROOT);
-        return name.endsWith(ext) ? p : Path.of(p.toString() + ext);
+        sessionExporter.exportHtml(sessionId);
     }
 
     /** 搜索按钮：弹出命令面板，在当前智能体的会话标题与消息正文里检索，选中即打开（消息行还会滚到该条）。 */
@@ -1905,7 +1612,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     @Override
     public void chatScrollTop() {
-        Platform.runLater(this::loadOlderMessages);
+        Platform.runLater(() -> historyPager.loadOlder());
     }
 
     @Override
@@ -1913,6 +1620,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         boolean show = scrollable && !atBottom;
         scrollBottomBtn.setVisible(show);
         scrollBottomBtn.setManaged(show);
+    }
+
+    @Override
+    public void chatTrimmed(long newOldestId) {
+        historyPager.onTrimmed(newOldestId);
     }
 
     @Override

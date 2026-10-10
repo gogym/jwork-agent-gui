@@ -15,6 +15,7 @@ import org.springframework.stereotype.Component;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.net.ProxySelector;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -424,9 +425,11 @@ public class WebDavSyncService {
     private Sardine begin() {
         String user = username();
         String pwd = passwordPlain();
+        // 代理：JVM 默认 ProxySelector 实时读系统属性，随全局代理设置即时生效
+        ProxySelector proxy = ProxySelector.getDefault();
         return user.isEmpty() && pwd.isEmpty()
-                ? SardineFactory.begin()
-                : SardineFactory.begin(user, pwd);
+                ? SardineFactory.begin(null, null, proxy)
+                : SardineFactory.begin(user, pwd, proxy);
     }
 
     private String requireConfigured() throws IOException {

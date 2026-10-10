@@ -24,6 +24,8 @@
     var followBottom = true;      // 是否自动跟随到底部
     var wasAtBottom = true;       // 最近一次滚动事件时是否已贴底（视口尺寸变化时据此补滚回底）
     var streaming = {};           // id -> {raw, thinking, node, ...}
+    var TRIM_THRESHOLD = 800;     // DOM 消息行超此数且贴底时触发顶部回收（长会话控内存）
+    var TRIM_KEEP = 400;          // 回收后保留的最新消息行数
 
     function esc(s) {
         return s == null ? '' : String(s);
@@ -381,6 +383,34 @@
             updateEmpty();
         },
 
+        // 顶部回收（长会话控内存）：贴底后 DOM 过重时，从列表头部移除最旧的已落盘消息行。
+        // 数据仍在库中——上滚触顶时 Java 侧照常补页，把被回收段重新加载回来。
+        // 只回收连续位于顶部的已落盘行（data-id>0）：遇非消息节点或临时流式行即停止。
+        // 由调用方保证贴底时触发：移除部分全在视口上方，scrollTop 被浏览器
+        // clamp 到新的底部，视觉零跳变。回收完成后把新首条主键回抛 Java 前移补页游标。
+        trimOldest: function (keep) {
+            var l = list();
+            var removeCount = l.children.length - keep;
+            if (removeCount <= 0) { return; }
+            var removed = 0;
+            while (removed < removeCount && l.firstChild) {
+                var node = l.firstChild;
+                if (!node.classList || !node.classList.contains('bubble-row')) { break; }
+                var id = parseInt(node.getAttribute('data-id'), 10);
+                if (isNaN(id) || id <= 0 || streaming[id]) { break; }
+                l.removeChild(node);
+                removed++;
+            }
+            if (removed <= 0) { return; }
+            var newOldest = 0;
+            var rows = l.querySelectorAll('.bubble-row');
+            for (var i = 0; i < rows.length; i++) {
+                var rid = parseInt(rows[i].getAttribute('data-id'), 10);
+                if (!isNaN(rid) && rid > 0) { newOldest = rid; break; }
+            }
+            if (bridge() && newOldest > 0) { bridge().onTrimmed(newOldest); }
+        },
+
         clear: function () { list().innerHTML = ''; streaming = {}; updateEmpty(); },
 
         // 追加单条消息（发送即时上屏的用户气泡，尚未落库无主键）
@@ -576,6 +606,8 @@
         if (bridge()) {
             if (y <= 4) { bridge().onScrollTop(); }
             reportScrollState(atBottom, scrollable);
+            // 贴底且 DOM 过重：顺带回收顶部旧行（移除后 scrollTop 被 clamp 回新底，不触发视觉跳动）
+            if (atBottom && list().children.length > TRIM_THRESHOLD) { api.trimOldest(TRIM_KEEP); }
         }
     }, { passive: true });
 

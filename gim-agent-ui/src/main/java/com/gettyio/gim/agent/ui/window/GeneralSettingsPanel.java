@@ -3,8 +3,10 @@ package com.gettyio.gim.agent.ui.window;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.chat.HarnessAgentGateway;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
+import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.config.ProxyManager;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService;
@@ -16,6 +18,7 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
 import java.util.ArrayList;
@@ -23,7 +26,7 @@ import java.util.List;
 
 /**
  * 通用设置子面板：数据与路径概览、启动与关闭行为（含开机自启、全局热键）、上下文窗口上限、
- * 用量预算、语音输入/朗读与图像生成配置。抽自 {@link SettingsWindow}，依赖
+ * 用量预算、网络代理、语音输入/朗读与图像生成配置。抽自 {@link SettingsWindow}，依赖
  * {@link AppLifecycle}/{@link GlobalHotkeyService} 等与宿主弹窗归属/提示回调；
  * 本地备份/导出与云端同步已拆至 {@link BackupRestoreSettingsPanel}。
  */
@@ -41,11 +44,16 @@ final class GeneralSettingsPanel {
     private final SecurityAdminService securityAdminService;
     /** 多智能体网关：上下文窗口上限变更后失效全部运行体，使新阈值于下一轮对话重新装配时生效。 */
     private final MultiAgentGateway agentGateway;
+    /** 全局网络代理：代理卡片读写（保存即应用到进程）。 */
+    private final ProxyManager proxyManager;
+    /** 模型实例缓存：代理出口变更后清空，使下一轮对话按新传输重建模型。 */
+    private final AgentScopeModelFactory modelFactory;
 
     GeneralSettingsPanel(SettingsWindow host, GimPaths gimPaths, AppLifecycle appLifecycle,
                          GlobalHotkeyService globalHotkeyService, GimDatabase database,
                          VoiceInputService voiceInputService, TtsService ttsService,
-                         SecurityAdminService securityAdminService, MultiAgentGateway agentGateway) {
+                         SecurityAdminService securityAdminService, MultiAgentGateway agentGateway,
+                         ProxyManager proxyManager, AgentScopeModelFactory modelFactory) {
         this.host = host;
         this.gimPaths = gimPaths;
         this.appLifecycle = appLifecycle;
@@ -55,6 +63,8 @@ final class GeneralSettingsPanel {
         this.ttsService = ttsService;
         this.securityAdminService = securityAdminService;
         this.agentGateway = agentGateway;
+        this.proxyManager = proxyManager;
+        this.modelFactory = modelFactory;
     }
 
     VBox build() {
@@ -70,6 +80,7 @@ final class GeneralSettingsPanel {
         box.getChildren().add(behaviorCard());
         box.getChildren().add(contextCard());
         box.getChildren().add(budgetCard());
+        box.getChildren().add(proxyCard());
         box.getChildren().add(voiceCard());
         box.getChildren().add(ttsCard());
         box.getChildren().add(imageCard());
@@ -235,6 +246,98 @@ final class GeneralSettingsPanel {
         }
         database.settingDao().upsert(
                 com.gettyio.gim.agent.ui.throttle.ModelRateGovernor.KEY_MONTHLY_BUDGET, toSave, "月度用量预算上限（元）");
+    }
+
+    /**
+     * 网络代理卡片：启用开关与地址/端口/认证/绕过列表，失焦/回车/开关切换即保存并应用到进程。
+     * 设置变化后失效模型缓存与全部运行体，下一轮对话按新出口重建（WebDAV 等按系统属性实时生效）。
+     */
+    private VBox proxyCard() {
+        ProxyManager.Settings current = proxyManager.settings();
+
+        ToggleSwitch enabled = new ToggleSwitch();
+        enabled.setSelected(current.enabled());
+
+        TextField hostField = new TextField(current.host());
+        hostField.setPromptText(I18n.t("settings.proxy.host.prompt"));
+        hostField.setMaxWidth(240);
+        TextField portField = new TextField(current.port() > 0 ? String.valueOf(current.port()) : "");
+        portField.setPromptText(I18n.t("settings.proxy.port.prompt"));
+        portField.setMaxWidth(120);
+        TextField userField = new TextField(current.username());
+        userField.setPromptText(I18n.t("settings.proxy.username.prompt"));
+        userField.setMaxWidth(200);
+        PasswordField pwdField = new PasswordField();
+        pwdField.setText(current.password());
+        pwdField.setMaxWidth(200);
+        TextField bypassField = new TextField(current.bypass());
+        bypassField.setPromptText(I18n.t("settings.proxy.bypass.prompt"));
+        bypassField.setMaxWidth(320);
+
+        Runnable save = () -> saveProxy(enabled, hostField, portField, userField, pwdField, bypassField);
+        for (TextField f : List.of(hostField, portField, userField, pwdField, bypassField)) {
+            f.setOnAction(e -> save.run());
+            f.focusedProperty().addListener((obs, was, now) -> {
+                if (!now) {
+                    save.run();
+                }
+            });
+        }
+        // 开关仅在目标状态与库中不一致时触发保存：校验失败的回滚不会递归
+        enabled.selectedProperty().addListener((obs, was, sel) -> {
+            if (sel != proxyManager.settings().enabled()) {
+                save.run();
+            }
+        });
+
+        HBox authBox = new HBox(8, userField, pwdField);
+        List<Node> rows = new ArrayList<>();
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.enabled"), I18n.t("settings.proxy.enabled.desc"), enabled));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.host"), I18n.t("settings.proxy.host.desc"), hostField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.port"), I18n.t("settings.proxy.port.desc"), portField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.auth"), I18n.t("settings.proxy.auth.desc"), authBox));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.bypass"), I18n.t("settings.proxy.bypass.desc"), bypassField));
+        return SettingsLayout.groupCard(I18n.t("settings.proxy.group"), rows);
+    }
+
+    /** 校验并保存代理设置：启用时要求主机与 1-65535 端口齐备，否则回滚并提示；仅设置变化时失效运行体。 */
+    private void saveProxy(ToggleSwitch enabled, TextField hostField, TextField portField,
+                           TextField userField, PasswordField pwdField, TextField bypassField) {
+        String proxyHost = hostField.getText() == null ? "" : hostField.getText().trim();
+        int port = parseProxyPort(portField.getText());
+        boolean on = enabled.isSelected();
+        if (on && (proxyHost.isEmpty() || port <= 0)) {
+            ProxyManager.Settings saved = proxyManager.settings();
+            enabled.setSelected(saved.enabled());
+            hostField.setText(saved.host());
+            portField.setText(saved.port() > 0 ? String.valueOf(saved.port()) : "");
+            host.notify("settings.proxy.group", I18n.t("settings.proxy.invalid"));
+            return;
+        }
+        ProxyManager.Settings next = new ProxyManager.Settings(on, proxyHost, port,
+                userField.getText() == null ? "" : userField.getText().trim(),
+                pwdField.getText() == null ? "" : pwdField.getText(),
+                bypassField.getText() == null ? "" : bypassField.getText().trim());
+        if (next.equals(proxyManager.settings())) {
+            return;
+        }
+        proxyManager.save(next);
+        // 已装配的模型实例与运行体持有旧出口：失效后下一轮对话按新传输重建
+        modelFactory.invalidate();
+        agentGateway.invalidateAll();
+    }
+
+    /** 解析端口输入：非法或越界返回 0（视为未填）。 */
+    private static int parseProxyPort(String raw) {
+        if (raw == null) {
+            return 0;
+        }
+        try {
+            int port = Integer.parseInt(raw.trim());
+            return port > 0 && port <= 65535 ? port : 0;
+        } catch (NumberFormatException e) {
+            return 0;
+        }
     }
 
     /**

@@ -66,6 +66,11 @@ public final class ChatBridge {
         events.chatScrollState(atBottom, scrollable);
     }
 
+    /** 前端顶部回收后新的 DOM 最旧主键（{@code >0}）：控制器前移补页游标并恢复向上补页。 */
+    public void onTrimmed(long newOldestId) {
+        events.chatTrimmed(newOldestId);
+    }
+
     /** 正文链接点击：交控制器 {@code Desktop.browse}。 */
     public void onLink(String url) {
         events.chatLink(url);

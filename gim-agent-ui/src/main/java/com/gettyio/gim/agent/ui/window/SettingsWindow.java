@@ -91,6 +91,14 @@ public class SettingsWindow {
     @Autowired
     private com.gettyio.gim.agent.core.chat.MultiAgentGateway agentGateway;
 
+    /** 全局网络代理：通用页代理卡片直接读写（保存即应用到进程）。 */
+    @Autowired
+    private com.gettyio.gim.agent.ui.config.ProxyManager proxyManager;
+
+    /** 模型实例缓存：代理出口变更后清空，使下一轮对话按新传输重建模型。 */
+    @Autowired
+    private com.gettyio.gim.agent.core.model.AgentScopeModelFactory modelFactory;
+
     /** 应用级记忆管理：记忆页按作用域浏览/编辑/删除各工作区的 MEMORY.md 与台账。 */
     @Autowired
     private com.gettyio.gim.agent.core.memory.MemoryService memoryService;
@@ -172,7 +180,8 @@ public class SettingsWindow {
     private GeneralSettingsPanel generalPanel() {
         if (generalPanel == null) {
             generalPanel = new GeneralSettingsPanel(this, gimPaths, appLifecycle, globalHotkeyService,
-                    database, voiceInputService, ttsService, securityAdminService, agentGateway);
+                    database, voiceInputService, ttsService, securityAdminService, agentGateway,
+                    proxyManager, modelFactory);
         }
         return generalPanel;
     }

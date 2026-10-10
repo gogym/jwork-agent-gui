@@ -405,6 +405,20 @@
 }
 .scroll-bottom-btn:hover { -fx-background-color: -gim-hover; }
 .scroll-bottom-btn .icon { -fx-font-size: 14px; -fx-text-fill: -gim-text-2; }
+/* 拖拽投放提示层（从系统拖入文件悬停时浮出）：半透明罩层 + 虚线描边圈出可投放范围 */
+.drop-overlay {
+    -fx-background-color: -gim-faint-focus;
+    -fx-background-radius: 12;
+    -fx-border-color: -gim-accent;
+    -fx-border-width: 2;
+    -fx-border-style: segments(8, 6) line-cap round;
+    -fx-border-radius: 12;
+}
+.drop-overlay .label {
+    -fx-text-fill: -gim-tint-fg;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
 .bubble-row { -fx-padding: 0; }
 .bubble-user {
     -fx-background-color: -gim-tint;

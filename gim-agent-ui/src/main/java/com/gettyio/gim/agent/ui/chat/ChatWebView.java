@@ -111,6 +111,7 @@ public final class ChatWebView {
                     atBottom = bool(a, 0);
                     bridge.onScrollState(atBottom, bool(a, 1));
                 }
+                case "onTrimmed" -> bridge.onTrimmed(lng(a, 0));
                 case "onLink" -> bridge.onLink(str(a, 0));
                 case "onImage" -> bridge.onImage(str(a, 0));
                 case "onCopyCode" -> bridge.onCopyCode(str(a, 0));

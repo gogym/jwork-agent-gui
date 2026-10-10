@@ -158,6 +158,37 @@ public class AttachmentBar {
         attachChipsBox.getChildren().add(buildChip(att, bytes));
     }
 
+    /**
+     * 接收系统拖拽投放的文件/文件夹（拖入聊天窗口的通道）：按扩展名分流，与回形针菜单同一口径——
+     * 文件夹→目录树引用、图片→Base64 多模态、pdf/docx/xlsx/txt/md/csv→文档正文抽取、
+     * 其它文件→路径引用。不存在的条目跳过；返回受理（已上屏芯片）的条目数。
+     */
+    public int addDroppedFiles(List<File> files) {
+        if (files == null || files.isEmpty()) {
+            return 0;
+        }
+        int added = 0;
+        for (File f : files) {
+            if (f == null || !f.exists()) {
+                continue;
+            }
+            if (f.isDirectory()) {
+                addPendingRef(new FileRef("folder", f.getName(), f.getAbsolutePath(), buildTree(f.toPath())));
+            } else if (isImage(f.getName())) {
+                addPendingImage(f);
+            } else if (isDoc(f.getName())) {
+                addPendingDoc(f);
+            } else {
+                addPendingRef(new FileRef("file", f.getName(), f.getAbsolutePath(), null));
+            }
+            added++;
+        }
+        if (added > 0) {
+            inputField.requestFocus();
+        }
+        return added;
+    }
+
     // ===================== 回形针菜单与选择 =====================
 
     /**

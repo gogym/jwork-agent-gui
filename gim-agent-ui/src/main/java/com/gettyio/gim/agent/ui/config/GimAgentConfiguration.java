@@ -287,6 +287,17 @@ public class GimAgentConfiguration {
         return new ProviderAdminService(db, cipher, modelFactory, resolver, modelProbe);
     }
 
+    /**
+     * 全局网络代理：启动即应用库中已保存的设置（早于任何模型/出网客户端建连）；
+     * 设置页保存后由 {@link ProxyManager#save} 内部即时重应用，UI 侧同时失效模型缓存与运行体。
+     */
+    @Bean
+    public ProxyManager proxyManager(GimDatabase db, SecretCipher cipher) {
+        ProxyManager manager = new ProxyManager(db, cipher);
+        manager.apply();
+        return manager;
+    }
+
     @Bean
     public TaskAdminService taskAdminService(GimDatabase db, TaskSchedulerService schedulerService,
                                              AgentTaskExecutor agentTaskExecutor) {
