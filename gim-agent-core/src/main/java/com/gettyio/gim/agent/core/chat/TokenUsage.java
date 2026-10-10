@@ -10,11 +10,13 @@ package com.gettyio.gim.agent.core.chat;
  * @param cachedTokens  输入中命中提示缓存的 token 合计（{@code inputTokens} 的子集）
  * @param calls         本轮成功结束的 LLM 调用次数
  * @param elapsedMillis 本轮模型调用累计耗时（毫秒，各次 {@code getTime()} 秒 × 1000 取整之和）
+ * @param lastInputTokens 本轮最后一次模型调用的 input token 数（≈轮末上下文真实提示词体量，
+ *                        上下文占用条以其为准；因工具循环多次调用时 {@code inputTokens} 是累加值，不可当体量用）；未记录为 0
  */
 public record TokenUsage(int inputTokens, int outputTokens, int cachedTokens,
-                         int calls, long elapsedMillis) {
+                         int calls, long elapsedMillis, int lastInputTokens) {
 
-    public static final TokenUsage ZERO = new TokenUsage(0, 0, 0, 0, 0L);
+    public static final TokenUsage ZERO = new TokenUsage(0, 0, 0, 0, 0L, 0);
 
     /** 是否一次用量都没记录（用于落库前判空，避免给消息写一堆 0）。 */
     public boolean isEmpty() {
@@ -22,7 +24,10 @@ public record TokenUsage(int inputTokens, int outputTokens, int cachedTokens,
                 && calls == 0 && elapsedMillis == 0;
     }
 
-    /** 与另一次用量相加（跨 HITL 续跑时合并多段累加器）。 */
+    /**
+     * 与另一次用量相加（跨 HITL 续跑时合并多段累加器）。
+     * <p>{@code lastInputTokens} 取较新一侧的非零值——它代表「最后一次调用」，不做求和。</p>
+     */
     public TokenUsage plus(TokenUsage other) {
         if (other == null) {
             return this;
@@ -31,7 +36,8 @@ public record TokenUsage(int inputTokens, int outputTokens, int cachedTokens,
                 outputTokens + other.outputTokens,
                 cachedTokens + other.cachedTokens,
                 calls + other.calls,
-                elapsedMillis + other.elapsedMillis);
+                elapsedMillis + other.elapsedMillis,
+                other.lastInputTokens != 0 ? other.lastInputTokens : lastInputTokens);
     }
 
     /** 输入 + 输出总量。 */

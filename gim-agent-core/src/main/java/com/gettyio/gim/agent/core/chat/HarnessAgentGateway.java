@@ -728,14 +728,14 @@ public class HarnessAgentGateway implements AutoCloseable {
         }
     }
 
-    /** 把一次模型调用的 {@link ChatUsage} 累进本轮总用量（一次调用计一次，耗时秒转毫秒累加）。 */
+    /** 把一次模型调用的 {@link ChatUsage} 累进本轮总用量（一次调用计一次，耗时秒转毫秒累加；lastInput 随最新一次覆盖）。 */
     private static void accumulate(AtomicReference<TokenUsage> acc, ChatUsage usage) {
         if (usage == null) {
             return;
         }
         long elapsedMillis = Math.round(usage.getTime() * 1000.0);
         TokenUsage delta = new TokenUsage(usage.getInputTokens(), usage.getOutputTokens(),
-                usage.getCachedTokens(), 1, elapsedMillis);
+                usage.getCachedTokens(), 1, elapsedMillis, usage.getInputTokens());
         acc.updateAndGet(cur -> cur.plus(delta));
     }
 

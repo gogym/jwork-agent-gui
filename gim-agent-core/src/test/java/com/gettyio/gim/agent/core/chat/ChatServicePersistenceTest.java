@@ -80,7 +80,7 @@ class ChatServicePersistenceTest {
         Flux<StreamEvent> src = Flux.just(
                 StreamEvent.textDelta(sid, "Hel"),
                 StreamEvent.textDelta(sid, "lo"),
-                StreamEvent.usage(sid, new TokenUsage(10, 5, 2, 1, 100L)),
+                StreamEvent.usage(sid, new TokenUsage(10, 5, 2, 1, 100L, 7)),
                 StreamEvent.complete(sid));
         this.chatService = withGateway(() -> src);
 
@@ -92,6 +92,8 @@ class ChatServicePersistenceTest {
         assertEquals("Hello", assistant.getContent());
         assertEquals(Integer.valueOf(10), assistant.getTokensInput());
         assertEquals(Integer.valueOf(5), assistant.getTokensOutput());
+        // 轮末真实体量单独落列：占用条基准，不受累加值影响
+        assertEquals(Integer.valueOf(7), assistant.getLastInputTokens());
         assertFalse(MessageMetadataCodec.read(assistant.getMetadata()).interrupted());
     }
 

@@ -451,6 +451,8 @@ public class ChatService {
             c.setTokensInput(usage.inputTokens());
             c.setTokensOutput(usage.outputTokens());
             c.setTokensCached(usage.cachedTokens());
+            // 轮末上下文真实体量（最后一次调用的 prompt 体量）：上下文占用条以它为准，不再被整轮累加值放大
+            c.setLastInputTokens(usage.lastInputTokens());
             c.setLlmCalls(usage.calls());
             c.setLlmElapsedMillis(usage.elapsedMillis());
         }
@@ -645,6 +647,7 @@ public class ChatService {
         c.setTokensInput(m.getTokensInput());
         c.setTokensOutput(m.getTokensOutput());
         c.setTokensCached(m.getTokensCached());
+        c.setLastInputTokens(m.getLastInputTokens());
         c.setLlmCalls(m.getLlmCalls());
         c.setLlmElapsedMillis(m.getLlmElapsedMillis());
         c.setModelCode(m.getModelCode());

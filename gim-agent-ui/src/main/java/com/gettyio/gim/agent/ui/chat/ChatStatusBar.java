@@ -138,7 +138,8 @@ public final class ChatStatusBar {
                     && (c.getTokensInput() != null || c.getTokensOutput() != null)) {
                 TokenUsage u = new TokenUsage(nz(c.getTokensInput()), nz(c.getTokensOutput()),
                         nz(c.getTokensCached()), nz(c.getLlmCalls()),
-                        c.getLlmElapsedMillis() == null ? 0L : c.getLlmElapsedMillis());
+                        c.getLlmElapsedMillis() == null ? 0L : c.getLlmElapsedMillis(),
+                        nz(c.getLastInputTokens()));
                 if (u.isEmpty()) {
                     hideUsage();
                 } else {
@@ -186,9 +187,10 @@ public final class ChatStatusBar {
     // ===================== 上下文占用条（输入区底栏）=====================
 
     /**
-     * 刷新上下文占用条：以会话上一轮助手回报的 {@code tokens_input}（即真实提示词体量）为基准，
-     * 叠加待发送输入框的估算 token；拿不到回报时退而按全部历史字符粗估。条体只显示百分比，
-     * 已用量/上限与压缩入口在悬停浮层内呈现；接近上限时百分比转警示色。
+     * 刷新上下文占用条：以会话最后一条助手行记录的 {@code last_input_tokens}（= 上一轮最后一次模型调用的
+     * 真实提示词体量）为基准，叠加待发送输入框的估算 token；拿不到回报时退而按全部历史字符粗估。
+     * 条体只显示百分比，已用量/上限与压缩入口在悬停浮层内呈现；接近上限时百分比转警示色。
+     * <p>不用 {@code tokens_input}：它是整轮（含工具循环多次调用）的累加值，会把占用条放大数倍。</p>
      */
     public void updateContext() {
         if (contextBar == null || contextGauge == null) {
@@ -214,8 +216,8 @@ public final class ChatStatusBar {
                 chars += c.getContent().length();
             }
             if (ConversationRole.ASSISTANT.getCode().equalsIgnoreCase(c.getRole())
-                    && c.getTokensInput() != null && c.getTokensInput() > 0) {
-                lastInput = c.getTokensInput();
+                    && c.getLastInputTokens() != null && c.getLastInputTokens() > 0) {
+                lastInput = c.getLastInputTokens();
             }
         }
         int pending = estimateTokens(inputField.getText());

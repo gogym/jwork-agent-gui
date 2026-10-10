@@ -60,6 +60,8 @@ CREATE TABLE IF NOT EXISTS conversations (
     tokens_input   INTEGER,
     tokens_output  INTEGER,
     tokens_cached  INTEGER,
+    -- 本轮最后一次模型调用的 input token 数（≈轮末上下文真实体量，上下文占用条分子；tokens_input 为整轮累加值）
+    last_input_tokens INTEGER,
     llm_calls      INTEGER,
     llm_elapsed_ms INTEGER,
     model_code     TEXT,

@@ -30,6 +30,9 @@ public class ChatConversation {
     /** 输入中命中提示缓存的 token（{@code tokensInput} 的子集，通常按折扣计费） */
     private Integer tokensCached;
 
+    /** 本轮最后一次模型调用的 input token 数（≈轮末上下文真实体量，上下文占用条分子；{@code tokensInput} 是整轮累加值不可当体量用） */
+    private Integer lastInputTokens;
+
     /** 本轮成功结束的 LLM 调用次数（含工具循环多轮；仅 assistant 消息写入） */
     private Integer llmCalls;
 

@@ -19,7 +19,7 @@ import java.util.List;
 public class ChatConversationDao {
 
     private static final String COLUMNS =
-            "id, session_id, agent_code, role, content, tokens_input, tokens_output, tokens_cached, llm_calls, llm_elapsed_ms, model_code, tool_calls, metadata, created_at";
+            "id, session_id, agent_code, role, content, tokens_input, tokens_output, tokens_cached, last_input_tokens, llm_calls, llm_elapsed_ms, model_code, tool_calls, metadata, created_at";
 
     private final SqlRunner runner;
 
@@ -37,6 +37,7 @@ public class ChatConversationDao {
         c.setTokensInput(SqlRunner.getInt(rs, "tokens_input"));
         c.setTokensOutput(SqlRunner.getInt(rs, "tokens_output"));
         c.setTokensCached(SqlRunner.getInt(rs, "tokens_cached"));
+        c.setLastInputTokens(SqlRunner.getInt(rs, "last_input_tokens"));
         c.setLlmCalls(SqlRunner.getInt(rs, "llm_calls"));
         c.setLlmElapsedMillis(SqlRunner.getLong(rs, "llm_elapsed_ms"));
         c.setModelCode(rs.getString("model_code"));
@@ -51,11 +52,11 @@ public class ChatConversationDao {
             c.setCreatedAt(LocalDateTime.now());
         }
         long id = runner.insert(
-                "INSERT INTO conversations (session_id, agent_code, role, content, tokens_input, tokens_output, tokens_cached, llm_calls, llm_elapsed_ms, model_code, tool_calls, metadata, created_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO conversations (session_id, agent_code, role, content, tokens_input, tokens_output, tokens_cached, last_input_tokens, llm_calls, llm_elapsed_ms, model_code, tool_calls, metadata, created_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 c.getSessionId(), c.getAgentCode(), c.getRole(), c.getContent(),
                 c.getTokensInput(), c.getTokensOutput(), c.getTokensCached(),
-                c.getLlmCalls(), c.getLlmElapsedMillis(),
+                c.getLastInputTokens(), c.getLlmCalls(), c.getLlmElapsedMillis(),
                 c.getModelCode(), c.getToolCalls(), c.getMetadata(), c.getCreatedAt());
         c.setId(id);
         return id;
