@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.scheduler;
 
 import org.quartz.Job;
@@ -14,6 +30,8 @@ import java.util.Date;
  * <p>执行语义（会话派生、授权档位、模型覆盖、执行历史、完成事件）全部由执行器承担，
  * 本类只负责从触发上下文取任务编码与触发/下次触发时刻。</p>
  * <p>执行器经 {@link AgentTaskJobFactory} 在实例化时注入（替代原 Spring 字段注入）。</p>
+ *
+ * @author gogym
  */
 public class AgentTaskJob implements Job {
 
@@ -28,6 +46,7 @@ public class AgentTaskJob implements Job {
         this.executor = executor;
     }
 
+    /** Quartz 触发回调：取任务编码与触发/下次触发时刻转交执行器；极端异常仅记日志，避免污染调度线程。 */
     @Override
     public void execute(JobExecutionContext context) {
         String taskCode = context.getMergedJobDataMap().getString(DATA_TASK_CODE);

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.scheduler.tool;
 
 import com.gettyio.gim.agent.domain.dao.ScheduledTaskDao;
@@ -25,6 +41,8 @@ import java.util.concurrent.ThreadLocalRandom;
  * 而非一律挂到默认智能体。</p>
  * <p>置于 scheduler 模块以便复用 {@link TaskSchedulerService} 与 {@link ScheduledTaskDao}，
  * 依赖方向仍为 scheduler → domain。</p>
+ *
+ * @author gogym
  */
 public class ScheduleTools {
 
@@ -43,6 +61,7 @@ public class ScheduleTools {
                 ? com.gettyio.gim.agent.core.chat.MultiAgentGateway.DEFAULT_AGENT_CODE : agentCode;
     }
 
+    /** 工具入口（{@code schedule_task}）：校验 cron/run_at 互斥与格式后落库并调度；调度失败回滚删除记录；一切失败以文本返回。 */
     @Tool(name = "schedule_task", readOnly = false,
             description = "创建一个定时任务：把 prompt 指令定时投递给 Agent 执行。两种模式二选一——"
                     + "周期任务传 cron（Quartz 六/七字段，如每天9点 '0 0 9 * * ?'，每30分钟 '0 0/30 * * * ?'）；"
@@ -108,6 +127,7 @@ public class ScheduleTools {
                         : " cron=" + expr + ("true".equalsIgnoreCase(once) ? "（一次性）" : "")) + "。";
     }
 
+    /** 工具入口（{@code list_tasks}）：列出全部任务的编码/名称/触发定义/状态/下次触发时刻。 */
     @Tool(name = "list_tasks", readOnly = true,
             description = "列出所有已配置的定时任务，返回其编码、名称、cron、状态。")
     public String listTasks() {
@@ -130,6 +150,7 @@ public class ScheduleTools {
         return sb.toString();
     }
 
+    /** 工具入口（{@code cancel_task}）：按编码注销调度并删除任务记录；未找到时给出提示。 */
     @Tool(name = "cancel_task", readOnly = false,
             description = "按任务编码取消（删除）一个定时任务，停止其后续触发。")
     public String cancelTask(

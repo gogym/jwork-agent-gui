@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.sandbox;
 
 import java.io.File;
@@ -13,6 +29,8 @@ import java.util.regex.Pattern;
  * {@link #onPath()} 仅做 PATH 可执行文件存在性这类零副作用的轻量探测，
  * {@link #handshake()} 真实调用 docker CLI 握手守护进程（覆盖「CLI 在但引擎没跑」的空窗），
  * 带 TTL 缓存避免频繁付出进程启动成本，是沙箱落地与设置页状态的默认探测。</p>
+ *
+ * @author gogym
  */
 @FunctionalInterface
 public interface DockerAvailabilityProbe {
@@ -86,6 +104,7 @@ public interface DockerAvailabilityProbe {
             private long lastCheckNanos = Long.MIN_VALUE;
             private boolean lastResult;
 
+            /** TTL 内命中缓存直接返回；否则真实握手探测一次，超时/异常一律收敛为不可用。 */
             @Override
             public synchronized boolean available() {
                 long now = System.nanoTime();

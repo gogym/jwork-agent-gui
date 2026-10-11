@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.sandbox;
 
 import io.agentscope.core.agent.RuntimeContext;
@@ -34,6 +50,8 @@ import java.util.function.Supplier;
  *   <li><b>回退</b>：开启隔离但环境不可用/执行中途异常时自动回退本地执行，并以每会话一次的
  *       提示标注「未在容器内执行」，绝不让 Shell 能力因沙箱故障而中断。</li>
  * </ul>
+ *
+ * @author gogym
  */
 public class SandboxShellTool {
 

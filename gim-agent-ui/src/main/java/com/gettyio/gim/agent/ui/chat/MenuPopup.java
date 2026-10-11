@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import javafx.geometry.Bounds;
@@ -10,6 +26,8 @@ import javafx.stage.Window;
 /**
  * 菜单弹出定位工具：让 {@link ContextMenu} 在锚点上方弹出并夹取到窗口可视范围内。
  * <p>被附件、模型、审批三处工具条菜单共用（原 {@code MainController#showMenuAboveWithinWindow}）。</p>
+ *
+ * @author gogym
  */
 public final class MenuPopup {
 

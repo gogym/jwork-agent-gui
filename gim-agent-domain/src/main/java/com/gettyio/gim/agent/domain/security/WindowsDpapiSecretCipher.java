@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.security;
 
 import com.sun.jna.Pointer;
@@ -12,6 +28,8 @@ import java.util.Base64;
  * Windows DPAPI（CryptProtectData / CryptUnprotectData，当前用户范围）实现，
  * 通过 JNA 绑定 crypt32.dll。密文前缀 {@code dpapi:}。
  * <p>仅在 Windows 运行时可用；由 {@link SecretCipherFactory} 按 OS 选择。</p>
+ *
+ * @author gogym
  */
 public class WindowsDpapiSecretCipher implements SecretCipher {
 
@@ -24,6 +42,7 @@ public class WindowsDpapiSecretCipher implements SecretCipher {
         this.crypt32 = Crypt32.INSTANCE;
     }
 
+    /** 以 CryptProtectData（当前用户范围、禁 UI）加密，输出 {@code dpapi:base64(密文)}；{@code null} 原样返回。 */
     @Override
     public String encrypt(String plainText) {
         if (plainText == null) {
@@ -45,6 +64,7 @@ public class WindowsDpapiSecretCipher implements SecretCipher {
         }
     }
 
+    /** 解密 {@code dpapi:} 前缀密文；前缀不匹配或 native 调用失败抛 {@link SecurityOperationException}，{@code null} 原样返回。 */
     @Override
     public String decrypt(String cipherText) {
         if (cipherText == null) {
@@ -93,10 +113,12 @@ public class WindowsDpapiSecretCipher implements SecretCipher {
             public int cbData;
             public Pointer pbData;
 
+            /** JNA out 参数用空结构：native 侧填充后需先 {@code read()} 再取数据。 */
             public DATA_BLOB() {
                 super();
             }
 
+            /** 入参结构：把字节数组拷入 native 内存（空数组也占位 1 字节）。 */
             public DATA_BLOB(byte[] data) {
                 super();
                 this.cbData = data.length;
@@ -104,6 +126,7 @@ public class WindowsDpapiSecretCipher implements SecretCipher {
                 this.pbData.write(0, data, 0, data.length);
             }
 
+            /** 读取本地内存中的原始字节；未填充或长度为 0 时返回空数组。 */
             public byte[] getDataBytes() {
                 if (pbData == null || cbData == 0) {
                     return new byte[0];

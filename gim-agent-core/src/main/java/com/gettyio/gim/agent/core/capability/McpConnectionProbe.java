@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.capability;
 
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
@@ -17,6 +33,8 @@ import java.util.Map;
  * 列出服务暴露的工具，随后立即关闭连接。
  * <p>面向管理页「测试连接」：既是手动重试入口（装配失败后无需等下一轮对话才重连），
  * 也让每个服务实际提供哪些工具可见。stdio 探测结束会关闭子进程，不留残留。</p>
+ *
+ * @author gogym
  */
 public final class McpConnectionProbe {
 

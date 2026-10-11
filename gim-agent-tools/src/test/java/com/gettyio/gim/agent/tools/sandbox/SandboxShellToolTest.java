@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.sandbox;
 
 import io.agentscope.core.agent.RuntimeContext;
@@ -27,6 +43,8 @@ import static org.mockito.Mockito.when;
  * {@link SandboxShellTool} 单测：桩文件系统（本地委托目标）+ 记录型桩执行器，
  * 验证 docker 档路由（多挂载/容器工作目录/结果渲染）、本地档完整委托、握手不可用回退
  * （每会话仅一次提示）、执行器瞬时回退与运行时异常回退，全程无 Docker 依赖。
+ *
+ * @author gogym
  */
 class SandboxShellToolTest {
 

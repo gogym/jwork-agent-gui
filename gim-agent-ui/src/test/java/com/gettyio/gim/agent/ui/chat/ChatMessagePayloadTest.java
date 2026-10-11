@@ -1,7 +1,24 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
+import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -9,16 +26,18 @@ import org.junit.jupiter.api.io.TempDir;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
-import java.util.Map;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * {@link ChatMessagePayload} 纯逻辑单测（不启动 WebView、不依赖 JavaFX 工具包）：
- * 校验 Java→JS 的字符串/JSON 转义安全、用户/发送即时载荷结构，以及助手正文本地图片内联为
- * {@code data:} URI、远程 URL 保持原样三条契约，保证推给 {@code chat.js} 的 JSON 始终合法。
+ * 校验 Java→JS 的字符串/JSON 转义安全、消息桥接 DTO 的字段序列化与省略规则，以及助手正文本地图片
+ * 内联为 {@code data:} URI、远程 URL 保持原样等契约，保证推给 {@code chat.js} 的 JSON 始终合法。
+ *
+ * @author gogym
  */
 class ChatMessagePayloadTest {
 
@@ -33,43 +52,47 @@ class ChatMessagePayloadTest {
     }
 
     @Test
-    @DisplayName("toJson：消息列表序列化为合法 JSON 数组，空列表为 []")
+    @DisplayName("toJson：消息列表序列化为合法 JSON 数组，字段顺序与省略规则稳定，空列表为 []")
     void toJsonSerializesArray() {
         assertEquals("[]", ChatMessagePayload.toJson(List.of()));
-        String json = ChatMessagePayload.toJson(List.of(Map.of("id", 1L, "role", "user")));
-        assertTrue(json.startsWith("["), json);
-        assertTrue(json.endsWith("]"), json);
-        assertTrue(json.contains("\"role\":\"user\""), json);
+        WebChatMessage m = new WebChatMessage(1L, "user", "", List.of(), List.of(), List.of(), null, null, null);
+        String json = ChatMessagePayload.toJson(List.of(m));
+        // id/role/content 恒在且顺序固定；images/files/tools/thinking/time/rawContent 无值整体省略
+        assertEquals("[{\"id\":1,\"role\":\"user\",\"content\":\"\"}]", json);
     }
 
     @Test
-    @DisplayName("userLive：即时用户气泡携带 Base64 图片 data URI，无附件时省略 images/files")
+    @DisplayName("userLive：即时用户气泡携带 Base64 图片 data URI，无附件时序列化省略 images/files")
     void userLivePayloadShape(@TempDir Path root) {
         ChatMessagePayload p = new ChatMessagePayload(new GimPaths(root));
-        Map<String, Object> m = p.userLive(0L, "你好",
+        WebChatMessage m = p.userLive(0L, "你好",
                 List.of(new ImageAttachment("a.png", "image/png", "QUJD")), null);
-        assertEquals("user", m.get("role"));
-        assertEquals("你好", m.get("content"));
-        @SuppressWarnings("unchecked")
-        List<Map<String, Object>> images = (List<Map<String, Object>>) m.get("images");
-        assertEquals(1, images.size());
-        assertEquals("data:image/png;base64,QUJD", images.get(0).get("dataUri"));
+        assertEquals("user", m.role());
+        assertEquals("你好", m.content());
+        assertEquals(1, m.images().size());
+        assertEquals("data:image/png;base64,QUJD", m.images().get(0).dataUri());
+        // 待发图片尚无本地路径，payload 里省略 path
+        assertNull(m.images().get(0).path());
 
-        Map<String, Object> plain = p.userLive(0L, "纯文本", List.of(), List.of());
-        assertFalse(plain.containsKey("images"), plain.toString());
-        assertFalse(plain.containsKey("files"), plain.toString());
+        WebChatMessage plain = p.userLive(0L, "纯文本", List.of(), List.of());
+        assertTrue(plain.images().isEmpty());
+        assertTrue(plain.files().isEmpty());
+        String json = ChatMessagePayload.toJson(List.of(plain));
+        assertFalse(json.contains("\"images\""), json);
+        assertFalse(json.contains("\"files\""), json);
     }
 
     @Test
     @DisplayName("user：历史用户消息无附件时仅含 role/content/id")
     void userPayloadNoAttachment(@TempDir Path root) {
         ChatMessagePayload p = new ChatMessagePayload(new GimPaths(root));
-        Map<String, Object> m = p.user(42L, "问题", null);
-        assertEquals(42L, m.get("id"));
-        assertEquals("user", m.get("role"));
-        assertEquals("问题", m.get("content"));
-        assertFalse(m.containsKey("images"), m.toString());
-        assertFalse(m.containsKey("files"), m.toString());
+        WebChatMessage m = p.user(42L, "问题", null);
+        assertEquals(42L, m.id());
+        assertEquals("user", m.role());
+        assertEquals("问题", m.content());
+        String json = ChatMessagePayload.toJson(List.of(m));
+        assertFalse(json.contains("\"images\""), json);
+        assertFalse(json.contains("\"files\""), json);
     }
 
     @Test
@@ -96,13 +119,13 @@ class ChatMessagePayloadTest {
         Path png = Files.write(root.resolve("a.png"), new byte[]{1, 2, 3});
         String md = "看这张图：![图](" + png.toAbsolutePath() + ")";
 
-        Map<String, Object> m = p.assistant(7L, md, null, null, null, false);
-        String shown = (String) m.get("content");
+        WebChatMessage m = p.assistant(7L, md, null, null, null, false);
+        String shown = m.content();
         assertTrue(shown.contains("data:image/png;base64,"), shown);
-        assertEquals(md, m.get("rawContent"));
+        assertEquals(md, m.rawContent());
 
-        Map<String, Object> plain = p.assistant(8L, "纯文本回答", null, null, null, false);
-        assertFalse(plain.containsKey("rawContent"), plain.toString());
-        assertEquals("纯文本回答", plain.get("content"));
+        WebChatMessage plain = p.assistant(8L, "纯文本回答", null, null, null, false);
+        assertNull(plain.rawContent());
+        assertEquals("纯文本回答", plain.content());
     }
 }

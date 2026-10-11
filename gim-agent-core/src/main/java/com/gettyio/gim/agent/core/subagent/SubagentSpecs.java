@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.subagent;
 
 import com.gettyio.gim.agent.core.capability.CapabilityCodec;
@@ -14,6 +30,8 @@ import java.util.List;
  * 模型不显式指定（回退继承父模型，避免把库内模型编码误当框架 {@code ModelRegistry} 名）。</p>
  * <p>描述是框架强制字段（空则 {@code build()} 抛异常），故以「描述 → 显示名 → 兜底文案」逐级取值；
  * 单条映射失败只跳过该智能体，不影响其余委派对象与主控装配。</p>
+ *
+ * @author gogym
  */
 public final class SubagentSpecs {
 

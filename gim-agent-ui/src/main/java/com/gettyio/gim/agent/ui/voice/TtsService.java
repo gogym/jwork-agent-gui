@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.voice;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -26,6 +42,8 @@ import java.util.function.Consumer;
  * 播放与状态都在 FX 线程；全局单播放器——新一轮朗读先打断旧的，被打断方经结束回调查收
  * （自然播完 / 播放出错 / 被打断 / 合成失败统一从 {@code onEnded} 传出，错误消息为空表示正常）。
  * 朗读前正文先经 {@link #markdownToPlainText} 清理，避免把 Markdown 标记读出声。</p>
+ *
+ * @author gogym
  */
 public class TtsService {
 
@@ -48,8 +66,7 @@ public class TtsService {
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
-    private final GimDatabase db;
-    private final SecretCipher cipher;
+    private final VoiceSettingsStore settings;
 
     /** 当前播放器；null 表示无在播音频。仅 FX 线程读写。 */
     private MediaPlayer player;
@@ -61,59 +78,46 @@ public class TtsService {
     private long generation;
 
     public TtsService(GimDatabase db, SecretCipher cipher) {
-        this.db = db;
-        this.cipher = cipher;
+        this.settings = new VoiceSettingsStore(db, cipher);
     }
 
     // ===================== 朗读配置（settings 持久化，Key 密文） =====================
 
     /** 合成服务协议根（OpenAI 兼容；未配置返回空串）。 */
     public String baseUrl() {
-        return db.settingDao().getValue(KEY_BASEURL).orElse("").trim();
+        return settings.get(KEY_BASEURL);
     }
 
     public void saveBaseUrl(String url) {
-        db.settingDao().upsert(KEY_BASEURL, url == null ? "" : url.trim(), "语音朗读服务地址");
+        settings.put(KEY_BASEURL, url, "语音朗读服务地址");
     }
 
     /** 合成模型编码（如 tts-1）。 */
     public String model() {
-        return db.settingDao().getValue(KEY_MODEL).orElse("").trim();
+        return settings.get(KEY_MODEL);
     }
 
     public void saveModel(String model) {
-        db.settingDao().upsert(KEY_MODEL, model == null ? "" : model.trim(), "语音朗读模型");
+        settings.put(KEY_MODEL, model, "语音朗读模型");
     }
 
     /** 音色名（如 alloy / nova；未配置回退 {@link #DEFAULT_VOICE}）。 */
     public String voice() {
-        String v = db.settingDao().getValue(KEY_VOICE).orElse("").trim();
+        String v = settings.get(KEY_VOICE);
         return v.isEmpty() ? DEFAULT_VOICE : v;
     }
 
     public void saveVoice(String voice) {
-        db.settingDao().upsert(KEY_VOICE, voice == null ? "" : voice.trim(), "语音朗读音色");
+        settings.put(KEY_VOICE, voice, "语音朗读音色");
     }
 
     /** 明文 API Key（密文存储，取出即解密）；未配置或解密失败返回空串。 */
     public String apiKeyPlain() {
-        String stored = db.settingDao().getValue(KEY_APIKEY).orElse("").trim();
-        if (stored.isEmpty()) {
-            return "";
-        }
-        try {
-            return cipher.canHandle(stored) ? cipher.decrypt(stored) : stored;
-        } catch (RuntimeException e) {
-            return "";
-        }
+        return settings.apiKeyPlain(KEY_APIKEY);
     }
 
     public void saveApiKey(String plain) {
-        if (plain == null || plain.isBlank()) {
-            db.settingDao().upsert(KEY_APIKEY, "", "语音朗读 API Key（密文）");
-            return;
-        }
-        db.settingDao().upsert(KEY_APIKEY, cipher.encrypt(plain.trim()), "语音朗读 API Key（密文）");
+        settings.saveApiKey(KEY_APIKEY, plain, "语音朗读 API Key（密文）");
     }
 
     /** 是否已配置可用的朗读服务（地址 + 模型齐备；Key 视服务端可匿名）。 */

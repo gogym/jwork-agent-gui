@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.config;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -27,6 +43,8 @@ import java.util.UUID;
  *   <li><b>文件授权目录</b>：用户新增目录，并入 {@code PathWhitelistPolicy}。</li>
  * </ul>
  * <p>另保留「总是允许」授权规则的列出/撤销（HITL 写入 {@code tool_permission_rules}）。</p>
+ *
+ * @author gogym
  */
 public class SecurityAdminService {
 
@@ -175,6 +193,7 @@ public class SecurityAdminService {
         return CapabilityCodec.readCodes(db.settingDao().getValue(KEY_SHELL_ALLOWLIST).orElse(""));
     }
 
+    /** 追加一个 shell 白名单程序（小写归一、去重）；空白名忽略。 */
     public void addShellProgram(String name) {
         if (name == null || name.isBlank()) {
             return;
@@ -187,6 +206,7 @@ public class SecurityAdminService {
         }
     }
 
+    /** 移除一个 shell 白名单程序（忽略大小写匹配）；无变化不落库。 */
     public void removeShellProgram(String name) {
         List<String> list = new ArrayList<>(listShellAllowlist());
         if (list.removeIf(s -> s.equalsIgnoreCase(name == null ? "" : name.trim()))) {
@@ -204,6 +224,7 @@ public class SecurityAdminService {
         return CapabilityCodec.readCodes(db.settingDao().getValue(KEY_PATH_ROOTS).orElse(""));
     }
 
+    /** 追加一个文件授权目录（去首尾空白、去重）；空白路径忽略。 */
     public void addPathRoot(String path) {
         if (path == null || path.isBlank()) {
             return;
@@ -216,6 +237,7 @@ public class SecurityAdminService {
         }
     }
 
+    /** 移除一个文件授权目录（精确匹配）；无变化不落库。 */
     public void removePathRoot(String path) {
         List<String> list = new ArrayList<>(listPathRoots());
         if (list.removeIf(s -> s.equals(path == null ? "" : path.trim()))) {
@@ -379,12 +401,14 @@ public class SecurityAdminService {
         return db.permissionRuleDao().findAll();
     }
 
+    /** 删除单条「总是允许」规则（id 为空忽略）。 */
     public void delete(Long id) {
         if (id != null) {
             db.permissionRuleDao().delete(id);
         }
     }
 
+    /** 清空全部「总是允许」规则。 */
     public void clear() {
         for (ToolPermissionRule r : db.permissionRuleDao().findAll()) {
             db.permissionRuleDao().delete(r.getId());

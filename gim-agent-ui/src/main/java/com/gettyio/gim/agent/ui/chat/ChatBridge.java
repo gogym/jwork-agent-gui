@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.ui.controller.ChatViewEvents;
@@ -9,6 +25,8 @@ import com.gettyio.gim.agent.ui.controller.ChatViewEvents;
  * WebView 的 JS 在 FX 应用线程上执行，方法体可直接操作 JavaFX，无需再 {@code Platform.runLater}。</p>
  * <p>注意：JSObject 反射调用要求方法所在类与其方法均为 public——WebView 侧反射调用 {@code window.javaBridge.xxx}
  * 只能访问公开类，否则静默失败（尤其 {@code onEmpty} 不回抛会导致欢迎页常驻）。所有分支都做了入参兜底，绝不因单个脏事件中断渲染。</p>
+ *
+ * @author gogym
  */
 public final class ChatBridge {
 

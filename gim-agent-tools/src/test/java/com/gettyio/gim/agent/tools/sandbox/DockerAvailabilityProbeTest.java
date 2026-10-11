@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.sandbox;
 
 import org.junit.jupiter.api.DisplayName;
@@ -13,6 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@link DockerAvailabilityProbe} 单测：验证真实握手探针的 TTL 缓存、失败结果缓存、
  * 异常收敛与不缓存模式，握手函数打桩，全程无 Docker 依赖。
+ *
+ * @author gogym
  */
 class DockerAvailabilityProbeTest {
 

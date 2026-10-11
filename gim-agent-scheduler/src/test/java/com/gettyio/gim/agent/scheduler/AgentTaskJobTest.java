@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.scheduler;
 
 import com.gettyio.gim.agent.core.chat.ChatService;
@@ -37,6 +53,8 @@ import static org.mockito.Mockito.when;
  * {@link AgentTaskJob} 单测：成功与失败两路都写 {@code task_runs} 执行历史，字段随成败区分；
  * 另覆盖授权档位映射（无人值守 → ACCEPT_EDITS + 自动放行）与会话派生（独立输出按时刻新建）。
  * <p>执行器经 {@code setExecutor} 显式注入（无容器）；{@link JobExecutionContext} 用桩。</p>
+ *
+ * @author gogym
  */
 class AgentTaskJobTest {
 

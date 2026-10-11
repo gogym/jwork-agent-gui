@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.GimPaths;
@@ -22,6 +38,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@link ChatService} 会话分组往返单测：建组→移动→删组，验证 {@code sessions.group_id} 的绑解与「删组不删会话」。
  * <p>真实 SQLite（{@code @TempDir} 文件），无网关依赖，分组方法不触及流式路径。</p>
+ *
+ * @author gogym
  */
 class ChatServiceGroupTest {
 

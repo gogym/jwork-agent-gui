@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.capability.AgentCapabilityResolver;
@@ -30,6 +46,8 @@ import java.util.function.Consumer;
  * </ul>
  * <p>技能与 MCP 则相反，走<b>严格白名单</b>：由 {@link AgentCapabilityResolver} 按定义的
  * skills_json / mcp_servers_json 下发，未声明即无能力。</p>
+ *
+ * @author gogym
  */
 public class MultiAgentGateway implements AgentGateway, AutoCloseable {
 
@@ -136,6 +154,7 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
         log.info("全部智能体运行时已失效");
     }
 
+    /** 中断某会话的在途生成：按前缀命中该智能体的全部模型变体逐个打断；{@code sessionId} 为空则无操作。 */
     @Override
     public void stop(String agentCode, String sessionId) {
         // 未装配则无在途生成可打断；按前缀命中该智能体的全部模型变体运行体逐个中断

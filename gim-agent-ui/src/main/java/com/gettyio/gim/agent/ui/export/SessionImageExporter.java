@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.export;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -26,6 +42,8 @@ import java.util.logging.Logger;
  * {@code zoom} 缩小），稳定后取位图。像素经 {@code PixelReader} 转为 {@code BufferedImage}
  * （项目无 javafx-swing，不走 SwingFXUtils），PNG 编码在后台线程完成。必须在 JavaFX 应用线程调用。</p>
  * <p>与聊天区同源用 Chromium 渲染，导出长图的 emoji/排版与界面一致。</p>
+ *
+ * @author gogym
  */
 public final class SessionImageExporter {
 

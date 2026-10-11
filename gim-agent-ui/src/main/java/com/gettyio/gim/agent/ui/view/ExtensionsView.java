@@ -1,6 +1,22 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.view;
 
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
 import com.gettyio.gim.agent.ui.market.MarketService;
 import javafx.geometry.Insets;
@@ -12,6 +28,8 @@ import javafx.scene.layout.StackPane;
  * 拓展整页：内容区左上角三个 Tab —— 「技能」「知识」与「MCP 服务」。
  * <p>技能 Tab 复用 {@link SkillsView}，知识 Tab 复用 {@link KnowledgeView}，MCP Tab 复用自包含组件
  * {@link McpView}（与「设置」中的 MCP 服务共用同一实现，各自独立实例）。语言切换时刷新 Tab 文案。</p>
+ *
+ * @author gogym
  */
 public class ExtensionsView {
 
@@ -29,6 +47,7 @@ public class ExtensionsView {
     private McpView mcpView;
     private boolean built;
 
+    /** 装配拓展页（Tab 内容惰性构建）：绑定子视图与服务，注册语言切换刷新。 */
     public ExtensionsView(SkillsView skillsView, KnowledgeView knowledgeView,
                           McpAdminService mcpAdminService, MarketService marketService) {
         this.skillsView = skillsView;

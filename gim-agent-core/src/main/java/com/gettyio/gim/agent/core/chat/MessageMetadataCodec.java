@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.chat;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
@@ -14,6 +30,8 @@ import java.util.Map;
  * <p>结构：{@code {"attachments":[{"name":..,"mime":..,"path":..}],"interrupted":true,"thinking":".."}}；
  * 全部字段缺省时列留空（返回 null，不写 "{}"）。解析容错：脏数据只告警并按「空元数据」处理，
  * 绝不因一条坏 metadata 让整条历史消息渲染失败。</p>
+ *
+ * @author gogym
  */
 public final class MessageMetadataCodec {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.view;
 
 import com.gettyio.gim.agent.domain.entity.PromptTemplate;
@@ -5,14 +21,15 @@ import com.gettyio.gim.agent.domain.entity.ScheduledTask;
 import com.gettyio.gim.agent.domain.entity.TaskRun;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.TaskAdminService;
+import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.desktop.KeepAwakeService;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
 import javafx.geometry.VPos;
@@ -60,6 +77,8 @@ import java.util.regex.Pattern;
  * </ul>
  * <p>新建/编辑使用两栏表单弹窗（{@link TaskFormDialog}），操作直连 {@link TaskAdminService}
  * （含 Quartz 联动、手动触发与到期停摆）。全部文案走 {@link I18n}，语言切换时刷新并重绘。</p>
+ *
+ * @author gogym
  */
 public class TasksView {
 
@@ -262,11 +281,13 @@ public class TasksView {
         sortCombo = new ComboBox<>();
         sortCombo.getStyleClass().add("pill-combo");
         sortCombo.setConverter(new StringConverter<>() {
+            /** 排序键显示名：I18n 翻译；null 显示空串。 */
             @Override
             public String toString(String key) {
                 return key == null ? "" : I18n.t(key);
             }
 
+            /** 下拉框不可自行输入（回写恒 null，选择经 items 完成）。 */
             @Override
             public String fromString(String s) {
                 return null;
@@ -576,14 +597,14 @@ public class TasksView {
         name.getStyleClass().add("provider-card-title");
         Label badge = new Label(I18n.t(enabled ? "settings.template.enabled" : "settings.template.disabled"));
         badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
-        Button use = iconTextButton("\uE73E", I18n.t("tasks.templates.use"),
+        Button use = CardKit.iconTextButton("\uE73E", I18n.t("tasks.templates.use"),
                 () -> openForm(null, tp.getContent()));
         use.getStyleClass().add("link-btn");
 
-        VBox card = new VBox(8, cardHeadRow(name, badge, use),
-                kvLine(I18n.t("tasks.templates.code"), tp.getTemplateCode()),
-                kvLine(I18n.t("settings.template.desc"), truncate(tp.getDescription(), 72)),
-                kvLine(I18n.t("tasks.templates.content"), truncate(tp.getContent(), 120)));
+        VBox card = new VBox(8, CardKit.cardHeadRow(name, badge, use),
+                CardKit.kvLine(I18n.t("tasks.templates.code"), tp.getTemplateCode()),
+                CardKit.kvLine(I18n.t("settings.template.desc"), truncate(tp.getDescription(), 72)),
+                CardKit.kvLine(I18n.t("tasks.templates.content"), truncate(tp.getContent(), 120)));
         card.getStyleClass().add("provider-card");
         card.setPrefWidth(400);
         card.setMaxWidth(400);
@@ -744,57 +765,6 @@ public class TasksView {
         sc.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         sc.getStyleClass().add("usage-scroll");
         return sc;
-    }
-
-    /**
-     * 卡片首行：左侧名称 + 状态徽标，右侧操作入口（对标设置页卡片首行）。
-     * <p>只有名称允许压缩（过长省略号截断并挂 tooltip 看全名），徽标与按钮最小宽度钉在
-     * 首选宽度上，保证操作入口始终完整可见。</p>
-     */
-    private static HBox cardHeadRow(Label name, Label badge, Button... actions) {
-        name.setMinWidth(0);
-        name.setTextOverrun(OverrunStyle.ELLIPSIS);
-        name.setTooltip(new Tooltip(name.getText()));
-        badge.setMinWidth(Region.USE_PREF_SIZE);
-
-        HBox titleRow = new HBox(10, name, badge);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
-        titleRow.setMaxWidth(Double.MAX_VALUE);
-
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
-
-        HBox head = new HBox();
-        head.setAlignment(Pos.CENTER_LEFT);
-        head.getChildren().addAll(titleRow, sp);
-        for (Button action : actions) {
-            action.setMinWidth(Region.USE_PREF_SIZE);
-            head.getChildren().add(action);
-        }
-        return head;
-    }
-
-    /** 只读信息行：键 + 值（空值显示 "-"），对标设置页信息卡片的 kv 行。 */
-    private static HBox kvLine(String key, String value) {
-        Label k = new Label(key);
-        k.getStyleClass().add("provider-card-key");
-        Label v = new Label(value == null || value.isBlank() ? "-" : value);
-        v.getStyleClass().add("provider-card-val");
-        v.setWrapText(true);
-        HBox.setHgrow(v, Priority.ALWAYS);
-        HBox h = new HBox(12, k, v);
-        h.setAlignment(Pos.CENTER_LEFT);
-        return h;
-    }
-
-    /** 图标 + 文字按钮（对标设置页卡片的操作入口），按钮样式类由调用方补充。 */
-    private static Button iconTextButton(String iconText, String text, Runnable action) {
-        Button b = new Button(text);
-        Label ic = new Label(iconText);
-        ic.getStyleClass().add("icon");
-        b.setGraphic(ic);
-        b.setOnAction(e -> action.run());
-        return b;
     }
 
     private Button iconButton(String iconText, Runnable action) {

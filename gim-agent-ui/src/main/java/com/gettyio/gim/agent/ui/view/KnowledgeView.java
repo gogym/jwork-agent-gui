@@ -1,11 +1,28 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.view;
 
 import com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService;
 import com.gettyio.gim.agent.core.knowledge.KnowledgeService;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiFormat;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -32,7 +49,6 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
-import java.util.Locale;
 import java.util.Objects;
 
 /**
@@ -40,6 +56,8 @@ import java.util.Objects;
  * 并预览自动维护的 {@code KNOWLEDGE.md} 目录索引。
  * <p>直连 {@link KnowledgeService}：导入即抽文本落盘到该智能体工作区，Harness 每轮注入的目录随之更新，
  * 智能体可按需 read/grep 命中。文案走 {@link I18n}，语言切换刷新。</p>
+ *
+ * @author gogym
  */
 public class KnowledgeView {
 
@@ -390,7 +408,7 @@ public class KnowledgeView {
     private String summaryLine(KnowledgeService.DocInfo d) {
         String summary = d.summary() == null || d.summary().isBlank() ? I18n.t("knowledge.noSummary") : d.summary();
         String when = d.lastModifiedMs() > 0 ? DATE_FMT.format(Instant.ofEpochMilli(d.lastModifiedMs())) : "";
-        return summary + "  ·  " + humanSize(d.sizeBytes()) + (when.isBlank() ? "" : "  ·  " + when);
+        return summary + "  ·  " + UiFormat.humanSize(d.sizeBytes()) + (when.isBlank() ? "" : "  ·  " + when);
     }
 
     // ---- 操作 ----
@@ -542,17 +560,6 @@ public class KnowledgeView {
         b.getStyleClass().add("link-btn");
         b.setOnAction(e -> action.run());
         return b;
-    }
-
-    private static String humanSize(long bytes) {
-        if (bytes < 1024) {
-            return bytes + " B";
-        }
-        double kb = bytes / 1024.0;
-        if (kb < 1024) {
-            return String.format(Locale.ROOT, "%.1f KB", kb);
-        }
-        return String.format(Locale.ROOT, "%.1f MB", kb / 1024.0);
     }
 
     private void info(String header, String msg) {

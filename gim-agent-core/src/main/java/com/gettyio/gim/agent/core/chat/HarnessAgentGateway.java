@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.memory.MemoryWriteTool;
@@ -73,6 +89,8 @@ import java.util.function.Supplier;
  * {@code <workspace>/agents/<agentId>/sessions/<sessionId>.jsonl}）。用可改的显示名当键，
  * 改一次名就等于让该智能体名下所有历史会话失忆（界面气泡仍在，模型侧上下文全丢），
  * 因此这里固定为不可变的 agentCode。</p>
+ *
+ * @author gogym
  */
 public class HarnessAgentGateway implements AutoCloseable {
 
@@ -774,6 +792,7 @@ public class HarnessAgentGateway implements AutoCloseable {
                 .build();
     }
 
+    /** 关闭运行时（幂等）：先摘除登记的 MCP 客户端再关闭底层 Agent，关闭后置空引用；重复调用无副作用。 */
     @Override
     public void close() {
         HarnessAgent local = this.agent;

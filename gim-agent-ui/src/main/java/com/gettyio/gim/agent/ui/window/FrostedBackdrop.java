@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.window;
 
 import javafx.stage.Window;
@@ -11,6 +27,8 @@ import java.util.WeakHashMap;
  * <p>本类不画法，只路由与计数：宿主窗口自行注册开关（见 {@link AppShell}），
  * {@link #enter} 在弹窗显示前调用并返回撤除句柄，弹窗关闭时执行；同一宿主上叠多个对话框时，
  * 只有最后一个关闭才撤除遮罩。owner 为空或未注册遮罩的窗口拿到空句柄，行为与从前一致。</p>
+ *
+ * @author gogym
  */
 public final class FrostedBackdrop {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.config;
 
 import com.gettyio.gim.agent.core.capability.CapabilityCodec;
@@ -22,6 +38,8 @@ import java.util.UUID;
 /**
  * 智能体定义（agents 表）的增删改查。设置窗口与侧栏共用本服务。
  * <p>保存与删除后立即让 {@link MultiAgentGateway} 丢弃该智能体的运行时，否则旧的人格/模型会继续生效。</p>
+ *
+ * @author gogym
  */
 public class AgentAdminService {
 

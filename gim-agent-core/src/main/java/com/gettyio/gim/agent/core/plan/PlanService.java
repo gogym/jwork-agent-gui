@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.plan;
 
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
@@ -15,6 +31,8 @@ import java.nio.file.Path;
  * <p>计划模式下智能体经 {@code plan_write} 把蓝图写到工作区相对路径 {@code plans/PLAN.md}（由框架的
  * WorkspaceManager 落到本地磁盘）。本服务只做「读该文件供 UI 预览/编辑」与「写回用户确认后的版本」，
  * 不复制框架的计划态管理；路径与运行时装配口径一致（按智能体工作区解析）。</p>
+ *
+ * @author gogym
  */
 public class PlanService {
 

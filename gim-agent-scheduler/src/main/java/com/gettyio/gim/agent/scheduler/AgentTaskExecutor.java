@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.scheduler;
 
 import com.gettyio.gim.agent.core.chat.ChatService;
@@ -26,6 +42,8 @@ import java.util.function.Consumer;
  * 派发 {@code task-{code}-yyyyMMdd-HHmmss} 新会话）、按无人值守开关映射工具授权档位
  * （开启 → ACCEPT_EDITS + 自动放行；关闭 → EXPLORE 只读）、按模型覆盖透传提供方与模型。
  * 每次执行（成功或失败）写一条 {@code task_runs} 并经 {@link TaskCompletedEvent} 回调通知 UI。</p>
+ *
+ * @author gogym
  */
 public class AgentTaskExecutor {
 

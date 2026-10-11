@@ -1,6 +1,22 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.notify;
 
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -17,6 +33,8 @@ import java.awt.image.BufferedImage;
 /**
  * 系统托盘通知（M5）：基于 AWT {@link SystemTray} 气球消息（Windows 原生支持），
  * 不阻塞 JavaFX 应用线程；平台不支持时 {@link #isAvailable()} 返回 false，由调用方回退到弹窗。
+ *
+ * @author gogym
  */
 public class TrayNotifier {
 
@@ -66,6 +84,7 @@ public class TrayNotifier {
             menu.add(quit);
             icon.setPopupMenu(menu);
             icon.addMouseListener(new MouseAdapter() {
+                /** 双击左键唤回主窗（Windows 托盘惯例）；其余点击忽略。 */
                 @Override
                 public void mouseClicked(MouseEvent e) {
                     // 双击主键：唤回主窗（Windows 托盘惯例）

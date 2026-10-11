@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.knowledge;
 
 import java.util.ArrayList;
@@ -8,6 +24,8 @@ import java.util.List;
  * <p>按段落优先切分，段落超限时再按句子/硬边界回退；块间保留 overlap 字符，
  * 保证跨块的句子在相邻块中仍可被独立命中。尺寸按字符估算 token（CJK 约 1 字 1 token、
  * 拉丁约 4 字符 1 token），默认 500 token 上限对中英混排文档都接近可用窗口。</p>
+ *
+ * @author gogym
  */
 public final class TextChunker {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.security;
 
 import javax.crypto.Cipher;
@@ -14,6 +30,8 @@ import java.util.Set;
 /**
  * 跨平台默认实现：AES-256-GCM，密钥来自本地密钥文件（首次运行随机生成）。
  * <p>密文格式：{@code aes:base64(iv[12] || ciphertext||tag)}</p>
+ *
+ * @author gogym
  */
 public class AesGcmSecretCipher implements SecretCipher {
 
@@ -30,6 +48,7 @@ public class AesGcmSecretCipher implements SecretCipher {
         this.key = new SecretKeySpec(loadOrCreateKey(keyFile), "AES");
     }
 
+    /** 以现成 256 位密钥构造（测试/密钥注入用）；长度不为 32 字节抛 {@link IllegalArgumentException}。 */
     public AesGcmSecretCipher(byte[] key256) {
         if (key256.length != KEY_BYTES) {
             throw new IllegalArgumentException("AES-256 密钥应为 " + KEY_BYTES + " 字节");
@@ -37,6 +56,7 @@ public class AesGcmSecretCipher implements SecretCipher {
         this.key = new SecretKeySpec(key256, "AES");
     }
 
+    /** 加密：随机 12 字节 IV + AES-256-GCM，输出 {@code aes:base64(iv||密文||tag)}；{@code null} 原样返回。 */
     @Override
     public String encrypt(String plainText) {
         if (plainText == null) {
@@ -57,6 +77,7 @@ public class AesGcmSecretCipher implements SecretCipher {
         }
     }
 
+    /** 解密 {@code aes:} 前缀密文；前缀不匹配或认证失败抛 {@link SecurityOperationException}，{@code null} 原样返回。 */
     @Override
     public String decrypt(String cipherText) {
         if (cipherText == null) {

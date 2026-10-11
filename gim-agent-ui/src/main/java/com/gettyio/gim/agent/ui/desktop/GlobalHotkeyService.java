@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.desktop;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
@@ -19,6 +35,8 @@ import java.util.concurrent.LinkedBlockingQueue;
  * {@code offer} 到 {@link #commands} 队列由该线程串行消费，杜绝跨线程调用 Win32 热键 API。</p>
  * <p>非 Windows 平台或注册失败（组合键被占用等）只告警降级，不影响主程序；开关持久化在
  * AppSetting {@code app.hotkey.enabled}（默认开）。</p>
+ *
+ * @author gogym
  */
 public class GlobalHotkeyService {
 

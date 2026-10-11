@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.desktop;
 
 import com.sun.jna.platform.win32.BaseTSD;
@@ -21,6 +37,8 @@ import java.util.Locale;
  * 抓取须先于操作条弹出执行，此时前台窗口仍是用户正在操作的应用；再由调用方负责在后台线程使用。</p>
  * <p>仅 Windows 生效；副作用：在对 Ctrl+C 敏感的应用（如终端）中可能触发其中断行为，
  * 属划词类工具的共性妥协。</p>
+ *
+ * @author gogym
  */
 final class SelectionGrabber {
 

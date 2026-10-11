@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.sync;
 
 import com.gettyio.gim.agent.core.GimPaths;
@@ -34,6 +50,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link WebDavSyncService} 单测：配置读写（密码/口令加密往返、URL 归一化）、同步上传
  * （明文与口令加密两类载荷、远端快照滚动清理）、云端恢复下载（校验后落 pending）。
  * 全部基于内嵌 HttpServer 模拟 WebDAV（PUT/PROPFIND/DELETE/GET），无外部依赖。
+ *
+ * @author gogym
  */
 class WebDavSyncServiceTest {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.config;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
@@ -13,6 +29,8 @@ import java.util.List;
 /**
  * token 用量统计服务：把 {@link UsageAggregate} 聚合行按维度补上展示名，供用量页渲染。
  * <p>全局 / 智能体 / 模型 / 会话四个维度全部走实时 SUM（数据量级为桌面单机，够用且零一致性问题）。</p>
+ *
+ * @author gogym
  */
 public class UsageStatsService {
 

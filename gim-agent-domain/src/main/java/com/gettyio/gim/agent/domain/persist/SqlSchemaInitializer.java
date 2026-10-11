@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.persist;
 
 import org.slf4j.Logger;
@@ -15,6 +31,8 @@ import java.util.stream.Collectors;
  * 读取 classpath:db/schema.sql 并执行，幂等建表
  * <p>{@code schema.sql} 是库结构的唯一权威定义，只做 CREATE IF NOT EXISTS，不携带任何
  * 历史版本表/列的兼容迁移。</p>
+ *
+ * @author gogym
  */
 public class SqlSchemaInitializer {
 
@@ -32,6 +50,7 @@ public class SqlSchemaInitializer {
         initialize(DEFAULT_RESOURCE);
     }
 
+    /** 加载指定 classpath 资源（分号分段的建表脚本）并逐条执行；资源缺失或执行失败抛 {@link PersistException}。 */
     public void initialize(String classpathResource) {
         String script = loadScript(classpathResource);
         try (Connection conn = connectionProvider.getConnection();

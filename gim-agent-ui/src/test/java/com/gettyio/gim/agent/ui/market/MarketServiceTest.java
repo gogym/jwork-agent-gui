@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.market;
 
 import org.junit.jupiter.api.DisplayName;
@@ -16,6 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@link MarketService} 纯逻辑单测：可更新判定、依赖获取指引映射、依赖 PATH 探测
  * 与安装入参校验。不触网、不依赖 Spring（协作服务保持 null，被测路径在触碰它们之前完成校验）。
+ *
+ * @author gogym
  */
 class MarketServiceTest {
 

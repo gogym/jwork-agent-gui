@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.guard;
 
 import java.util.List;
@@ -13,6 +29,8 @@ import java.util.regex.PatternSyntaxException;
  * 增删改与逐条启停<b>无需重启或重建 Spring bean 即实时生效</b>。内置默认集见 {@link #DEFAULT_RULES}
  * （迁移自旧版硬编码黑名单，补齐严重度/分组/描述元数据），供首次播种与「重置」还原。</p>
  * <p>非法正则（用户手输错误）静默跳过，绝不因一条坏规则抛异常中断整条链；编译结果按正则缓存复用。</p>
+ *
+ * @author gogym
  */
 public class DangerousCommandPolicy implements ToolGuard {
 
@@ -75,6 +93,7 @@ public class DangerousCommandPolicy implements ToolGuard {
         return DEFAULT_RULES;
     }
 
+    /** 按当前规则快照逐条正则匹配工具入参；命中任一危险模式即拒绝，否则不表态（返回 {@code null}）。 */
     @Override
     public GuardResult inspect(GuardContext ctx) {
         String input = ctx.toolInput();

@@ -1,5 +1,23 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui;
 
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import javafx.application.Preloader;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -16,6 +34,8 @@ import javafx.stage.StageStyle;
  * 消除冷启动「无窗口无响应」的感知。经 {@code javafx.preloader} 系统属性挂接（见 {@code Launcher}）。
  * <p>主窗 {@code start()} 就绪后框架发 {@code StateChangeNotification(BEFORE_START)}，此处自动隐藏；
  * 启动阶段文案由主应用经 {@code notifyPreloader} 推送 {@link SplashProgress} 更新（init 线程安全）。</p>
+ *
+ * @author gogym
  */
 public class SplashPreloader extends Preloader {
 
@@ -53,6 +73,7 @@ public class SplashPreloader extends Preloader {
         stage.show();
     }
 
+    /** 预加载通知：收到 {@code SplashProgress} 时更新启动画面状态文案。 */
     @Override
     public void handleApplicationNotification(PreloaderNotification n) {
         if (n instanceof SplashProgress p && status != null) {
@@ -60,6 +81,7 @@ public class SplashPreloader extends Preloader {
         }
     }
 
+    /** 状态变更通知：主应用 BEFORE_START 时隐藏启动画面。 */
     @Override
     public void handleStateChangeNotification(StateChangeNotification n) {
         if (n.getType() == StateChangeNotification.Type.BEFORE_START && stage != null) {

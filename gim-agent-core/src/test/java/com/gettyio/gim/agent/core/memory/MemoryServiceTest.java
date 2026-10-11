@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.memory;
 
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
@@ -30,6 +46,8 @@ import static org.mockito.Mockito.when;
  * {@link MemoryService} 纯逻辑单测：以真实临时目录 + 桩网关（共享工作区与各智能体工作区指到临时目录）
  * 验证作用域枚举分组与合并、文件统计、按作用域读写删、未知键拒绝、文件名防穿越、分类文件 CRUD 与命名清洗。
  * <p>不触碰数据库运行体：{@code db} 仅经 mock DAO 提供智能体定义列表。</p>
+ *
+ * @author gogym
  */
 class MemoryServiceTest {
 

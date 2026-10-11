@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import javafx.animation.PauseTransition;
@@ -20,6 +36,8 @@ import javafx.util.Duration;
  * <p>挂到占用条区域后鼠标悬停即自动弹出；移出触发节点或浮层后延迟一小段再隐藏，
  * 留出从条上滑入浮层的过渡时间。浮层用原始 {@link Popup} 承载：弹出时不抢键盘焦点
  * （输入框光标与草稿不受影响），显示时自动继承所属窗口的样式表（明暗主题随动）。</p>
+ *
+ * @author gogym
  */
 public final class ContextPopover {
 
@@ -43,6 +61,7 @@ public final class ContextPopover {
     private Runnable onCompact;
     private Runnable onWillShow;
 
+    /** 构建浮层：装配信息行、压缩按钮、状态行与隐藏计时/悬停桥接事件。 */
     public ContextPopover() {
         infoLabel.getStyleClass().add("context-popup-info");
         compactButton.getStyleClass().add("context-popup-action");

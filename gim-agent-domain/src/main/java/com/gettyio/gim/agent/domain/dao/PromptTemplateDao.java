@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.dao;
 
 import com.gettyio.gim.agent.domain.entity.PromptTemplate;
@@ -12,6 +28,8 @@ import java.util.Optional;
 /**
  * prompt_templates 表 DAO：提示词模板的增删改查与启停。
  * <p>{@code enabled} 以 0/1 存储；{@link #findEnabled()} 供聊天输入区的「模板」下拉只列启用项。</p>
+ *
+ * @author gogym
  */
 public class PromptTemplateDao {
 
@@ -37,6 +55,7 @@ public class PromptTemplateDao {
         return t;
     }
 
+    /** 插入模板并回填主键；时间戳取当前时间，{@code enabled} 为空默认启用（1）。 */
     public long insert(PromptTemplate t) {
         LocalDateTime now = LocalDateTime.now();
         t.setCreatedAt(now);

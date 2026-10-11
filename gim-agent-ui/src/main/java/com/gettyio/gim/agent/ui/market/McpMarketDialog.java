@@ -1,7 +1,23 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.market;
 
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -33,6 +49,8 @@ import java.util.Set;
  * <p>索引来自 {@link MarketService#fetchMcp}；条目本质是预填配置（命令/参数/env），
  * 「添加」即登记到 mcp_servers 表（{@link MarketService#addMcp}），运行时由智能体声明后建连。
  * 条目声明的 {@code requires} 会做本地 PATH 探测，缺失时给出获取指引并二次确认。</p>
+ *
+ * @author gogym
  */
 public class McpMarketDialog {
 

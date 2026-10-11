@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.entity;
 
 /**
@@ -11,6 +27,8 @@ package com.gettyio.gim.agent.domain.entity;
  * @param llmElapsedMillis 模型调用累计耗时（毫秒）
  * @param messageCount    参与统计的消息条数
  * @param estCost         按消息所属模型的单价估算的成本（未配单价的消息计入 0）
+ *
+ * @author gogym
  */
 public record UsageAggregate(String groupKey, int tokensInput, int tokensOutput, int tokensCached,
                              int llmCalls, long llmElapsedMillis, int messageCount, double estCost) {

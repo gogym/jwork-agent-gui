@@ -1,6 +1,22 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.view;
 
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.domain.enums.TimeRange;
 import com.gettyio.gim.agent.ui.config.UsageStatsService;
 import com.gettyio.gim.agent.ui.config.UsageStatsService.UsageRow;
@@ -29,6 +45,8 @@ import java.util.Locale;
 /**
  * token 用量整页：全局概览卡片 + 维度切换（智能体 / 模型 / 会话）明细表。
  * <p>数据全部来自 {@link UsageStatsService} 的实时 SUM；语言切换时刷新文案与数字格式。</p>
+ *
+ * @author gogym
  */
 public class UsageView {
 

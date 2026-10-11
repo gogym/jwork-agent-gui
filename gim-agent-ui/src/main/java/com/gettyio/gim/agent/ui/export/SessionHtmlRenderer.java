@@ -1,10 +1,26 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.export;
 
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec;
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec.ToolCallView;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
-import com.gettyio.gim.agent.ui.chat.MarkdownRenderer;
+import com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
@@ -25,6 +41,8 @@ import java.util.Map;
  * 图片（AI 生成图 / 绝对路径）按 {@link MarkdownRenderer#localImagePath} 同一判定读入并内嵌为
  * {@code data:} URI，保证 HTML 与长图脱离本机文件依然可看。纯字符串渲染、无 JavaFX 依赖，
  * 可在后台线程调用；长图导出（PNG）复用同一份 HTML，只额外追加隐藏滚动条样式。</p>
+ *
+ * @author gogym
  */
 public final class SessionHtmlRenderer {
 
@@ -110,7 +128,7 @@ public final class SessionHtmlRenderer {
         };
         sb.append("<section class=\"msg ").append(cls).append("\">\n")
                 .append("<div class=\"msg-head\"><span class=\"role role-").append(cls.substring(4)).append("\">")
-                .append(esc(roleLabel(c.getRole()))).append("</span>");
+                .append(esc(ExportFormats.rolePlain(c.getRole()))).append("</span>");
         if (c.getCreatedAt() != null) {
             sb.append("<span class=\"time\">").append(c.getCreatedAt().format(TS)).append("</span>");
         }
@@ -126,7 +144,7 @@ public final class SessionHtmlRenderer {
                 sb.append("<div class=\"tool\">\uD83D\uDD27 <code>").append(esc(call.name())).append("</code>");
                 Map<String, Object> input = call.input();
                 if (input != null && !input.isEmpty()) {
-                    sb.append("<span class=\"tool-args\">").append(esc(summarizeInput(input))).append("</span>");
+                    sb.append("<span class=\"tool-args\">").append(esc(ExportFormats.summarizeInput(input))).append("</span>");
                 }
                 sb.append("</div>");
             }
@@ -170,35 +188,6 @@ public final class SessionHtmlRenderer {
             return "image/svg+xml";
         }
         return "image/png";
-    }
-
-    /** 工具入参摘要（与 Markdown 导出同口径）：{@code (k=v, ...)}，单值超 80 字符截断。 */
-    private static String summarizeInput(Map<String, Object> input) {
-        StringBuilder sb = new StringBuilder();
-        input.forEach((k, v) -> {
-            if (!sb.isEmpty()) {
-                sb.append(", ");
-            }
-            String s = String.valueOf(v);
-            if (s.length() > 80) {
-                s = s.substring(0, 77) + "...";
-            }
-            sb.append(k).append("=").append(s);
-        });
-        return "(" + sb + ")";
-    }
-
-    private static String roleLabel(String role) {
-        if (role == null) {
-            return "消息";
-        }
-        return switch (role.toUpperCase(Locale.ROOT)) {
-            case "USER" -> "用户";
-            case "ASSISTANT" -> "助手";
-            case "SYSTEM" -> "系统";
-            case "TOOL" -> "工具";
-            default -> role;
-        };
     }
 
     private static boolean notBlank(String s) {

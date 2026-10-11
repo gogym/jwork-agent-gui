@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.guard;
 
 import org.junit.jupiter.api.DisplayName;
@@ -13,6 +29,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 /**
  * {@link DangerousCommandPolicy} 单测：命中拒绝、良性放行、停用规则跳过、非法正则不致中断。
  * <p>纯逻辑，无 Spring/JavaFX 依赖。</p>
+ *
+ * @author gogym
  */
 class DangerousCommandPolicyTest {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.desktop;
 
 import com.gettyio.gim.agent.core.chat.ChatRequest;
@@ -5,11 +21,11 @@ import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.StreamEvent;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.voice.MicHoldButton;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import io.agentscope.core.permission.PermissionMode;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -43,6 +59,8 @@ import java.util.List;
  * 写/Shell 被框架拒绝。会话为独立「快速会话」，首次发送时才创建。</p>
  * <p>同一次仅允许一条在途生成（避免并发占坑）；隐藏/关闭小窗即取消在途订阅。所有 FX 操作经
  * {@link Platform#runLater} 投递，兼容从热键消息泵线程调用。</p>
+ *
+ * @author gogym
  */
 public class QuickAskWindow {
 

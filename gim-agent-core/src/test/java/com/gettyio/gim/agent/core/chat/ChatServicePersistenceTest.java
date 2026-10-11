@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.GimPaths;
@@ -27,6 +43,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@link ChatService#chat} 三路终态落盘单测：complete 正常落助手，error/cancel 落半截且标 interrupted。
  * <p>用脚本化假网关供给事件流，真实 SQLite（{@code @TempDir} 文件）验落盘语义，无 JavaFX/框架运行时。</p>
+ *
+ * @author gogym
  */
 class ChatServicePersistenceTest {
 

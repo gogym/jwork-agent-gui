@@ -1,11 +1,27 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.market;
 
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.update.UpdateChecker;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -31,6 +47,8 @@ import java.util.Locale;
  * 技能市场对话框：搜索 + 市场条目卡片列表 + 一键安装/更新。
  * <p>索引来自 {@link MarketService#fetchSkills}（后台线程拉取，UI 线程渲染）；
  * 安装走「下载 → 哈希校验 → SkillService.importFromMarket」，完成后回调刷新技能页。</p>
+ *
+ * @author gogym
  */
 public class SkillsMarketDialog {
 

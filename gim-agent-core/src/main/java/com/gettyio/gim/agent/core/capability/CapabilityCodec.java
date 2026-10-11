@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.capability;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -21,6 +37,8 @@ import java.util.Set;
  * 完全等价，都按空清单处理。</p>
  * <p>解析容错：非法 JSON 只告警并按空清单处理（fail-closed），不会因为一条脏数据把整个智能体
  * 装配成「拥有全部能力」的意外状态。也接受用户手写的逗号分隔清单，避免 MCP 参数栏误填导致能力全丢。</p>
+ *
+ * @author gogym
  */
 public final class CapabilityCodec {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.capability;
 
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
@@ -14,6 +30,8 @@ import java.util.Map;
  * {@code base_url/headers_json} 用于 sse/http；{@code args_json} 允许写成 JSON 数组或空格分隔。</p>
  * <p>超时：表里的 timeout 是「单次请求秒数」，另外给初始化设一个上限，避免不可达的服务把首轮对话
  * 拖到用户以为程序卡死。</p>
+ *
+ * @author gogym
  */
 public final class McpServerConfigs {
 

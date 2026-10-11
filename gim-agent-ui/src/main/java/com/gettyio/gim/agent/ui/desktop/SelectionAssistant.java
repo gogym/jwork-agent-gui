@@ -1,7 +1,23 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.desktop;
 
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
@@ -26,6 +42,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>抓取经 {@link SelectionGrabber}（模拟 Ctrl+C + 剪贴板哨兵）在后台线程完成，不阻塞 FX；
  * 抓取在途时重复触发直接忽略。操作条为单例无边框置顶小窗：失焦 / ESC 自动隐藏，
  * 重复触发仅更新摘要与位置。「问 AI」仅预填输入框供用户补充问题；翻译 / 润色预填并立即发送。</p>
+ *
+ * @author gogym
  */
 public class SelectionAssistant {
 

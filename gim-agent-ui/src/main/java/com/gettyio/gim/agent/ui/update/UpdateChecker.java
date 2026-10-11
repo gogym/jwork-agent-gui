@@ -1,11 +1,27 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.update;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gettyio.gim.agent.domain.GimDatabase;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.notify.TrayNotifier;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.stage.Window;
 import org.slf4j.Logger;
@@ -46,6 +62,8 @@ import java.util.function.DoubleConsumer;
  *   <li><b>手动检查</b>：{@link #checkLatest()}；命中新版后可 {@link #download} 下载、{@link #install} 拉起安装。</li>
  *   <li><b>静默检查</b>：{@link #maybeCheckOnStartup(javafx.stage.Window)} 在开关开启且当日未查过时后台执行；强更弹模态，否则仅发托盘气泡。</li>
  * </ul>
+ *
+ * @author gogym
  */
 public class UpdateChecker {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.model;
 
 import com.gettyio.gim.agent.domain.enums.ApiProtocol;
@@ -16,6 +32,8 @@ import java.util.concurrent.ConcurrentHashMap;
 /**
  * AgentScope 模型工厂（自 MVP ChatModelFactory 的 provider/protocol 抽象移植）。
  * <p>按 {@link ApiProtocol} 分发到对应 ChatModel Builder，并按 providerCode:modelCode 缓存实例。</p>
+ *
+ * @author gogym
  */
 public class AgentScopeModelFactory {
 
@@ -30,6 +48,7 @@ public class AgentScopeModelFactory {
         return cache.computeIfAbsent(spec.cacheKey(), k -> create(spec));
     }
 
+    /** 按 {@link ApiProtocol} 分发构建对应 ChatModel 实例（不查缓存，直接新建；缓存入口见 {@link #getOrCreate}）。 */
     public Model create(ModelSpec spec) {
         log.info("构建模型实例: protocol={}, provider={}, model={}", spec.protocol(), spec.providerCode(), spec.modelName());
         GenerateOptions options = buildOptions(spec);

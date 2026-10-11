@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.core.chat.ChatService;
@@ -10,10 +26,10 @@ import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.jcef.JcefComposer;
 import com.gettyio.gim.agent.ui.throttle.ModelRateGovernor;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
@@ -34,6 +50,8 @@ import java.util.function.Supplier;
  * 用量只在流式收尾/切换会话时刷新；上下文条在输入变化、发送、重放会话三处刷新。</p>
  * <p>上下文占用以百分比展示，悬停弹出 {@link ContextPopover} 明细浮层（已用量/上限），
  * 浮层内可一键压缩当前会话（压缩能力经 {@link ContextCompactor} 由控制器桥接到服务层）。</p>
+ *
+ * @author gogym
  */
 public final class ChatStatusBar {
 

@@ -1,8 +1,24 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.jcef;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import javafx.beans.property.SimpleStringProperty;
 import javafx.beans.property.StringProperty;
 import javafx.geometry.Insets;
@@ -60,6 +76,8 @@ import java.util.function.Consumer;
  * <h3>顺序性</h3>
  * <p>所有 Java→JS 脚本经 AWT EDT 队列下发（{@link #execJs}）：键盘转发的合成 AWT 事件同走该队列，
  * 保证「字符插入/光标操作/取文本」相对键盘动作的全局先后顺序。</p>
+ *
+ * @author gogym
  */
 public final class JcefComposer {
 
@@ -104,6 +122,7 @@ public final class JcefComposer {
     /** IME 组合态：组合期间键盘事件一律不转发（按键归输入法消化，Enter 不触发发送）。 */
     private volatile boolean imeComposing;
 
+    /** 构建输入框：装配 OSR 视图、键盘/IME 事件链、主题监听并装载 composer 页面。 */
     public JcefComposer() {
         this.view = new JcefOsrView(QUERY_FN, CANCEL_FN, this::dispatch);
         this.host = view.node();
@@ -402,6 +421,7 @@ public final class JcefComposer {
      */
     private final class ComposerImeRequests implements InputMethodRequests {
 
+        /** IME 候选窗锚点：caret 矩形由页面坐标换算到宿主本地再转屏幕坐标（采不到时兜底宿主底缘）。 */
         @Override
         public Point2D getTextLocation(int offset) {
             // 候选窗锚点：caret 矩形（页面坐标）换算到宿主本地 → 屏幕坐标

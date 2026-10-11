@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.sandbox;
 
 import org.slf4j.Logger;
@@ -20,6 +36,8 @@ import java.util.concurrent.TimeUnit;
  * <p>与 {@link SandboxProvisioner} 的分工：Provisioner 决定「副作用落在哪」（文件系统落地规格），
  * 本类决定「命令在哪跑」（执行原语）。工程不引入 Docker SDK，统一走 CLI（与
  * {@link DockerAvailabilityProbe} 的零依赖口径一致）；{@link ProcessStarter} 可注入以便单测打桩。</p>
+ *
+ * @author gogym
  */
 public class SandboxExecutor {
 

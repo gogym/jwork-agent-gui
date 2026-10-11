@@ -1,12 +1,29 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.core.chat.FileAttachment;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
+import com.gettyio.gim.agent.ui.util.UiFormat;
 import com.gettyio.gim.agent.ui.jcef.JcefComposer;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.ContextMenu;
@@ -35,6 +52,8 @@ import java.util.Locale;
 /**
  * 输入框附件条：待发的图片（Base64 多模态）与文件/文件夹引用（路径引用块）的采集、芯片渲染与清理，
  * 以及回形针菜单（文件 / 文件夹）的弹出。由 {@code MainController} 在 FXML 注入后构造并委托。
+ *
+ * @author gogym
  */
 public class AttachmentBar {
 
@@ -283,7 +302,7 @@ public class AttachmentBar {
         name.setMaxWidth(160);
         name.setEllipsisString("\u2026");
         name.setTooltip(new Tooltip(att.fileName()));
-        Label size = new Label(humanSize(att.sizeBytes()));
+        Label size = new Label(UiFormat.humanSize(att.sizeBytes()));
         size.getStyleClass().add("attach-doc-size");
         Label remove = new Label("\u00D7");
         remove.getStyleClass().add("attach-remove");
@@ -300,22 +319,6 @@ public class AttachmentBar {
         ContextMenu docMenu = new ContextMenu(toKnowledge);
         chip.setOnContextMenuRequested(e -> docMenu.show(chip, e.getScreenX(), e.getScreenY()));
         return chip;
-    }
-
-    /** 字节数转人类可读大小。 */
-    private static String humanSize(long bytes) {
-        if (bytes < 1024) {
-            return bytes + " B";
-        }
-        double kb = bytes / 1024.0;
-        if (kb < 1024) {
-            return String.format(Locale.ROOT, "%.1f KB", kb);
-        }
-        double mb = kb / 1024.0;
-        if (mb < 1024) {
-            return String.format(Locale.ROOT, "%.1f MB", mb);
-        }
-        return String.format(Locale.ROOT, "%.1f GB", mb / 1024.0);
     }
 
     /** 文档扩展名→MIME，未知回退 application/octet-stream。 */

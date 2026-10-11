@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.window;
 
 import javafx.scene.Parent;
@@ -21,6 +37,8 @@ import java.util.function.Consumer;
  * 磨玻璃遮罩（模糊只作用于视图，标题栏保持清晰），开关由 {@link FrostedBackdrop} 在对话框弹出/关闭时驱动。</p>
  * <p>作为应用单例在 UI 各组件间共享：{@code GimAgentApplication} 启动时 {@link #configure} 装配，
  * 设置视图通过 {@link #setContent} 替换中部，返回应用时 {@link #showApp} 还原，标题栏始终常驻。</p>
+ *
+ * @author gogym
  */
 public class AppShell {
 

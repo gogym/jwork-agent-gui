@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.jcef;
 
 import javafx.application.Platform;
@@ -44,6 +60,8 @@ import java.util.function.Consumer;
  * <p>线程：{@code onPaint}、{@code onQuery} 均在 Chromium/AWT 线程回调，凡触碰 JavaFX 一律
  * {@link Platform#runLater} 派发回 FX 线程。JS→Java 经 {@link CefMessageRouter}（页面注入
  * {@code window.<queryFn>}），由 {@code requestHandler} 收 JSON 载荷。</p>
+ *
+ * @author gogym
  */
 public final class JcefOsrView {
 
@@ -201,6 +219,7 @@ public final class JcefOsrView {
         cfg.jsQueryFunction = queryFn;
         cfg.jsCancelFunction = cancelFn;
         this.router = CefMessageRouter.create(cfg, new CefMessageRouterHandlerAdapter() {
+            /** JS 桥查询入口（{@code queryFn}）：转到 FX 线程交给 requestHandler，异常回 fail 而非抛给 CEF。 */
             @Override
             public boolean onQuery(CefBrowser b, CefFrame f, long qid,
                                    String request, boolean persistent, CefQueryCallback cb) {
@@ -208,10 +227,14 @@ public final class JcefOsrView {
                     Platform.runLater(() -> {
                         try {
                             requestHandler.accept(request);
-                            if (cb != null) cb.success("");
+                            if (cb != null) {
+                                cb.success("");
+                            }
                         } catch (Throwable t) {
                             log.warn("JCEF onQuery 处理失败", t);
-                            if (cb != null) cb.failure(-1, String.valueOf(t.getMessage()));
+                            if (cb != null) {
+                                cb.failure(-1, String.valueOf(t.getMessage()));
+                            }
                         }
                     });
                 } else if (cb != null) {
@@ -223,6 +246,7 @@ public final class JcefOsrView {
         this.client.addMessageRouter(router);
 
         this.client.addLoadHandler(new CefLoadHandlerAdapter() {
+            /** 主框架开始装载：记录 native browser 已创建，并补发此前暂存（过早调用被丢弃）的 loadUrl。 */
             @Override
             public void onLoadStart(CefBrowser b, CefFrame f, org.cef.network.CefRequest.TransitionType tt) {
                 if (f != null && f.isMain()) {
@@ -244,6 +268,7 @@ public final class JcefOsrView {
                 }
             }
 
+            /** 主框架装载完成：{@code about:*} 空白页不触发就绪回调，真实页面才回调 loadEnd。 */
             @Override
             public void onLoadEnd(CefBrowser b, CefFrame f, int httpStatusCode) {
                 if (f != null && f.isMain()) {
@@ -258,6 +283,7 @@ public final class JcefOsrView {
                 }
             }
 
+            /** 主框架装载失败：初始空白页被补发导航中断属正常（debug），其余记 error 日志。 */
             @Override
             public void onLoadError(CefBrowser b, CefFrame f,
                                     org.cef.handler.CefLoadHandler.ErrorCode ec, String text, String url) {
@@ -273,6 +299,7 @@ public final class JcefOsrView {
 
         // 页面 JS 的 console 输出与未捕获错误转进应用日志：诊断「不出气泡/桥未连通」时可直接看到 GIM_* 标记。
         this.client.addDisplayHandler(new CefDisplayHandlerAdapter() {
+            /** 页面 console 输出：仅错误/警告级或含 {@code GIM_} 标记的消息并入应用日志，其余忽略。 */
             @Override
             public boolean onConsoleMessage(CefBrowser b, CefSettings.LogSeverity level,
                                             String message, String source, int line) {
@@ -303,7 +330,9 @@ public final class JcefOsrView {
                     firstFrameLogged = true;
                     log.info("OSR onPaint 首次回调: buffer={}, {}x{}", (bf == null ? "null" : "ok"), w, h);
                 }
-                if (bf == null || w <= 0 || h <= 0) return;
+                if (bf == null || w <= 0 || h <= 0) {
+                    return;
+                }
                 final byte[] arr = new byte[w * h * 4];
                 bf.rewind();
                 bf.get(arr, 0, Math.min(arr.length, bf.remaining()));
@@ -431,7 +460,9 @@ public final class JcefOsrView {
         // 用于把轮询到的 AWT 坐标换算回 JavaFX 屏幕坐标系（同一会话内偏移稳定）。
         try {
             java.awt.PointerInfo pi = java.awt.MouseInfo.getPointerInfo();
-            if (pi == null) return;
+            if (pi == null) {
+                return;
+            }
             java.awt.Point awt = pi.getLocation();
             screenCalX = awt.getX() - e.getScreenX();
             screenCalY = awt.getY() - e.getScreenY();
@@ -454,7 +485,9 @@ public final class JcefOsrView {
 
     /** 停止兜底轮询（真实 RELEASE、全局左键已松开或超时）。 */
     private void stopDragFallbackPoll() {
-        if (dragPoll != null) dragPoll.stop();
+        if (dragPoll != null) {
+            dragPoll.stop();
+        }
     }
 
     /** 兜底轮询单次执行（FX 线程）：读全局光标/左键，按需合成拖动事件。 */
@@ -472,7 +505,9 @@ public final class JcefOsrView {
         java.awt.Point awt;
         try {
             java.awt.PointerInfo pi = java.awt.MouseInfo.getPointerInfo();
-            if (pi == null) return;
+            if (pi == null) {
+                return;
+            }
             awt = pi.getLocation();
         } catch (Throwable t) {
             return; // 读取失败：下一帧再试
@@ -550,17 +585,29 @@ public final class JcefOsrView {
     /** 当下按下中的按钮集合 → AWT DOWN_MASK 位（JNI 不读这个就认不出拖动）。 */
     private static int buttonDownMask(javafx.scene.input.MouseEvent e) {
         int m = 0;
-        if (e.isPrimaryButtonDown()) m |= InputEvent.BUTTON1_DOWN_MASK;
-        if (e.isMiddleButtonDown()) m |= InputEvent.BUTTON2_DOWN_MASK;
-        if (e.isSecondaryButtonDown()) m |= InputEvent.BUTTON3_DOWN_MASK;
+        if (e.isPrimaryButtonDown()) {
+            m |= InputEvent.BUTTON1_DOWN_MASK;
+        }
+        if (e.isMiddleButtonDown()) {
+            m |= InputEvent.BUTTON2_DOWN_MASK;
+        }
+        if (e.isSecondaryButtonDown()) {
+            m |= InputEvent.BUTTON3_DOWN_MASK;
+        }
         return m;
     }
 
     /** AWT 按钮码 → 对应 DOWN_MASK 位。 */
     private static int buttonDownMaskOf(int button) {
-        if (button == java.awt.event.MouseEvent.BUTTON1) return InputEvent.BUTTON1_DOWN_MASK;
-        if (button == java.awt.event.MouseEvent.BUTTON2) return InputEvent.BUTTON2_DOWN_MASK;
-        if (button == java.awt.event.MouseEvent.BUTTON3) return InputEvent.BUTTON3_DOWN_MASK;
+        if (button == java.awt.event.MouseEvent.BUTTON1) {
+            return InputEvent.BUTTON1_DOWN_MASK;
+        }
+        if (button == java.awt.event.MouseEvent.BUTTON2) {
+            return InputEvent.BUTTON2_DOWN_MASK;
+        }
+        if (button == java.awt.event.MouseEvent.BUTTON3) {
+            return InputEvent.BUTTON3_DOWN_MASK;
+        }
         return 0;
     }
 
@@ -609,17 +656,31 @@ public final class JcefOsrView {
 
     private static int awtModifiers(boolean shift, boolean ctrl, boolean alt, boolean meta) {
         int m = 0;
-        if (shift) m |= InputEvent.SHIFT_DOWN_MASK;
-        if (ctrl) m |= InputEvent.CTRL_DOWN_MASK;
-        if (alt) m |= InputEvent.ALT_DOWN_MASK;
-        if (meta) m |= InputEvent.META_DOWN_MASK;
+        if (shift) {
+            m |= InputEvent.SHIFT_DOWN_MASK;
+        }
+        if (ctrl) {
+            m |= InputEvent.CTRL_DOWN_MASK;
+        }
+        if (alt) {
+            m |= InputEvent.ALT_DOWN_MASK;
+        }
+        if (meta) {
+            m |= InputEvent.META_DOWN_MASK;
+        }
         return m;
     }
 
     private static int awtButton(javafx.scene.input.MouseButton b) {
-        if (b == javafx.scene.input.MouseButton.SECONDARY) return java.awt.event.MouseEvent.BUTTON3;
-        if (b == javafx.scene.input.MouseButton.MIDDLE) return java.awt.event.MouseEvent.BUTTON2;
-        if (b == javafx.scene.input.MouseButton.NONE) return java.awt.event.MouseEvent.NOBUTTON;
+        if (b == javafx.scene.input.MouseButton.SECONDARY) {
+            return java.awt.event.MouseEvent.BUTTON3;
+        }
+        if (b == javafx.scene.input.MouseButton.MIDDLE) {
+            return java.awt.event.MouseEvent.BUTTON2;
+        }
+        if (b == javafx.scene.input.MouseButton.NONE) {
+            return java.awt.event.MouseEvent.NOBUTTON;
+        }
         return java.awt.event.MouseEvent.BUTTON1;
     }
 
@@ -725,7 +786,9 @@ public final class JcefOsrView {
         for (int i = 0; i < n; i++) {
             char c = js.charAt(i);
             if (c <= 0x7F) {
-                if (sb != null) sb.append(c);
+                if (sb != null) {
+                    sb.append(c);
+                }
                 continue;
             }
             if (sb == null) {
@@ -768,7 +831,9 @@ public final class JcefOsrView {
 
     /** 日志用 URL 截断（data: URL 可达数兆，直接打印会淹没日志）。 */
     private static String abbrev(String s) {
-        if (s == null) return "null";
+        if (s == null) {
+            return "null";
+        }
         return s.length() <= 96 ? s : s.substring(0, 96) + "…(len=" + s.length() + ")";
     }
 
@@ -1225,6 +1290,7 @@ public final class JcefOsrView {
         return diff;
     }
 
+    /** 销毁视图：停掉计时器、关闭浏览器/路由/客户端并释放屏幕外宿主窗口（各步容错）。 */
     public void dispose() {
         final javafx.animation.PauseTransition fd = sizeFlushDelay;
         if (fd != null) {

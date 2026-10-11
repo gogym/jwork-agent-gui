@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.scheduler;
 
 import com.gettyio.gim.agent.domain.dao.ScheduledTaskDao;
@@ -26,6 +42,8 @@ import java.util.Set;
  * <p>两类触发器：周期性（cron）与一次性指定时刻（run_at）。misfire 语义：
  * 周期任务关机期间错过的不补（DoNothing），一次性任务重启后补跑一次（FireAndProceed）。
  * 到期时间（end_at）非空时由触发器 endAt 自动截止，恢复时已过期任务直接置为暂停。</p>
+ *
+ * @author gogym
  */
 public class TaskSchedulerService {
 
@@ -68,6 +86,7 @@ public class TaskSchedulerService {
         return task.getEndAt() != null && task.getEndAt().isBefore(LocalDateTime.now());
     }
 
+    /** 调度（或重调度）任务：先清同名旧作业；{@code runAt} 走 SimpleTrigger（错过补跑一次），cron 走 CronTrigger（错过不补）；两者皆缺抛 {@link SchedulerException}。 */
     public void schedule(ScheduledTask task) throws SchedulerException {
         unschedule(task.getTaskCode());
         JobDetail job = JobBuilder.newJob(AgentTaskJob.class)
@@ -105,6 +124,7 @@ public class TaskSchedulerService {
                 task.getRunAt() != null ? "runAt=" + task.getRunAt() : "cron=" + cron);
     }
 
+    /** 按任务编码删除调度器中的作业；不存在则为无操作。 */
     public void unschedule(String taskCode) throws SchedulerException {
         Set<org.quartz.JobKey> keys = scheduler.getJobKeys(GroupMatcher.jobGroupEquals(JOB_GROUP));
         for (org.quartz.JobKey key : keys) {

@@ -1,14 +1,30 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.view;
 
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.tools.skill.SkillService;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.chat.MenuPopup;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.market.MarketService;
 import com.gettyio.gim.agent.ui.market.SkillsMarketDialog;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -42,6 +58,8 @@ import java.util.Locale;
  * 技能整页（对标 Qoder「发现 Skills」页）：页头 + 搜索 + 技能卡片网格 + 空状态。
  * <p>支持从目录安装、启/禁用、删除与 SKILL.md 详情预览，直连 {@link SkillService}。
  * 全部文案走 {@link I18n}，语言切换时刷新页头并重绘卡片。</p>
+ *
+ * @author gogym
  */
 public class SkillsView {
 

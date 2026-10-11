@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.market;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -6,7 +22,7 @@ import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
 import com.gettyio.gim.agent.tools.skill.SkillService;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
 import com.gettyio.gim.agent.ui.update.UpdateChecker;
 import org.slf4j.Logger;
@@ -57,6 +73,8 @@ import java.util.stream.Stream;
  * <p>基地址复用更新服务的 gim-server-ai 地址（{@code 设置 &gt; 更新} 同一配置项）；
  * 技能包下载沿用 {@link UpdateChecker} 的校验口径：fileHash 64 位十六进制按 SHA-256、32 位按 MD5，
  * 其余长度无法识别则跳过校验。安装链路完全复用 {@link SkillService#importFromMarket(Path)}。</p>
+ *
+ * @author gogym
  */
 public class MarketService {
 

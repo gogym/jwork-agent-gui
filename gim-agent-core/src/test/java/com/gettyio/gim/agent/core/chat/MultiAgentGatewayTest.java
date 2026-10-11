@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.capability.AgentCapabilityResolver;
@@ -29,6 +45,8 @@ import static org.mockito.Mockito.when;
  * {@link MultiAgentGateway} 运行体缓存/失效与工作区回退单测。
  * <p>巧妙利用 {@link HarnessAgentGateway#stream} 返回惰性 {@code Flux}——不订阅即不触发模型/Agent 重组，
  * 故 {@code gatewayFor→build} 的装配（assembler、能力下发、缓存写入）可被纯测，无需 AgentScope 运行时。</p>
+ *
+ * @author gogym
  */
 class MultiAgentGatewayTest {
 

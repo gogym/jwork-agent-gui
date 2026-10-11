@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.model;
 
 import io.agentscope.core.message.Base64Source;
@@ -26,6 +42,8 @@ import java.util.List;
  * 模型连通性探测：按给定规格发一条最小对话，验证 baseUrl / apiKey / 模型名这一组配置是否真的可用。
  * <p>配置页在保存前测一次，比让用户到会话里撞上一条 401 更早暴露问题。探测走独立实例、
  * 不进 {@link AgentScopeModelFactory} 缓存，也永不抛异常——探测失败本身就是要回显的结果。</p>
+ *
+ * @author gogym
  */
 public class ModelProbe {
 

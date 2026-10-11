@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -22,6 +38,8 @@ import java.util.function.Supplier;
  * <p>API Key 不内置在本类，而是由装配方注入一个 {@link Supplier}（通常从加密的 {@code settings} 读取并解密），
  * 运行时实时取用——用户在设置页改 Key 无需重启即生效。未配置 Key 时，工具返回明确的「未配置」提示而非抛异常，
  * 让模型据实告知用户去配置，而不是把技术栈细节暴露成对话内容。</p>
+ *
+ * @author gogym
  */
 public class WebSearchTools {
 
@@ -47,6 +65,7 @@ public class WebSearchTools {
         this.apiKeySupplier = apiKeySupplier;
     }
 
+    /** 工具入口（{@code web_search}）：校验 Key 与入参后调 Tavily 搜索，返回标题/URL/摘要清单；失败信息以文本返回。 */
     @Tool(name = "web_search", readOnly = true,
             description = "联网搜索实时信息（新闻、事实、价格、文档、最新版本等模型知识截止后的内容）。"
                     + "返回若干条结果，每条含标题、URL 与摘要。需要精确出处时再对某条 URL 调 web_fetch 读正文。")
@@ -90,6 +109,7 @@ public class WebSearchTools {
         }
     }
 
+    /** 工具入口（{@code web_fetch}）：仅收 http/https，抓取后抽正文纯文本并按上限截断；失败信息以文本返回。 */
     @Tool(name = "web_fetch", readOnly = true,
             description = "抓取指定网页并返回其正文纯文本（已去标签、截断过长内容）。用于读取搜索结果里某条链接的完整页面。")
     public String webFetch(@ToolParam(name = "url", description = "要抓取的网页地址（http/https）") String url) {

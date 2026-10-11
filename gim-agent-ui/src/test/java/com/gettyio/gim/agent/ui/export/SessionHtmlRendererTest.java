@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.export;
 
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
@@ -18,6 +34,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
  * {@link SessionHtmlRenderer} 单测：话题卡片头部元信息、Markdown 渲染（含表格/代码块）、
  * 原始 HTML 转义防注入、本地图片内嵌为 data URI、远程 URL 不内嵌、工具调用行。
  * 纯字符串渲染不依赖 JavaFX 工具包。
+ *
+ * @author gogym
  */
 class SessionHtmlRendererTest {
 

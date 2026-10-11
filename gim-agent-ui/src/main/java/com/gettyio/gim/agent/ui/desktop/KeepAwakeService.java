@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.desktop;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
@@ -13,6 +29,8 @@ import java.util.Locale;
  * 连续标志的时效绑定「调用线程」，故用专用守护线程持续保持；关闭时在同一线程以
  * {@code ES_CONTINUOUS} 单独复位后退出。开关持久化在 AppSetting {@code automation.keep_awake}（默认关），
  * 非 Windows 平台或调用失败只告警降级，不影响主程序。</p>
+ *
+ * @author gogym
  */
 public class KeepAwakeService {
 
@@ -105,6 +123,7 @@ public class KeepAwakeService {
         }
     }
 
+    /** 停止保活：置运行标志并中断工作线程（幂等）。 */
     public synchronized void stop() {
         running = false;
         if (worker != null) {

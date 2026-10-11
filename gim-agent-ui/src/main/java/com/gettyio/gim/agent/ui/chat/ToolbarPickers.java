@@ -1,11 +1,27 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
 import com.gettyio.gim.agent.domain.entity.PromptTemplate;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
@@ -44,6 +60,8 @@ import java.util.Map;
  * 输入框工具条上的三个下拉：齿轮（设置/外观/语言/关于/退出登录）、模型选择、审批档位。
  * <p>各自复用单一 {@link ContextMenu} 实例并做开关切换，避免反复点击累积弹出。持有当前选中的
  * 模型与审批档位，供发送流程读取。由 {@code MainController} 在 FXML 注入后构造并委托。</p>
+ *
+ * @author gogym
  */
 public class ToolbarPickers {
 

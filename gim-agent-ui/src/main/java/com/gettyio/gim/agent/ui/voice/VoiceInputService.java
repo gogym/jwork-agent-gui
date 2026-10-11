@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.voice;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -28,6 +44,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * <p>配置走 {@code settings} 键值表（Key 加密存储），改配无需重启即生效。录音为「按住说话」
  * 语义：{@link #startRecording} 起录、{@link #stopRecordingAndTranscribe} 停录并转写，
  * 同一时刻至多一段在录。转写端点兼容 OpenAI / Groq / 各类 whisper 服务端。</p>
+ *
+ * @author gogym
  */
 public class VoiceInputService {
 
@@ -46,15 +64,13 @@ public class VoiceInputService {
             .connectTimeout(Duration.ofSeconds(8))
             .build();
 
-    private final GimDatabase db;
-    private final SecretCipher cipher;
+    private final VoiceSettingsStore settings;
 
     /** 在录会话；null 表示空闲。 */
     private volatile Recording recording;
 
     public VoiceInputService(GimDatabase db, SecretCipher cipher) {
-        this.db = db;
-        this.cipher = cipher;
+        this.settings = new VoiceSettingsStore(db, cipher);
     }
 
     /** 在录会话状态（仅供内部与测试窥视）。 */
@@ -66,41 +82,29 @@ public class VoiceInputService {
 
     /** 转写服务协议根（OpenAI 兼容；未配置返回空串）。 */
     public String transcriptionBaseUrl() {
-        return db.settingDao().getValue(KEY_BASEURL).orElse("").trim();
+        return settings.get(KEY_BASEURL);
     }
 
     public void saveTranscriptionBaseUrl(String url) {
-        db.settingDao().upsert(KEY_BASEURL, url == null ? "" : url.trim(), "语音转写服务地址");
+        settings.put(KEY_BASEURL, url, "语音转写服务地址");
     }
 
     /** 转写模型编码（如 whisper-1）。 */
     public String transcriptionModel() {
-        return db.settingDao().getValue(KEY_MODEL).orElse("").trim();
+        return settings.get(KEY_MODEL);
     }
 
     public void saveTranscriptionModel(String model) {
-        db.settingDao().upsert(KEY_MODEL, model == null ? "" : model.trim(), "语音转写模型");
+        settings.put(KEY_MODEL, model, "语音转写模型");
     }
 
     /** 明文 API Key（密文存储，取出即解密）；未配置或解密失败返回空串。 */
     public String apiKeyPlain() {
-        String stored = db.settingDao().getValue(KEY_APIKEY).orElse("").trim();
-        if (stored.isEmpty()) {
-            return "";
-        }
-        try {
-            return cipher.canHandle(stored) ? cipher.decrypt(stored) : stored;
-        } catch (RuntimeException e) {
-            return "";
-        }
+        return settings.apiKeyPlain(KEY_APIKEY);
     }
 
     public void saveApiKey(String plain) {
-        if (plain == null || plain.isBlank()) {
-            db.settingDao().upsert(KEY_APIKEY, "", "语音转写 API Key（密文）");
-            return;
-        }
-        db.settingDao().upsert(KEY_APIKEY, cipher.encrypt(plain.trim()), "语音转写 API Key（密文）");
+        settings.saveApiKey(KEY_APIKEY, plain, "语音转写 API Key（密文）");
     }
 
     /** 是否已配置可用的转写服务（地址 + 模型齐备；Key 视服务端可匿名）。 */

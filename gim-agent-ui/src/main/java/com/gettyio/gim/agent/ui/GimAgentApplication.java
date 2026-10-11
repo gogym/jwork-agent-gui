@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui;
 
 import com.gettyio.gim.agent.domain.security.LocalAuthService;
@@ -6,9 +22,11 @@ import com.gettyio.gim.agent.ui.controller.MainController;
 import com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService;
 import com.gettyio.gim.agent.ui.desktop.QuickAskWindow;
 import com.gettyio.gim.agent.ui.desktop.SelectionAssistant;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.AppLifecycle;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import com.gettyio.gim.agent.ui.window.LoginGate;
 import com.gettyio.gim.agent.ui.window.StageResizer;
 import javafx.application.Application;
@@ -30,6 +48,8 @@ import java.io.IOException;
  * JavaFX 应用入口：{@code init()} 装配应用上下文（无头服务 + 启动工序），
  * {@code start()} 于 FX 线程加载主窗 FXML（控制器由 {@link AppContext} 预构建后经控制器工厂返回），
  * 认证通过后完成更新检查与全局热键装配。
+ *
+ * @author gogym
  */
 public class GimAgentApplication extends Application {
 
@@ -46,6 +66,7 @@ public class GimAgentApplication extends Application {
         notifyPreloader(new SplashPreloader.SplashProgress(I18n.t("splash.loading")));
     }
 
+    /** JavaFX 启动入口：装配 FX 线程异常兜底、无边框透明主窗与登录门，认证通过后显示主窗并装配热键。 */
     @Override
     public void start(Stage stage) throws IOException {
         // FX 线程兜底：事件处理器/动画回调里的异常不再静默吞掉——记录后友好提示（JavaFX 无全局
@@ -177,6 +198,7 @@ public class GimAgentApplication extends Application {
         return Math.max(min, Math.min(value, max));
     }
 
+    /** 应用退出回调：关闭组合根（AppContext）后终止 JavaFX 平台。 */
     @Override
     public void stop() {
         if (context != null) {

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.export;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -33,7 +49,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -41,6 +56,8 @@ import java.util.Optional;
  * 会话与全库导出：单会话导出为可读 Markdown（角色/时间/工具行）或「话题卡片」式独立 HTML
  * （{@link SessionHtmlRenderer}，.html 文件与长图快照共用同一份内容），全库导出为结构化 JSON。
  * <p>纯数据渲染，无 JavaFX 依赖，便于在设置页后台线程调用与后续测试。</p>
+ *
+ * @author gogym
  */
 public class ExportService {
 
@@ -102,7 +119,7 @@ public class ExportService {
 
     private String renderMessage(ChatConversation c) {
         StringBuilder sb = new StringBuilder();
-        sb.append("### ").append(roleLabel(c.getRole()));
+        sb.append("### ").append(ExportFormats.roleLabelMd(c.getRole()));
         if (c.getCreatedAt() != null) {
             sb.append(" · ").append(c.getCreatedAt().format(TS));
         }
@@ -115,45 +132,12 @@ public class ExportService {
             sb.append("> 🔧 `").append(call.name()).append("`");
             Map<String, Object> input = call.input();
             if (input != null && !input.isEmpty()) {
-                sb.append(" ").append(summarizeInput(input));
+                sb.append(" ").append(ExportFormats.summarizeInput(input));
             }
             sb.append("\n");
         }
         sb.append("\n");
         return sb.toString();
-    }
-
-    private static String summarizeInput(Map<String, Object> input) {
-        StringBuilder sb = new StringBuilder();
-        input.forEach((k, v) -> {
-            if (!sb.isEmpty()) {
-                sb.append(", ");
-            }
-            String s = String.valueOf(v);
-            if (s.length() > 80) {
-                s = s.substring(0, 77) + "...";
-            }
-            sb.append(k).append("=").append(s);
-        });
-        return "(" + sb + ")";
-    }
-
-    private static String roleLabel(String role) {
-        if (role == null) {
-            return "消息";
-        }
-        switch (role.toUpperCase(Locale.ROOT)) {
-            case "USER":
-                return "🧑 用户";
-            case "ASSISTANT":
-                return "🤖 助手";
-            case "SYSTEM":
-                return "⚙️ 系统";
-            case "TOOL":
-                return "🔧 工具";
-            default:
-                return role;
-        }
     }
 
     /** 导出单个会话为 PDF（pdfbox 3.x）：优先加载系统中文字体，缺失回退 Helvetica 并清洗非 Latin1 字符。 */
@@ -284,7 +268,7 @@ public class ExportService {
         }
         out.add(new Line("导出时间：" + LocalDateTime.now().format(TS), Kind.META));
         for (ChatConversation c : messages) {
-            StringBuilder head = new StringBuilder(rolePlain(c.getRole()));
+            StringBuilder head = new StringBuilder(ExportFormats.rolePlain(c.getRole()));
             if (c.getCreatedAt() != null) {
                 head.append(" · ").append(c.getCreatedAt().format(TS));
             }
@@ -295,7 +279,7 @@ public class ExportService {
                 StringBuilder t = new StringBuilder("工具 · ").append(call.name());
                 Map<String, Object> input = call.input();
                 if (input != null && !input.isEmpty()) {
-                    t.append(' ').append(summarizeInput(input));
+                    t.append(' ').append(ExportFormats.summarizeInput(input));
                 }
                 out.add(new Line(t.toString(), Kind.TOOL));
             }
@@ -303,21 +287,9 @@ public class ExportService {
         return out;
     }
 
-    private static String rolePlain(String role) {
-        if (role == null) {
-            return "消息";
-        }
-        return switch (role.toUpperCase(Locale.ROOT)) {
-            case "USER" -> "用户";
-            case "ASSISTANT" -> "助手";
-            case "SYSTEM" -> "系统";
-            case "TOOL" -> "工具";
-            default -> role;
-        };
-    }
-
     /** 已加载的中文字体及其底层字体集合（TTC 场景须在 save 前保持打开）。 */
     private record CjkFont(PDFont font, TrueTypeCollection collection) implements AutoCloseable {
+        /** 释放 TTC 字体集合（单文件 ttf 无集合可为 null）。 */
         @Override
         public void close() throws IOException {
             if (collection != null) {

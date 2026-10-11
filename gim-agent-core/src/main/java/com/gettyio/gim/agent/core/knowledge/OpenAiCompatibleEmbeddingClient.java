@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.knowledge;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -20,6 +36,8 @@ import java.util.List;
  * （{@code text-embedding-*} 系列）与本地推理服务（LM Studio / Ollama openai 档）。
  * <p>{@code baseUrl} 填到协议根（如 {@code https://dashscope.aliyuncs.com/compatible-mode/v1}），
  * 本类内部补 {@code /embeddings} 路径。批量输入按每请求 16 条分批，避免超长请求被网关拒收。</p>
+ *
+ * @author gogym
  */
 public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
 
@@ -34,6 +52,7 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
     private final String apiKey;
     private final String model;
 
+    /** 规范化 Base URL（去尾部斜杠、补 {@code /embeddings}）；{@code apiKey} 为空时请求不带鉴权头（本地服务场景）。 */
     public OpenAiCompatibleEmbeddingClient(String baseUrl, String apiKey, String model) {
         String root = baseUrl == null ? "" : baseUrl.trim();
         while (root.endsWith("/")) {
@@ -44,6 +63,7 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
         this.model = model;
     }
 
+    /** 批量向量化：按 {@value #BATCH} 条/批分块请求并汇总；空输入返回空数组，批失败抛 {@link IllegalStateException}。 */
     @Override
     public float[][] embedAll(List<String> texts) {
         if (texts == null || texts.isEmpty()) {

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.config;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
@@ -8,7 +24,7 @@ import com.gettyio.gim.agent.domain.enums.TaskOutputMode;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
 import com.gettyio.gim.agent.scheduler.AgentTaskExecutor;
 import com.gettyio.gim.agent.scheduler.TaskSchedulerService;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import org.quartz.CronExpression;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -21,6 +37,8 @@ import java.util.List;
  * 自动化任务管理：任务表增删改查 + Quartz 调度联动 + 手动触发。
  * <p>到期（end_at）语义：Quartz 触发器自动截止后不再触发，已过期的 READY 任务在列表读取
  * 与启动恢复两处被落为 PAUSED（「到期后自动暂停，不再创建新的执行」）。</p>
+ *
+ * @author gogym
  */
 public class TaskAdminService {
 
@@ -80,6 +98,7 @@ public class TaskAdminService {
         syncSchedule(task);
     }
 
+    /** 删除任务：先摘除调度（失败仅告警）再删任务与其执行历史。 */
     public void delete(String taskCode) {
         try {
             schedulerService.unschedule(taskCode);

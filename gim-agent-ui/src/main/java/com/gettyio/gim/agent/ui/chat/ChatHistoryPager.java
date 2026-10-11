@@ -1,14 +1,30 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.core.chat.MessageMetadataCodec;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
+import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
 import javafx.beans.property.BooleanProperty;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 import java.util.function.BooleanSupplier;
 import java.util.function.Supplier;
 
@@ -19,6 +35,8 @@ import java.util.function.Supplier;
  * <p>游标语义：{@code oldestLoadedId} 恒为「WebView DOM 中第一条消息的主键」——前端贴底回收
  * 顶部 DOM 后经 {@link #onTrimmed(long)} 前移；被回收段仍在库中，上滚触顶时经 {@link #loadOlder()}
  * 照常重新加载。</p>
+ *
+ * @author gogym
  */
 public final class ChatHistoryPager {
 
@@ -63,7 +81,7 @@ public final class ChatHistoryPager {
             return;
         }
         List<ChatConversation> history = chatService.recentHistory(sessionId, ChatService.HISTORY_PAGE_SIZE);
-        List<Map<String, Object>> msgs = new ArrayList<>();
+        List<WebChatMessage> msgs = new ArrayList<>();
         long lastAssistantId = 0;
         long lastUserId = 0;
         for (ChatConversation c : history) {
@@ -107,7 +125,7 @@ public final class ChatHistoryPager {
             return;
         }
         // older 升序（旧→新），按序组载荷后整体 prepend（前端按新增高度补偿滚动）
-        List<Map<String, Object>> msgs = new ArrayList<>();
+        List<WebChatMessage> msgs = new ArrayList<>();
         for (ChatConversation c : older) {
             msgs.add(toPayload(c));
         }
@@ -130,8 +148,8 @@ public final class ChatHistoryPager {
         hasMoreOlder = true;
     }
 
-    /** 把一条历史消息转为 WebView 载荷（用户：正文+附件；助手：正文+工具解码+思考+时间+中断标记）。 */
-    private Map<String, Object> toPayload(ChatConversation c) {
+    /** 把一条历史消息转为 JS 气泡载荷（用户：正文+附件；助手：正文+工具解码+思考+时间+中断标记）。 */
+    private WebChatMessage toPayload(ChatConversation c) {
         long id = c.getId() == null ? 0L : c.getId();
         String content = c.getContent() == null ? "" : c.getContent();
         MessageMetadataCodec.MessageMetadata meta = MessageMetadataCodec.read(c.getMetadata());

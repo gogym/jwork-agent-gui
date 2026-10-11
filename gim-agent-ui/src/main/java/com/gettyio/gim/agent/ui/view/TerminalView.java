@@ -1,8 +1,24 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.view;
 
 import com.gettyio.gim.agent.core.GimPaths;
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.techsenger.jeditermfx.core.CursorShape;
 import com.techsenger.jeditermfx.core.Color;
 import com.techsenger.jeditermfx.core.ProcessTtyConnector;
@@ -41,6 +57,8 @@ import java.util.Map;
  * 因此可正常显示彩色输出并运行全屏 TUI 程序，无需 SwingNode 桥接。</p>
  * <p>懒启动：首次展开时才拉起 shell 进程，之后收起仅从场景图摘除、进程与历史保留；
  * 重开复用同一 widget。应用退出时 {@link #shutdown()} 统一销毁进程。</p>
+ *
+ * @author gogym
  */
 public class TerminalView {
 
@@ -267,6 +285,7 @@ public class TerminalView {
             return 13f;
         }
 
+        /** 终端调色板：深色主题用库默认配色，浅色主题用压深后的自定义 16 色；结果带缓存，换主题自动失效。 */
         @Override
         public ColorPalette getTerminalColorPalette() {
             ColorPalette cache = paletteCache;

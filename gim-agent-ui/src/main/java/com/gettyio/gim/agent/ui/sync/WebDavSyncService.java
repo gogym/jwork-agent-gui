@@ -1,8 +1,25 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.sync;
 
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
+import com.gettyio.gim.agent.domain.backup.SqliteSnapshotValidator;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,6 +62,8 @@ import com.github.sardine.SardineFactory;
  * 远端快照滚动保留最近 {@value #REMOTE_SNAPSHOT_KEEP} 份；配置了同步口令时，上传前用
  * {@link SyncPayloadCipher} 对载荷加密（文件名加 {@value #ENC_SUFFIX} 后缀）。所有远端
  * 路径 {@code <base>/<文件名>} 平铺，不创建子目录结构。</p>
+ *
+ * @author gogym
  */
 public class WebDavSyncService {
 
@@ -81,9 +100,6 @@ public class WebDavSyncService {
     private static final long RETRY_BASE_DELAY_MS = 3_000;
     /** 自动同步巡检周期：每 30 分钟看一次是否到期 */
     private static final long CHECK_MINUTES = 30;
-
-    /** SQLite 文件头魔数（前 16 字节），恢复下载时校验 */
-    private static final byte[] SQLITE_MAGIC = "SQLite format 3\u0000".getBytes(StandardCharsets.US_ASCII);
 
     private final GimDatabase db;
     private final SecretCipher cipher;
@@ -163,6 +179,7 @@ public class WebDavSyncService {
         }
     }
 
+    /** 自动同步周期（小时）；未配置或脏值返回 0（0=仅手动）。 */
     public int intervalHours() {
         try {
             return db.settingDao().getValue(KEY_INTERVAL_HOURS)
@@ -346,7 +363,7 @@ public class WebDavSyncService {
                 plain = Files.createTempFile("jwork-restore-", ".plain");
                 SyncPayloadCipher.decrypt(downloaded, plain, passphrase);
             }
-            if (!hasSqliteHeader(plain)) {
+            if (!SqliteSnapshotValidator.hasValidHeader(plain)) {
                 throw new IOException("下载内容不是有效的数据库快照");
             }
             Path pending = gimPaths.pendingRestoreFile();
@@ -477,24 +494,6 @@ public class WebDavSyncService {
             return LocalDateTime.parse(ts, TS_FORMAT).format(DISPLAY_FORMAT);
         } catch (RuntimeException e) {
             return remoteName;
-        }
-    }
-
-    /** 前 16 字节是否为 SQLite 文件头。 */
-    private static boolean hasSqliteHeader(Path file) {
-        try (InputStream in = Files.newInputStream(file)) {
-            byte[] header = in.readNBytes(SQLITE_MAGIC.length);
-            if (header.length != SQLITE_MAGIC.length) {
-                return false;
-            }
-            for (int i = 0; i < SQLITE_MAGIC.length; i++) {
-                if (header[i] != SQLITE_MAGIC[i]) {
-                    return false;
-                }
-            }
-            return true;
-        } catch (IOException e) {
-            return false;
         }
     }
 

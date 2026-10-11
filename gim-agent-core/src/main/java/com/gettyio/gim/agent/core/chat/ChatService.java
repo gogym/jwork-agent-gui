@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.GimPaths;
@@ -31,6 +47,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * 对话服务：在流式网关两侧补齐 SQLite 落盘（会话 + 消息），实现重启不丢历史。
  * <p>chat-history.jsonl 由 Harness 工作区自行维护，这里负责应用级会话记录。</p>
  * <p>会话只与智能体关联（{@code sessions.agent_code}）。</p>
+ *
+ * @author gogym
  */
 public class ChatService {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.persist;
 
 import java.nio.file.Files;
@@ -11,6 +27,8 @@ import java.util.Properties;
 /**
  * 基于 xerial 纯 Java 驱动的 SQLite 连接提供者。
  * <p>每次调用打开一个连接（SQLite 支持多连接 + WAL），DAO 用 try-with-resources 关闭。</p>
+ *
+ * @author gogym
  */
 public class SqliteConnectionProvider implements ConnectionProvider {
 
@@ -40,6 +58,7 @@ public class SqliteConnectionProvider implements ConnectionProvider {
         }
     }
 
+    /** 打开新连接并应用 PRAGMA：外键约束、WAL 日志、5 秒忙等待；由调用方以 try-with-resources 关闭。 */
     @Override
     public Connection getConnection() throws SQLException {
         Properties props = new Properties();

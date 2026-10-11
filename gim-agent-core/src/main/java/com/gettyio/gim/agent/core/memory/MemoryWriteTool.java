@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.memory;
 
 import io.agentscope.core.tool.Tool;
@@ -18,6 +34,8 @@ import java.nio.file.StandardOpenOption;
  * 追加写入（append-only），去重与精简交由框架的沉淀环节（与框架 memory_save 同语义）。</p>
  * <p>记忆总开关关闭时与本工具天然解耦：装配方（{@code HarnessAgentGateway}）在登记/装配
  * 环节按记忆开关跳过，与框架记忆工具同门禁。</p>
+ *
+ * @author gogym
  */
 public class MemoryWriteTool {
 
@@ -30,6 +48,7 @@ public class MemoryWriteTool {
         this.memoryDir = workspace.resolve("memory");
     }
 
+    /** 工具入口（{@code memory_write}）：分类事实追加写入 {@code memory/<分类>.md}；分类名非法或写入失败以文本返回错误，不抛异常。 */
     @Tool(
             name = "memory_write",
             description =

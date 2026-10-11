@@ -1,6 +1,22 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.window;
 
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Cursor;
 import javafx.scene.Parent;
@@ -21,6 +37,8 @@ import javafx.stage.Stage;
  * <p>左侧品牌标识，右侧最小化 / 最大化(还原) / 关闭三个自绘按钮；
  * 空白区按住拖动可移动窗口，双击空白区切换最大化/还原。
  * 最大化按主屏 {@link Screen#getVisualBounds() 可视区} 手动铺满，避免遮挡任务栏。</p>
+ *
+ * @author gogym
  */
 public final class TitleBar {
 

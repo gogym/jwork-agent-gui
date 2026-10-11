@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.controller;
 
 import com.gettyio.gim.agent.core.chat.ChatRequest;
@@ -19,9 +35,9 @@ import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.tools.image.ImageGenerationClient;
-import com.gettyio.gim.agent.ui.UiTheme;
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UserPrefs;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.prefs.UserPrefs;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
@@ -31,13 +47,13 @@ import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TerminalView;
 import com.gettyio.gim.agent.ui.view.TasksView;
 import com.gettyio.gim.agent.ui.view.UsageView;
-import com.gettyio.gim.agent.ui.window.AboutDialog;
-import com.gettyio.gim.agent.ui.window.AgentDialog;
+import com.gettyio.gim.agent.ui.window.dialog.AboutDialog;
+import com.gettyio.gim.agent.ui.window.dialog.AgentDialog;
 import com.gettyio.gim.agent.ui.window.AppShell;
-import com.gettyio.gim.agent.ui.window.GimDialog;
-import com.gettyio.gim.agent.ui.window.ImageGenerateDialog;
-import com.gettyio.gim.agent.ui.window.SessionSearchDialog;
-import com.gettyio.gim.agent.ui.window.SettingsWindow;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.ImageGenerateDialog;
+import com.gettyio.gim.agent.ui.window.dialog.SessionSearchDialog;
+import com.gettyio.gim.agent.ui.window.settings.SettingsWindow;
 import com.gettyio.gim.agent.ui.window.TitleBar;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
@@ -104,8 +120,10 @@ import java.util.Optional;
  * 对话页为会话列表切换 + 流式渲染（帧合并 ≥33ms）。
  * <p>侧栏顶部是智能体切换卡：选中的智能体既决定新建会话的归属，也决定
  * 下方会话列表展示哪一份数据（列表只列它的会话，行内不再重复标注）。</p>
+ *
+ * @author gogym
  */
-public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSidebarHost,
+public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.SessionSidebarHost,
         com.gettyio.gim.agent.ui.chat.MessageActionListener,
         com.gettyio.gim.agent.ui.chat.ChatWebView.ChatViewEventsHolder,
         com.gettyio.gim.agent.ui.chat.CompareRunner.Host {
@@ -263,7 +281,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     @FXML
     private StackPane contentMargin;
     /** 协作类：侧栏收起/展开（开关按钮挂载、伸缩动画、留白补偿、偏好持久化），在 initialize() 中构造 */
-    private com.gettyio.gim.agent.ui.chat.SidebarToggle sidebarToggle;
+    private com.gettyio.gim.agent.ui.chat.sidebar.SidebarToggle sidebarToggle;
 
     /** 协作类：聊天区整页 WebView 渲染宿主（历史/流式/对比/主题），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.ChatWebView chatView;
@@ -289,7 +307,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private com.gettyio.gim.agent.ui.chat.ToolbarPickers toolbar;
 
     /** 协作类：侧栏（智能体切换卡 + 会话列表渲染/交互），在 initialize() 中构造 */
-    private com.gettyio.gim.agent.ui.chat.SessionSidebar sidebar;
+    private com.gettyio.gim.agent.ui.chat.sidebar.SessionSidebar sidebar;
 
     /** 协作类：底栏状态条（本轮用量 + 上下文占用），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.ChatStatusBar statusBar;
@@ -298,7 +316,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private com.gettyio.gim.agent.ui.chat.TerminalDrawer terminalDrawer;
 
     /** 协作类：工作区右侧栏（文件树 + 就地阅读），在 initialize() 中构造 */
-    private com.gettyio.gim.agent.ui.chat.WorkspacePanel workspacePanel;
+    private com.gettyio.gim.agent.ui.chat.workspace.WorkspacePanel workspacePanel;
 
     /** 协作类：会话历史分页（重放/补页/顶部回收游标），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.ChatHistoryPager historyPager;
@@ -457,7 +475,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
                 themeMenuButton, modelButton, approvalButton, templateButton, compareButton, inputField,
                 providerAdminService, securityAdminService, promptTemplateAdminService, this);
-        sidebar = new com.gettyio.gim.agent.ui.chat.SessionSidebar(
+        sidebar = new com.gettyio.gim.agent.ui.chat.sidebar.SessionSidebar(
                 sessionsBox, sessionsHeader, recentHeader, recentBox, recentSectionCaret,
                 sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
                 sessionsSectionCaret, agentAdminService, chatService, this);
@@ -465,11 +483,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 usageBar, contextBar, contextGauge, contextStats, inputField, chatService, rateGovernor, database,
                 toolbar::selectedModelCode, this::currentSessionId,
                 new com.gettyio.gim.agent.ui.chat.ChatStatusBar.ContextCompactor() {
+                    /** 是否正在生成（压缩按钮可用态与并发拒绝依据）。 */
                     @Override
                     public boolean busy() {
                         return isBusy();
                     }
 
+                    /** 压缩指定会话上下文（按会话归属智能体执行）。 */
                     @Override
                     public Mono<ContextCompactionResult> compact(String sessionId) {
                         return chatService.compact(agentOfSession(sessionId), sessionId);
@@ -543,7 +563,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         recentHeader.setOnMouseClicked(e -> sidebar.toggleRecentSection());
 
         // 恢复侧栏收起/展开状态，并把开关按钮挂到标题栏
-        sidebarToggle = new com.gettyio.gim.agent.ui.chat.SidebarToggle(sidebarMargin, contentMargin, appShell);
+        sidebarToggle = new com.gettyio.gim.agent.ui.chat.sidebar.SidebarToggle(sidebarMargin, contentMargin, appShell);
         sidebarToggle.restore();
 
         // 底部终端抽屉：shell 进程退出时由视图回调宿主收起（进程与历史保留）
@@ -551,13 +571,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         terminalView.setOnCloseRequest(terminalDrawer::hide);
 
         // 工作区右侧栏：文件树 + 就地阅读；把聊天内联 HTML/SVG 产物预览从弹窗改导入本面板
-        workspacePanel = new com.gettyio.gim.agent.ui.chat.WorkspacePanel(workspaceSplit, gimPaths);
+        workspacePanel = new com.gettyio.gim.agent.ui.chat.workspace.WorkspacePanel(workspaceSplit, gimPaths);
         // 展开/收起前先校准窗口宽度：右栏占去分栏 38%，窗口过窄时聊天视口会跌破内容列完整阈值
         workspacePanel.setVisibilityGuard(this::applyWorkspaceStageGuard);
         // 聊天分栏底线宽：右栏 divider 拖拽不得把聊天视口压到内容列完整阈值
         // （810 = 800 限宽列 + 10 滚动条，web/chat.css）之下，杜绝气泡挤压贴边
         chatSplit.setMinWidth(810);
-        com.gettyio.gim.agent.ui.chat.ArtifactPreviewWindow.setPreviewSink(
+        com.gettyio.gim.agent.ui.chat.workspace.ArtifactPreviewWindow.setPreviewSink(
                 (owner, code, lang) -> workspacePanel.showArtifact(code, lang));
         // 文件树入口跟随启动时恢复的会话与智能体（欢迎页空态则显示所选智能体的工作区视图）
         followWorkspace(currentSessionId);
@@ -848,6 +868,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         handleOpenSettings(I18n.t("settings.menu.models"));
     }
 
+    /** 发送入口（Enter/按钮）：忙态与压缩在途直接拒绝；取输入框最新全文后转发送主体。 */
     @FXML
     public void handleSend() {
         // 在途生成期间不并发升一轮（Enter 与重复点击同一口径）；停止请点发送按钮的停止态
@@ -1183,7 +1204,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
      */
     private void reviewPlan(String agentCode) {
         if (planBanner == null) {
-            com.gettyio.gim.agent.ui.window.PlanReviewDialog.show(ownerWindow(), planService, agentCode);
+            com.gettyio.gim.agent.ui.window.dialog.PlanReviewDialog.show(ownerWindow(), planService, agentCode);
             return;
         }
         planBannerAgent = agentCode;
@@ -1195,7 +1216,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 重渲染横幅内的计划预览（首次展示与编辑保存后复用）。 */
     private void renderPlanPreview() {
         planPreview.getChildren()
-                .setAll(com.gettyio.gim.agent.ui.chat.MarkdownRenderer.render(planService.read(planBannerAgent)));
+                .setAll(com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer.render(planService.read(planBannerAgent)));
     }
 
     /** 横幅「编辑」：弹出可编辑面板写回 PLAN.md，返回后就地刷新预览。 */
@@ -1204,7 +1225,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         if (planBannerAgent == null) {
             return;
         }
-        com.gettyio.gim.agent.ui.window.PlanReviewDialog.show(ownerWindow(), planService, planBannerAgent);
+        com.gettyio.gim.agent.ui.window.dialog.PlanReviewDialog.show(ownerWindow(), planService, planBannerAgent);
         renderPlanPreview();
     }
 
@@ -1325,6 +1346,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     // ===================== 消息气泡操作：复制 / 重生成 / 编辑重发 / 删除 =====================
 
+    /** 复制消息原文到系统剪贴板（悬停操作条与代码块复制共用入口）；空文本忽略。 */
     @Override
     public void onCopy(String rawText) {
         if (rawText == null || rawText.isEmpty()) {
@@ -1351,6 +1373,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         });
     }
 
+    /** 重新生成最后一条回复：忙态/压缩中拒绝；取最后一条用户消息重发（core 侧先删旧助手消息）。 */
     @Override
     public void onRegenerate() {
         if (isBusy()) {
@@ -1376,6 +1399,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         runStream(flux, sid, req.isPlanMode());
     }
 
+    /** 编辑重发：弹框取新文本，core 侧截断该条及其后消息后重新作答；取消或空白不动作。 */
     @Override
     public void onEditResend(long conversationId, String currentText) {
         if (isBusy() || conversationId <= 0) {
@@ -1401,6 +1425,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         runStream(flux, sid, req.isPlanMode());
     }
 
+    /** 删除单条消息（确认后落库删除并重放列表）；忙态或未落盘主键拒绝。 */
     @Override
     public void onDelete(long conversationId) {
         if (isBusy() || conversationId <= 0) {
@@ -1418,6 +1443,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         refreshSessions();
     }
 
+    /** 分支会话：确认后复制至该条为止的上下文为新会话并跳转；忙态拒绝。 */
     @Override
     public void onFork(long conversationId) {
         if (isBusy() || conversationId <= 0) {
@@ -1526,7 +1552,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     }
 
     /**
-     * 右侧栏展开/收起时的窗口守护（经 {@link com.gettyio.gim.agent.ui.chat.WorkspacePanel} 的显隐回调触发）：
+     * 右侧栏展开/收起时的窗口守护（经 {@link com.gettyio.gim.agent.ui.chat.workspace.WorkspacePanel} 的显隐回调触发）：
      * 展开后聊天区只占分栏的 62%（divider 0.62），窗口过窄时聊天视口会跌破内容列完整阈值
      * （810 = 800 限宽列 + 10 滚动条）造成气泡挤压贴边。故展开时把最小宽度抬到
      * {@link #MIN_WINDOW_WIDTH_WORKSPACE}，不足则扩宽窗口（右缘将越出屏幕时先左移让位）；
@@ -1747,6 +1773,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         Platform.runLater(() -> showChatContextMenu(id, x, y));
     }
 
+    /** JS 回抛：收起消息右键菜单（JCEF OSR 区域点击不触发 FX 弹窗自动隐藏）。 */
     @Override
     public void chatDismissMenu() {
         if (chatContextMenu != null && chatContextMenu.isShowing()) {
@@ -1776,6 +1803,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         historyPager.onTrimmed(newOldestId);
     }
 
+    /** 打开聊天内的 http(s) 外链：交给系统默认浏览器；失败仅记日志。 */
     @Override
     public void chatLink(String url) {
         if (url == null || url.isBlank()) {
@@ -1791,6 +1819,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         }
     }
 
+    /** 点击本地图片附件：在系统文件管理器中定位所在目录；data URI 无路径忽略。 */
     @Override
     public void chatImage(String path) {
         if (path == null || path.isBlank() || path.startsWith("data:")) {
@@ -1806,7 +1835,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     @Override
     public void chatPreviewCode(String code, String lang) {
-        com.gettyio.gim.agent.ui.chat.ArtifactPreviewWindow.preview(ownerWindow(), code, lang);
+        com.gettyio.gim.agent.ui.chat.workspace.ArtifactPreviewWindow.preview(ownerWindow(), code, lang);
     }
 
     @Override

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.hitl;
 
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec;
@@ -5,9 +21,9 @@ import com.gettyio.gim.agent.core.chat.ToolCallsCodec.ToolCallView;
 import com.gettyio.gim.agent.core.chat.ToolConfirmRequest;
 import com.gettyio.gim.agent.domain.enums.PermissionDecision;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.window.AppShell;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
@@ -29,6 +45,8 @@ import java.util.concurrent.CompletableFuture;
  * <p>文件类工具（{@code edit_file}/{@code write_file}）升级为 diff 预览卡：
  * 从 {@link ToolCallsCodec} 还原的结构化入参里提取 path 与 old_string/new_string，
  * 以红删绿增的等宽行展示变更内容，其余工具维持原文本确认框。</p>
+ *
+ * @author gogym
  */
 public class FxHitlConfirmHandler implements HitlConfirmHandler {
 

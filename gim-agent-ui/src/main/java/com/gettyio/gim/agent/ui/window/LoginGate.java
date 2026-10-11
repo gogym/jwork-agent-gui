@@ -1,9 +1,26 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.domain.security.LocalAuthService;
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.chat.MenuPopup;
+import com.gettyio.gim.agent.ui.window.settings.SettingsLayout;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
@@ -47,6 +64,8 @@ import java.util.function.Supplier;
  *   <li><b>登录</b>：账号只读展示 + 密码 +「忘记密码？」展开重置指引（编辑 auth.json 的 reset 标志）。</li>
  *   <li><b>重设密码</b>：reset 标志流程，账号名保持不变，仅输入新密码。</li>
  * </ul>
+ *
+ * @author gogym
  */
 public final class LoginGate {
 

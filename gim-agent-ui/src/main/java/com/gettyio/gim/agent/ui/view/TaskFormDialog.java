@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.view;
 
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
@@ -6,14 +22,14 @@ import com.gettyio.gim.agent.domain.entity.ScheduledTask;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.TaskOutputMode;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.TaskAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.voice.MicHoldButton;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
@@ -50,6 +66,8 @@ import java.util.regex.Pattern;
  * 右栏计划时间（友好构建器或自定义 cron）、到期日期、任务输出与执行授权。
  * <p>计划类型与 cron 互转：每天/每周/每月/每隔 N 小时/每隔 N 分钟由控件生成 Quartz 表达式，
  * 自定义类型原样保留；编辑时反向解析回填，无法识别的表达式落入自定义模式。</p>
+ *
+ * @author gogym
  */
 final class TaskFormDialog {
 
@@ -181,6 +199,7 @@ final class TaskFormDialog {
 
         agentCombo.getItems().addAll(agentService.list());
         agentCombo.setConverter(new StringConverter<>() {
+            /** 智能体下拉显示名：名称优先、空回退编码；null 显示空串。 */
             @Override
             public String toString(AgentDefinition a) {
                 if (a == null) {
@@ -190,6 +209,7 @@ final class TaskFormDialog {
                         ? a.getAgentCode() : a.getAgentName();
             }
 
+            /** 下拉框不可自行输入（回写恒 null，选择经 items 完成）。 */
             @Override
             public AgentDefinition fromString(String s) {
                 return null;
@@ -202,6 +222,7 @@ final class TaskFormDialog {
         modelCombo.getItems().add(AgentAdminService.ModelOption.followDefault());
         modelCombo.getItems().addAll(agentService.modelOptions());
         modelCombo.setConverter(new StringConverter<>() {
+            /** 模型下拉显示名：默认项显示「跟随默认」文案，否则模型标签；null 显示空串。 */
             @Override
             public String toString(AgentAdminService.ModelOption o) {
                 if (o == null) {
@@ -661,6 +682,7 @@ final class TaskFormDialog {
         ComboBox<String> combo = new ComboBox<>();
         combo.getItems().addAll(WEEKDAYS);
         combo.setConverter(new StringConverter<>() {
+            /** 星期下拉显示名：code 转本地化文案；null 显示空串。 */
             @Override
             public String toString(String code) {
                 if (code == null) {

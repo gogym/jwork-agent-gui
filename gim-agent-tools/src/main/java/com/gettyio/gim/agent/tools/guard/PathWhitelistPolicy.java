@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.guard;
 
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec;
@@ -16,6 +32,8 @@ import java.util.function.Supplier;
  * <p>注意它不再对「白名单内」的操作静默放行——方案 B 下每一次写操作都要经 HITL
  * diff 预览确认（重复打扰由「总是允许」规则短路）；白名单的作用是把「越界路径」
  * 标注进风险提示，让用户知道这次确认的对象超出了授权目录。</p>
+ *
+ * @author gogym
  */
 public class PathWhitelistPolicy implements ToolGuard {
 
@@ -33,6 +51,7 @@ public class PathWhitelistPolicy implements ToolGuard {
         this.extraRoots = extraRoots;
     }
 
+    /** 仅对文件类工具生效（名含 file/write/edit）：越界路径以 ASK 提示谨慎确认，全部在授权根内则不表态。 */
     @Override
     public GuardResult inspect(GuardContext ctx) {
         // 仅对文件类工具生效

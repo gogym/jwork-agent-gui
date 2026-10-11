@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.knowledge;
 
 import com.gettyio.gim.agent.core.chat.FileTextExtractor;
@@ -33,6 +49,8 @@ import java.util.stream.Stream;
  * <p>每份入库文件顶部嵌一行 {@code <!-- jwork:summary=… -->} 摘要标记；重建索引时回读该标记，使 KNOWLEDGE.md
  * 始终与实际文件一致（删除/重排无需手工维护目录行）。</p>
  * <p>知识按智能体隔离：目录由 {@link MultiAgentGateway#workspaceForAgent} 解析，与运行时装配口径一致。</p>
+ *
+ * @author gogym
  */
 public class KnowledgeService {
 

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.persist;
 
 import java.sql.Connection;
@@ -14,6 +30,8 @@ import java.util.Optional;
 /**
  * 轻量 SQL 执行器：不引 ORM，桌面单库够用。
  * <p>约定：LocalDateTime 以 ISO-8601 字符串存于 TEXT 列。</p>
+ *
+ * @author gogym
  */
 public class SqlRunner {
 
@@ -27,6 +45,7 @@ public class SqlRunner {
         return connectionProvider;
     }
 
+    /** 执行 UPDATE/DELETE 等更新语句，返回影响行数；SQL 异常包装为 {@link PersistException}。 */
     public int update(String sql, Object... params) {
         try (Connection conn = connectionProvider.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -56,6 +75,7 @@ public class SqlRunner {
         }
     }
 
+    /** 执行查询并把每行映射为 T；SQL 异常包装为 {@link PersistException}。 */
     public <T> List<T> query(String sql, RowMapper<T> mapper, Object... params) {
         try (Connection conn = connectionProvider.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
@@ -112,6 +132,7 @@ public class SqlRunner {
         return rs.wasNull() ? null : v;
     }
 
+    /** 读取时间列：优先 ISO-8601 字符串，兼容 epoch 毫秒与 JDBC {@link Timestamp} 存法；空返回 null。 */
     public static LocalDateTime getDateTime(ResultSet rs, String column) throws SQLException {
         String s = rs.getString(column);
         if (s == null || s.isBlank()) {

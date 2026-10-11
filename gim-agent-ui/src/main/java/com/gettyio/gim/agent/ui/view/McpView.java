@@ -1,15 +1,32 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.view;
 
 import com.gettyio.gim.agent.core.capability.McpConnectionProbe;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
+import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.market.MarketService;
 import com.gettyio.gim.agent.ui.market.McpMarketDialog;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -33,6 +50,8 @@ import java.util.List;
  * MCP 服务页：可复用的自包含组件（页头 + 服务信息卡片 + 新增/编辑模态表单 + 删除）。
  * <p>直连 {@link McpAdminService}，状态提示内聚于本页底部，便于在「设置」与「拓展」两处
  * 各自独立实例化复用，互不干扰场景图父子关系。语言切换时自动刷新文案并重绘卡片。</p>
+ *
+ * @author gogym
  */
 public class McpView {
 
@@ -187,9 +206,6 @@ public class McpView {
         name.getStyleClass().add("provider-card-title");
         Label badge = new Label(I18n.t(enabled ? "settings.mcp.enabled" : "settings.mcp.disabled"));
         badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
-        HBox titleRow = new HBox(10, name, badge);
-        titleRow.setAlignment(Pos.CENTER_LEFT);
-
         // 测试连接：手动重试入口；结果显示在卡片底部的工具清单行
         Label toolsLabel = new Label(I18n.t("settings.mcp.tools.hint"));
         toolsLabel.getStyleClass().addAll("card-meta", "status-unknown");
@@ -198,6 +214,7 @@ public class McpView {
         // 状态行值单独持有引用：探测后即时同步，避免与工具清单反馈不一致
         Label statusVal = new Label(m.getStatus() == null || m.getStatus().isBlank() ? "-" : m.getStatus());
         statusVal.getStyleClass().add("provider-card-val");
+        // 探测回调需要按钮引用自身做禁用/恢复，故保留手写构造而非 CardKit.iconTextButton 一步式
         Button test = new Button(I18n.t("settings.mcp.test"));
         test.getStyleClass().add("link-btn");
         Label testIcon = new Label("\uE72C");
@@ -205,22 +222,19 @@ public class McpView {
         test.setGraphic(testIcon);
         test.setOnAction(e -> handleProbe(m, toolsLabel, statusVal, test));
 
-        Button edit = iconTextButton("\uE70F", I18n.t("common.edit"), () -> openDialog(m));
+        Button edit = CardKit.iconTextButton("\uE70F", I18n.t("common.edit"), () -> openDialog(m));
         edit.getStyleClass().add("link-btn");
-        Button del = iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDelete(m));
+        Button del = CardKit.iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDelete(m));
         del.getStyleClass().addAll("link-btn", "link-btn-danger");
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
-        HBox head = new HBox(titleRow, sp, test, edit, del);
-        head.setAlignment(Pos.CENTER_LEFT);
+        HBox head = CardKit.cardHeadRow(name, badge, test, edit, del);
 
         VBox card = new VBox(8, head,
-                kvLine(I18n.t("settings.mcp.code"), m.getServerCode()),
-                kvLine(I18n.t("settings.mcp.transport"), m.getTransportType()),
-                kvLine(I18n.t("settings.mcp.command"), m.getCommand()),
-                kvLine(I18n.t("settings.mcp.baseUrl"), m.getBaseUrl()),
-                kvLine(I18n.t("settings.mcp.timeout"), String.valueOf(m.getTimeout())),
-                kvLine(I18n.t("common.status"), statusVal),
+                CardKit.kvLine(I18n.t("settings.mcp.code"), m.getServerCode()),
+                CardKit.kvLine(I18n.t("settings.mcp.transport"), m.getTransportType()),
+                CardKit.kvLine(I18n.t("settings.mcp.command"), m.getCommand()),
+                CardKit.kvLine(I18n.t("settings.mcp.baseUrl"), m.getBaseUrl()),
+                CardKit.kvLine(I18n.t("settings.mcp.timeout"), String.valueOf(m.getTimeout())),
+                CardKit.kvNodeLine(I18n.t("common.status"), statusVal),
                 toolsLabel);
         card.getStyleClass().add("provider-card");
         card.setPrefWidth(CARD_WIDTH);
@@ -411,32 +425,6 @@ public class McpView {
     }
 
     // ---- 小工具 ----
-
-    private HBox kvLine(String key, String value) {
-        Label v = new Label(value == null || value.isBlank() ? "-" : value);
-        v.getStyleClass().add("provider-card-val");
-        v.setWrapText(true);
-        return kvLine(key, v);
-    }
-
-    /** 值 Label 由调用方持有的变体：探测回写等场景需要随数据即时更新。 */
-    private HBox kvLine(String key, Label value) {
-        Label k = new Label(key);
-        k.getStyleClass().add("provider-card-key");
-        HBox.setHgrow(value, Priority.ALWAYS);
-        HBox h = new HBox(12, k, value);
-        h.setAlignment(Pos.CENTER_LEFT);
-        return h;
-    }
-
-    private Button iconTextButton(String iconText, String text, Runnable action) {
-        Button b = new Button(text);
-        Label ic = new Label(iconText);
-        ic.getStyleClass().add("icon");
-        b.setGraphic(ic);
-        b.setOnAction(e -> action.run());
-        return b;
-    }
 
     private static int parseInt(String s, int def) {
         try {

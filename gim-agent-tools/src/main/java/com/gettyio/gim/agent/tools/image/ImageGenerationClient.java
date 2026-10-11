@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.image;
 
 import com.fasterxml.jackson.databind.JsonNode;
@@ -25,6 +41,8 @@ import java.util.function.Supplier;
  * <p>配置（地址/模型/Key）由装配方注入一个 {@link Supplier}（通常从加密的 {@code settings} 读取并解密），
  * 运行时实时取用——用户在设置页改配置无需重启即生效。未配置时抛带明确指引的
  * {@link IllegalStateException}，由调用方（工具/UI）转述给用户，而不是暴露技术栈细节。</p>
+ *
+ * @author gogym
  */
 public class ImageGenerationClient {
 

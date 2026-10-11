@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.guard;
 
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec;
@@ -25,6 +41,8 @@ import java.util.regex.Pattern;
  * <p>命中范围仅限框架注册的 shell 工具（{@code execute}），文件类工具不在此策略职责内。
  * 解析对管道/与或/分号/换行分段取各段首个可执行名，无法解析的畸形命令不表态（交由后续链处理），
  * 遵循「解析失败不得据此放行副作用」的一贯原则——沉默即维持链尾默认询问。</p>
+ *
+ * @author gogym
  */
 public class ExecutableAllowlistPolicy implements ToolGuard {
 
@@ -77,6 +95,7 @@ public class ExecutableAllowlistPolicy implements ToolGuard {
         this.extraAllowed = extraAllowed;
     }
 
+    /** 仅对 shell 工具生效：解析各分段首个可执行名，存在不在白名单者整体拒绝并列出程序名；全部合规则不表态。 */
     @Override
     public GuardResult inspect(GuardContext ctx) {
         // 仅约束 shell 执行工具，其余（含文件类）不表态

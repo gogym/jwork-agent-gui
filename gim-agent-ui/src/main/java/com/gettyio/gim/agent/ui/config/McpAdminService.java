@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.config;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
@@ -12,6 +28,8 @@ import java.util.List;
  * AgentScope 真正建连并把工具注册进 Toolkit（见 {@code AgentCapabilityResolver}）；
  * 未被任何智能体声明的服务不连接，因此本服务不代指“已连接”；status 由运行时注册结果与「测试连接」探测共同回写。</p>
  * <p>配置变更要让引用它的智能体运行时重建，否则旧客户端会继续提供旧工具集。</p>
+ *
+ * @author gogym
  */
 public class McpAdminService {
 
@@ -27,6 +45,7 @@ public class McpAdminService {
         return db.mcpServerDao().findAll();
     }
 
+    /** 保存（新增或更新）MCP 服务：归一化传输类型与默认值后落库，并通知智能体运行时重建。 */
     public void save(McpServerConfig m) {
         // 归一化：校验传输类型、补默认值
         m.setTransportType(McpTransportType.fromCode(m.getTransportType()).name());

@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core;
 
 import org.slf4j.Logger;
@@ -11,6 +27,8 @@ import java.nio.file.Path;
 
 /**
  * 工作区初始化：确保 Harness 工作区目录与默认人格/记忆文件存在（幂等）
+ *
+ * @author gogym
  */
 public class WorkspaceProvisioner {
 
@@ -52,6 +70,7 @@ public class WorkspaceProvisioner {
         this.paths = paths;
     }
 
+    /** 幂等初始化工作区：创建目录树，并在文件缺失时生成 AGENTS.md/MEMORY.md/KNOWLEDGE.md 默认内容；IO 失败包装为 {@link UncheckedIOException}。 */
     public void provision() {
         try {
             createDirs();

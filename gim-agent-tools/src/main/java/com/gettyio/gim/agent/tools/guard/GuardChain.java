@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.guard;
 
 import com.gettyio.gim.agent.domain.dao.ToolPermissionRuleDao;
@@ -13,6 +29,8 @@ import java.util.Optional;
  * 安全拦截责任链：按 order 依次执行策略；先查历史"总是允许"规则短路，
  * 首个非空策略结论即为最终决策。链只对框架已判为敏感的工具征求，
  * 全部沉默则维持询问（弹框确认），绝不静默放行副作用操作。
+ *
+ * @author gogym
  */
 public class GuardChain {
 
@@ -26,6 +44,7 @@ public class GuardChain {
         this.ruleDao = ruleDao;
     }
 
+    /** 执行拦截链：先查「总是允许」规则短路；再取首个非空策略结论；全部沉默默认 ASK（绝不静默放行）。 */
     public GuardResult evaluate(GuardContext ctx) {
         // 1) 历史"总是允许"规则短路
         if (ruleDao != null) {

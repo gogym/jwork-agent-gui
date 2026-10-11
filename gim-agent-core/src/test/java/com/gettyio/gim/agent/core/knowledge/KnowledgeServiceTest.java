@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.core.knowledge;
 
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
@@ -30,6 +46,8 @@ import static org.mockito.Mockito.when;
  * {@link KnowledgeService} 纯逻辑单测：以真实临时目录 + 桩网关（{@code workspaceForAgent} 指回临时目录）
  * 验证导入命名清洗、KNOWLEDGE.md 索引重建、摘要标记与回退、同名去重、目录穿越防护、删除一致性与类型校验。
  * <p>不触碰数据库运行体（导入/列示/删除路径不依赖 {@code db}），{@code listAgents} 用 mock DAO 覆盖。</p>
+ *
+ * @author gogym
  */
 class KnowledgeServiceTest {
 

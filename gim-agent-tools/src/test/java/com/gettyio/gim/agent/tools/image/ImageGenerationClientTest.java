@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.tools.image;
 
 import org.junit.jupiter.api.DisplayName;
@@ -16,6 +32,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 /**
  * {@link ImageGenerationClient} 单测：端点拼接、两种响应形态（b64_json / url）的字段提取、
  * 落盘命名，以及未配置时的守卫路径（在发起 HTTP 前即返回，不触网）。
+ *
+ * @author gogym
  */
 class ImageGenerationClientTest {
 

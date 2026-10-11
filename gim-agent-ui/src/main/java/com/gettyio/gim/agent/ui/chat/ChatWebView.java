@@ -1,9 +1,29 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.gettyio.gim.agent.ui.I18n;
-import com.gettyio.gim.agent.ui.UiTheme;
+import com.gettyio.gim.agent.ui.chat.payload.ChatUiLabels;
+import com.gettyio.gim.agent.ui.chat.payload.CompareColumn;
+import com.gettyio.gim.agent.ui.chat.payload.CompareFoot;
+import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
 import com.gettyio.gim.agent.ui.jcef.JcefResources;
 import javafx.scene.layout.StackPane;
@@ -12,9 +32,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayDeque;
 import java.util.Deque;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 
 /**
  * 聊天区整页 JCEF(Chromium OSR) 宿主：把 classpath 里的 {@code chat.css / marked.min.js / purify.min.js / chat.js}
@@ -23,6 +41,8 @@ import java.util.Map;
  * Java→JS 则经 {@code browser.executeScript("ChatAPI.xxx(...)")} 驱动前端 {@code chat.js} 渲染。
  * <p>对外暴露与旧 WebView 宿主完全等价的 Java API（renderHistory/prependOlder/stream*…），控制器只与本类交互。</p>
  * <p>Chromium 冷启动较慢：装载完成前的调用先入 {@link #pending} 队列，就绪后按序重放，杜绝时序竞争。</p>
+ *
+ * @author gogym
  */
 public final class ChatWebView {
 
@@ -153,21 +173,7 @@ public final class ChatWebView {
         String mode = UiTheme.mode() == UiTheme.Mode.DARK ? "dark" : "light";
         String font = UiTheme.fontSize().name().toLowerCase(java.util.Locale.ROOT);
         String lang = I18n.current().locale().toString();
-        Map<String, Object> labels = new LinkedHashMap<>();
-        labels.put("copy", I18n.t("chat.msg.copy"));
-        labels.put("copied", I18n.t("chat.msg.copied"));
-        labels.put("preview", I18n.t("chat.artifact.preview"));
-        labels.put("speak", I18n.t("chat.msg.speak"));
-        labels.put("regenerate", I18n.t("chat.msg.regenerate"));
-        labels.put("editResend", I18n.t("chat.msg.editResend"));
-        labels.put("aiGenerated", I18n.t("chat.msg.aiGenerated"));
-        labels.put("thinking", I18n.t("chat.thinking"));
-        labels.put("thinkingDone", I18n.t("chat.thinking.done"));
-        labels.put("toolCount", I18n.t("chat.tool.group.count", "{0}", "{1}"));
-        labels.put("toolFailed", I18n.t("chat.tool.group.failed", "{0}", "{1}"));
-        labels.put("toolInput", I18n.t("chat.tool.params"));
-        labels.put("toolOutput", I18n.t("chat.tool.output"));
-        labels.put("delegate", I18n.t("chat.tool.subagent.delegate", "{0}"));
+        ChatUiLabels labels = ChatUiLabels.fromI18n();
         String script = "ChatAPI.setTheme(" + ChatMessagePayload.jsString(mode) + ","
                 + ChatMessagePayload.jsString(font) + ","
                 + ChatMessagePayload.jsString(lang) + ","
@@ -188,7 +194,7 @@ public final class ChatWebView {
     }
 
     /** 追加单条消息（发送即时上屏的用户气泡）。 */
-    public void appendMessage(Map<String, Object> msg) {
+    public void appendMessage(WebChatMessage msg) {
         run("ChatAPI.appendMessage(" + ChatMessagePayload.jsValue(msg) + ");");
     }
 
@@ -239,7 +245,7 @@ public final class ChatWebView {
 
     // ---------- 对比卡 ----------
 
-    public void compareStart(List<Map<String, Object>> columns) {
+    public void compareStart(List<CompareColumn> columns) {
         run("ChatAPI.compareStart(" + ChatMessagePayload.jsValue(columns) + ");");
     }
 
@@ -251,7 +257,7 @@ public final class ChatWebView {
         run("ChatAPI.compareNote(" + index + "," + ChatMessagePayload.jsString(note) + ");");
     }
 
-    public void compareEnd(int index, String state, Map<String, Object> foot) {
+    public void compareEnd(int index, String state, CompareFoot foot) {
         run("ChatAPI.compareEnd(" + index + "," + ChatMessagePayload.jsString(state) + ","
                 + ChatMessagePayload.jsValue(foot) + ");");
     }

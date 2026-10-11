@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.dao;
 
 import com.gettyio.gim.agent.domain.entity.ToolPermissionRule;
@@ -11,6 +27,8 @@ import java.util.Optional;
 
 /**
  * tool_permission_rules 表 DAO
+ *
+ * @author gogym
  */
 public class ToolPermissionRuleDao {
 
@@ -43,6 +61,7 @@ public class ToolPermissionRuleDao {
         }
     }
 
+    /** 按工具名 + 规则内容查找；{@code ruleContent} 为 null 时匹配 NULL 行；不存在返回空。 */
     public Optional<ToolPermissionRule> find(String toolName, String ruleContent) {
         if (ruleContent == null) {
             return runner.queryOne("SELECT " + COLUMNS + " FROM tool_permission_rules WHERE tool_name=? AND rule_content IS NULL",

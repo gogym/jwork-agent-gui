@@ -1,3 +1,19 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.core.chat.AgentGateway;
@@ -7,11 +23,13 @@ import com.gettyio.gim.agent.core.chat.StreamEvent;
 import com.gettyio.gim.agent.core.chat.TokenUsage;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.domain.security.LocalAuthService;
-import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.chat.payload.CompareColumn;
+import com.gettyio.gim.agent.ui.chat.payload.CompareFoot;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.jcef.JcefComposer;
 import com.gettyio.gim.agent.ui.throttle.ModelRateGovernor;
-import com.gettyio.gim.agent.ui.window.GimDialog;
+import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import io.agentscope.core.permission.PermissionMode;
 import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
@@ -21,16 +39,16 @@ import reactor.core.Disposable;
 import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 
 /**
  * 多模型对比运行器：组装正文 → 用户气泡上屏 → 挂对比卡片 → 每列独立订阅网关流 → 全部列终态后退出流式态。
  * <p>从 {@code MainController} 拆出的协作类：对比固定只读模式（EXPLORE：读类工具正常、副作用工具被拒
  * 且不弹确认），不落库——每列走临时会话 id，与真实会话状态互不影响；文档附件暂不支持（正文抽取链路在
  * {@code ChatService} 内）。</p>
+ *
+ * @author gogym
  */
 public final class CompareRunner {
 
@@ -159,15 +177,12 @@ public final class CompareRunner {
         final List<StringBuilder> raws = new ArrayList<>();
         final List<TokenUsage> usages = new ArrayList<>();
         final List<Long> starts = new ArrayList<>();
-        List<Map<String, Object>> cols = new ArrayList<>();
+        List<CompareColumn> cols = new ArrayList<>();
         for (ToolbarPickers.CompareTarget t : targets) {
             raws.add(new StringBuilder());
             usages.add(null);
             starts.add(System.currentTimeMillis());
-            Map<String, Object> c = new LinkedHashMap<>();
-            c.put("label", t.label());
-            c.put("running", I18n.t("compare.running"));
-            cols.add(c);
+            cols.add(new CompareColumn(t.label(), I18n.t("compare.running")));
         }
         chatView.compareStart(cols);
 
@@ -239,21 +254,18 @@ public final class CompareRunner {
     }
 
     /** 对比列定格页脚：徽章文案 + 耗时（秒，一位小数）· 总 tokens（无用量回报时只显耗时）。 */
-    private Map<String, Object> compareFoot(String state, TokenUsage usage, long startMillis) {
-        Map<String, Object> foot = new LinkedHashMap<>();
-        foot.put("badge", I18n.t(switch (state) {
+    private CompareFoot compareFoot(String state, TokenUsage usage, long startMillis) {
+        String badge = I18n.t(switch (state) {
             case "done" -> "compare.done";
             case "failed" -> "compare.failed";
             default -> "compare.stopped";
-        }));
+        });
         double seconds = Math.max(0, System.currentTimeMillis() - startMillis) / 1000.0;
         String time = String.format(Locale.ROOT, "%.1f", seconds);
-        if (usage == null) {
-            foot.put("text", I18n.t("compare.foot.time", time));
-        } else {
-            foot.put("text", I18n.t("compare.foot", time, String.valueOf(usage.inputTokens() + usage.outputTokens())));
-        }
-        return foot;
+        String text = usage == null
+                ? I18n.t("compare.foot.time", time)
+                : I18n.t("compare.foot", time, String.valueOf(usage.inputTokens() + usage.outputTokens()));
+        return new CompareFoot(badge, text);
     }
 
     /** 停止对比：先打断各列网关侧的模型/工具循环，再取消订阅（doOnCancel 逐列收尾为「已停止」）。 */

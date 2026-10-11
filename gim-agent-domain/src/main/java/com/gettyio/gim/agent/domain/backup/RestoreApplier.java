@@ -1,11 +1,25 @@
+/*
+ * Copyright 2026 gogym
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
 package com.gettyio.gim.agent.domain.backup;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -22,13 +36,13 @@ import java.time.format.DateTimeFormatter;
  * 替换为当前数据库，并先把旧库做一份 VACUUM INTO 快照存入备份目录，保证可回退。
  * <p>必须在任何 SQLite 连接打开前调用（SQLite 文件未被占用时才能安全替换）；
  * 替换采用 临时文件 + 原子移动，失败时原库保持不变。</p>
+ *
+ * @author gogym
  */
 public final class RestoreApplier {
 
     private static final Logger log = LoggerFactory.getLogger(RestoreApplier.class);
 
-    /** SQLite 文件头魔数（前 16 字节） */
-    private static final byte[] SQLITE_MAGIC = "SQLite format 3\u0000".getBytes(StandardCharsets.US_ASCII);
     private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private RestoreApplier() {
@@ -47,7 +61,7 @@ public final class RestoreApplier {
             return false;
         }
         try {
-            if (!hasSqliteHeader(pendingFile)) {
+            if (!SqliteSnapshotValidator.hasValidHeader(pendingFile)) {
                 log.warn("待恢复快照头校验失败，放弃应用: {}", pendingFile);
                 return false;
             }
@@ -87,23 +101,5 @@ public final class RestoreApplier {
         }
         Files.deleteIfExists(dbFile.resolveSibling(dbFile.getFileName() + "-wal"));
         Files.deleteIfExists(dbFile.resolveSibling(dbFile.getFileName() + "-shm"));
-    }
-
-    /** 前 16 字节是否为 SQLite 文件头。 */
-    private static boolean hasSqliteHeader(Path file) {
-        try (InputStream in = Files.newInputStream(file)) {
-            byte[] header = in.readNBytes(SQLITE_MAGIC.length);
-            if (header.length != SQLITE_MAGIC.length) {
-                return false;
-            }
-            for (int i = 0; i < SQLITE_MAGIC.length; i++) {
-                if (header[i] != SQLITE_MAGIC[i]) {
-                    return false;
-                }
-            }
-            return true;
-        } catch (IOException e) {
-            return false;
-        }
     }
 }
