@@ -1,6 +1,8 @@
 package com.gettyio.gim.agent.ui.window;
 
+import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.ui.I18n;
+import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.update.UpdateChecker;
 import javafx.application.Platform;
@@ -17,13 +19,15 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * 更新设置子面板（独立「更新」菜单页，抽自 {@link ProfileSettingsPanel}）：当前版本、上次检查、
- * 更新服务器地址、每日静默检查、立即检查与实时状态，并承载「检查→下载→校验→拉起安装」的手动更新流程。
- * 依赖 {@link UpdateChecker} 与宿主弹窗归属/提示回调。
+ * 关于设置子面板（独立「关于」菜单页）：上层为「关于本机」只读概览（应用版本/数据目录/语言/主题，
+ * 自原个人资料页并入），下层为更新卡片（上次检查、更新服务器地址、每日静默检查、立即检查与实时状态），
+ * 并承载「检查→下载→校验→拉起安装」的手动更新流程。依赖 {@link UpdateChecker} 与宿主弹窗归属/提示回调。
  */
 final class UpdateSettingsPanel {
 
     private final SettingsWindow host;
+    /** 本地数据/工作区路径（关于本机卡展示数据目录）。 */
+    private final GimPaths gimPaths;
     private final UpdateChecker updateChecker;
 
     /** 更新卡片动态控件：随检查/下载流程刷新状态与上次检查时间。 */
@@ -31,18 +35,34 @@ final class UpdateSettingsPanel {
     private Label statusLabel;
     private Label lastCheckLabel;
 
-    UpdateSettingsPanel(SettingsWindow host, UpdateChecker updateChecker) {
+    UpdateSettingsPanel(SettingsWindow host, GimPaths gimPaths, UpdateChecker updateChecker) {
         this.host = host;
+        this.gimPaths = gimPaths;
         this.updateChecker = updateChecker;
     }
 
     VBox build() {
-        VBox box = SettingsLayout.page(I18n.t("settings.menu.update"), I18n.t("settings.update.subtitle"));
+        VBox box = SettingsLayout.page(I18n.t("settings.menu.about"), I18n.t("settings.about.subtitle"));
+        box.getChildren().add(aboutCard());
         box.getChildren().add(updateCard());
         return box;
     }
 
-    /** 更新卡片：当前版本、上次检查、服务器地址、每日静默检查、立即检查与实时状态。 */
+    /** 关于本机卡片：应用版本 / 数据目录 / 当前语言 / 当前主题只读概览（自原个人资料页并入）。 */
+    private VBox aboutCard() {
+        List<Node> rows = new ArrayList<>();
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.profile.appVersion"), null,
+                SettingsLayout.valueLabel(updateChecker.currentVersion())));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.key.dataDir"), null,
+                SettingsLayout.valueLabel(String.valueOf(gimPaths.root()))));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.profile.language"), null,
+                SettingsLayout.valueLabel(I18n.current().nativeName())));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.profile.theme"), null,
+                SettingsLayout.valueLabel(I18n.t(UiTheme.mode() == UiTheme.Mode.DARK ? "menu.mode.dark" : "menu.mode.light"))));
+        return SettingsLayout.groupCard(I18n.t("settings.group.about"), rows);
+    }
+
+    /** 更新卡片：上次检查、服务器地址、每日静默检查、立即检查与实时状态。 */
     private VBox updateCard() {
         Button check = SettingsLayout.iconTextButton("\uE777", I18n.t("settings.update.check"), this::handleCheckUpdate);
         this.checkButton = check;
@@ -68,14 +88,12 @@ final class UpdateSettingsPanel {
         statusLabel.setMaxWidth(520);
 
         List<Node> rows = new ArrayList<>();
-        rows.add(SettingsLayout.settingRow(I18n.t("settings.update.currentVersion"), null,
-                SettingsLayout.valueLabel(updateChecker.currentVersion())));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.update.lastCheck"), null, lastCheckLabel));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.update.server"), I18n.t("settings.update.server.desc"), serverField));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.update.auto"), I18n.t("settings.update.auto.desc"), auto));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.update.check"), I18n.t("settings.update.check.desc"), check));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.update.status"), null, statusLabel));
-        // 独立页已有标题「更新」，分组标题留空避免重复
+        // 独立页已有标题「关于」，更新卡分组标题留空避免与「关于本机」卡重复
         return SettingsLayout.groupCard(null, rows);
     }
 

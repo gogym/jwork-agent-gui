@@ -2,7 +2,6 @@ package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.entity.ToolPermissionRule;
-import com.gettyio.gim.agent.domain.security.LocalAuthService;
 import com.gettyio.gim.agent.tools.guard.DangerousRule;
 import com.gettyio.gim.agent.tools.sandbox.DockerAvailabilityProbe;
 import com.gettyio.gim.agent.ui.I18n;
@@ -14,8 +13,6 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
-import javafx.scene.control.PasswordField;
-import javafx.scene.control.Spinner;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
@@ -35,8 +32,10 @@ import java.util.Optional;
 
 /**
  * 安全设置子面板：工具防护（审批档位 + 危险命令黑名单 + Shell 程序白名单 + Docker 沙箱）、
- * 文件防护（授权目录）、联网（搜索提供方与 API Key）、授权管理（逐条撤销 HITL「总是允许」）。
- * <p>从 {@link SettingsWindow} 抽出的独立子面板，持有本页专属的动态容器字段与
+ * 文件防护（授权目录）、授权管理（逐条撤销 HITL「总是允许」）。
+ * <p>原「账号与登录」页内 Tab 已提升为独立的 {@link AccountSettingsPanel}（账号身份管理与
+ * 安全管控不同类）；原「联网」Tab 已并入 {@link NetworkSettingsPanel}（联网服务与网络代理同域）。
+ * 本面板为从 {@link SettingsWindow} 抽出的独立子面板，持有本页专属的动态容器字段与
  * {@link SecurityAdminService}；共享布局走 {@link SettingsLayout}，弹窗归属/提示/整表刷新
  * 回调宿主 {@link SettingsWindow}。宿主在语言切换重建时复用同一实例，容器内容随之重绘。</p>
  */
@@ -47,8 +46,6 @@ final class SecuritySettingsPanel {
     private final GimPaths gimPaths;
     /** 执行路径同源的 Docker 握手探针（带 TTL 缓存）：初始状态检测复用其结果，避免重复付出进程成本。 */
     private final DockerAvailabilityProbe dockerAvailabilityProbe;
-    /** 本地登录认证（软锁）：账号卡展示当前账号、调整免登录天数、修改密码与立即锁定。 */
-    private final LocalAuthService localAuthService;
 
     /** 安全页动态容器：危险命令规则 / Shell 白名单 / 文件授权目录 / 授权管理，reloadSecurity 时重绘。 */
     private final VBox dangerousRulesBox = new VBox(8);
@@ -57,13 +54,12 @@ final class SecuritySettingsPanel {
     private final VBox grantBox = new VBox(0);
 
     SecuritySettingsPanel(SettingsWindow host, SecurityAdminService securityAdminService, GimPaths gimPaths,
-                          DockerAvailabilityProbe dockerAvailabilityProbe, LocalAuthService localAuthService) {
+                          DockerAvailabilityProbe dockerAvailabilityProbe) {
         this.host = host;
         this.securityAdminService = securityAdminService;
         this.gimPaths = gimPaths;
         this.dockerAvailabilityProbe = dockerAvailabilityProbe == null
                 ? DockerAvailabilityProbe.onPath() : dockerAvailabilityProbe;
-        this.localAuthService = localAuthService;
     }
 
     VBox build() {
@@ -75,10 +71,8 @@ final class SecuritySettingsPanel {
         StackPane subContent = new StackPane();
         subContent.getStyleClass().add("settings-subtab-content");
 
-        addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.account"), buildAccountTab());
         addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.tools"), buildToolGuardTab());
         addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.file"), buildFileGuardTab());
-        addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.web"), buildWebTab());
         addSubTab(subGroup, tabBar, subContent, I18n.t("settings.security.tab.grant"), buildGrantTab());
         if (!subGroup.getToggles().isEmpty()) {
             ((ToggleButton) subGroup.getToggles().get(0)).setSelected(true);
@@ -100,41 +94,6 @@ final class SecuritySettingsPanel {
             }
         });
         bar.getChildren().add(tab);
-    }
-
-    /** 账号与登录 Tab：当前账号 + 免登录有效期 + 修改密码 + 退出登录（回到登录页）。 */
-    private VBox buildAccountTab() {
-        VBox tab = new VBox(16);
-        tab.getStyleClass().add("settings-subtab-page");
-        tab.setMaxWidth(Double.MAX_VALUE);
-
-        String name = localAuthService.username();
-        Label accountValue = SettingsLayout.valueLabel(name == null || name.isBlank() ? "-" : name);
-
-        Spinner<Integer> days = new Spinner<>(LocalAuthService.MIN_SESSION_DAYS,
-                LocalAuthService.MAX_SESSION_DAYS, localAuthService.sessionDays());
-        days.setEditable(true);
-        days.setMaxWidth(120);
-        days.valueProperty().addListener((obs, old, val) -> {
-            if (val != null) {
-                localAuthService.setSessionDays(val);
-            }
-        });
-
-        Button change = SettingsLayout.newButton(I18n.t("settings.security.account.change"), this::handleChangePassword);
-        change.getStyleClass().add("link-btn");
-        Button signOut = SettingsLayout.newButton(I18n.t("settings.security.account.signout"), this::handleSignOut);
-        signOut.getStyleClass().add("link-btn");
-
-        tab.getChildren().add(SettingsLayout.groupCard(I18n.t("settings.security.account.group"), List.of(
-                SettingsLayout.settingRow(I18n.t("settings.security.account.current"), null, accountValue),
-                SettingsLayout.settingRow(I18n.t("settings.security.account.session"),
-                        I18n.t("settings.security.account.session.desc"), days),
-                SettingsLayout.settingRow(I18n.t("settings.security.account.change"),
-                        I18n.t("settings.security.account.change.desc"), change),
-                SettingsLayout.settingRow(I18n.t("settings.security.account.signout"),
-                        I18n.t("settings.security.account.signout.desc"), signOut))));
-        return tab;
     }
 
     /** 工具防护 Tab：审批档位默认 + 危险命令黑名单 + Shell 程序白名单。 */
@@ -256,41 +215,6 @@ final class SecuritySettingsPanel {
         builtin.getStyleClass().add("row-desc");
         builtin.setWrapText(true);
         tab.getChildren().add(builtin);
-        return tab;
-    }
-
-    /** 联网 Tab：联网搜索提供方与 API Key（加密存储），供 web_search / web_fetch 工具实时取用。 */
-    private VBox buildWebTab() {
-        VBox tab = new VBox(16);
-        tab.getStyleClass().add("settings-subtab-page");
-        tab.setMaxWidth(Double.MAX_VALUE);
-
-        ComboBox<String> providerCombo = SettingsLayout.pillCombo("Tavily");
-        providerCombo.setValue(I18n.t("settings.security.web.provider.tavily"));
-        providerCombo.setOnAction(e -> securityAdminService.setWebSearchProvider(SecurityAdminService.WEB_PROVIDER_TAVILY));
-
-        PasswordField keyField = new PasswordField();
-        keyField.setText(securityAdminService.getWebSearchApiKeyPlain());
-        keyField.setPromptText(I18n.t("settings.security.web.key.prompt"));
-        keyField.setMaxWidth(360);
-        Runnable saveKey = () -> securityAdminService.setWebSearchApiKey(keyField.getText());
-        keyField.setOnAction(e -> saveKey.run());
-        keyField.focusedProperty().addListener((obs, was, now) -> {
-            if (!now) {
-                saveKey.run();
-            }
-        });
-
-        tab.getChildren().add(SettingsLayout.groupCard(I18n.t("settings.security.web.group"), List.of(
-                SettingsLayout.settingRow(I18n.t("settings.security.web.provider"),
-                        I18n.t("settings.security.web.provider.desc"), providerCombo),
-                SettingsLayout.settingRow(I18n.t("settings.security.web.key"),
-                        I18n.t("settings.security.web.key.desc"), keyField))));
-
-        Label hint = new Label(I18n.t("settings.security.web.hint"));
-        hint.getStyleClass().add("row-desc");
-        hint.setWrapText(true);
-        tab.getChildren().add(hint);
         return tab;
     }
 
@@ -518,52 +442,4 @@ final class SecuritySettingsPanel {
         host.reloadAll();
     }
 
-    /** 修改密码：旧密码 + 新密码 + 确认；成功后服务清除会话，下次启动/唤回主窗需重新登录。 */
-    private void handleChangePassword() {
-        GimDialog.Shell shell = GimDialog.shell(host.hostWindow(),
-                I18n.t("settings.security.account.change.title"));
-        PasswordField oldField = new PasswordField();
-        PasswordField newField = new PasswordField();
-        PasswordField confirmField = new PasswordField();
-        VBox form = new VBox(10,
-                SettingsLayout.labeledField(I18n.t("settings.security.account.change.old"), oldField),
-                SettingsLayout.labeledField(I18n.t("settings.security.account.change.new"), newField),
-                SettingsLayout.labeledField(I18n.t("settings.security.account.change.confirm"), confirmField));
-        form.setPrefWidth(440);
-
-        Button cancel = new Button(I18n.t("common.cancel"));
-        cancel.setOnAction(e -> shell.stage().close());
-        Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
-        save.setOnAction(e -> {
-            if (newField.getText() == null || newField.getText().length() < LocalAuthService.MIN_PASSWORD_LENGTH) {
-                host.notify("settings.security.account.change.title",
-                        I18n.t("auth.error.password.tooShort", LocalAuthService.MIN_PASSWORD_LENGTH));
-                return;
-            }
-            if (!newField.getText().equals(confirmField.getText())) {
-                host.notify("settings.security.account.change.title", I18n.t("auth.error.password.mismatch"));
-                return;
-            }
-            if (!localAuthService.changePassword(oldField.getText(), newField.getText())) {
-                host.notify("settings.security.account.change.title", I18n.t("auth.error.password.wrong"));
-                return;
-            }
-            shell.stage().close();
-            host.notify("settings.security.account.change.title", I18n.t("settings.security.account.change.done"));
-        });
-        HBox btns = new HBox(8, cancel, save);
-        btns.setAlignment(Pos.CENTER_RIGHT);
-        shell.body().getChildren().addAll(form, btns);
-        shell.showAndWait();
-    }
-
-    /** 退出登录：确认后清除会话并在窗口内呈现登录页，认证通过回到主界面。 */
-    private void handleSignOut() {
-        if (!GimDialog.confirm(host.hostWindow(), I18n.t("settings.security.account.signout"),
-                I18n.t("settings.security.account.signout.confirm"))) {
-            return;
-        }
-        host.signOutApp();
-    }
 }

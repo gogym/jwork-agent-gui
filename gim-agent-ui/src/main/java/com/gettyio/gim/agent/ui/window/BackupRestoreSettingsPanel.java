@@ -29,9 +29,9 @@ import java.util.Optional;
 import java.util.function.Supplier;
 
 /**
- * 备份与恢复设置子面板：本地数据维护（立即备份 / 导出会话（Markdown·PDF·DOCX·长图 PNG·独立 HTML）/
- * 导出全库 JSON / 打开目录）与 WebDAV 云同步（地址·账号·密码·加密口令、自动周期、
- * 测试连接 / 立即同步 / 从云端恢复）。抽自 {@link SettingsWindow}，依赖
+ * 数据与备份设置子面板：数据与路径只读概览、本地数据维护（立即备份 / 导出会话（Markdown·PDF·DOCX·
+ * 长图 PNG·独立 HTML）/ 导出全库 JSON / 打开目录）与 WebDAV 云同步（地址·账号·密码·加密口令、
+ * 自动周期、测试连接 / 立即同步 / 从云端恢复）。抽自 {@link SettingsWindow}，依赖
  * {@link DbBackupService}/{@link ExportService}/{@link WebDavSyncService}；
  * 「最近备份」「最近同步」行就地刷新，同步结果经监听器回传（自动同步失败亦可见）。
  */
@@ -74,11 +74,24 @@ final class BackupRestoreSettingsPanel {
     VBox build() {
         VBox box = SettingsLayout.page(I18n.t("settings.menu.backupRestore"),
                 I18n.t("settings.backupRestore.subtitle"));
+        box.getChildren().add(pathsCard());
         box.getChildren().add(dataMaintenanceCard());
         box.getChildren().add(webDavCard());
         refreshLastBackupRow();
         refreshLastSyncRow();
         return box;
+    }
+
+    /** 数据与路径卡片：各数据目录的只读概览（自通用页迁入，与备份/打开目录操作聚合于一页）。 */
+    private VBox pathsCard() {
+        List<Node> rows = new ArrayList<>();
+        rows.add(SettingsLayout.infoRow(I18n.t("settings.key.dataDir"), gimPaths.root()));
+        rows.add(SettingsLayout.infoRow(I18n.t("settings.key.workspace"), gimPaths.workspaceDir()));
+        rows.add(SettingsLayout.infoRow(I18n.t("settings.key.skillsDir"), gimPaths.skillsDir()));
+        rows.add(SettingsLayout.infoRow(I18n.t("settings.key.knowledgeDir"), gimPaths.knowledgeDir()));
+        rows.add(SettingsLayout.infoRow(I18n.t("settings.key.logsDir"), gimPaths.logsDir()));
+        rows.add(SettingsLayout.infoRow(I18n.t("settings.key.db"), gimPaths.dbFile()));
+        return SettingsLayout.groupCard(I18n.t("settings.group.paths"), rows);
     }
 
     /**

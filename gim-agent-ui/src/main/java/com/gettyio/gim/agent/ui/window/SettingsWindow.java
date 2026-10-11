@@ -41,10 +41,12 @@ import java.util.Map;
 
 /**
  * 设置窗口：左侧分类菜单（含搜索）+ 右侧内容页（对标 Qoder 设置风格）。
- * <p>分页：个人资料 / 外观（主题·字体·语言，接入 {@link UiTheme}/{@link I18n}）/
- * 记忆（开关·沉淀档位·按作用域管理记忆文件）/ 通用（数据与路径）/
- * 备份与恢复（本地备份·导出·WebDAV 云同步与恢复）/ 更新（检查·下载·安装）/ 智能体 /
- * 模型提供商 / 模型 / 默认模型 / 技能 / MCP 服务 / 安全（工具防护·文件防护·授权管理）。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
+ * <p>分页：个人资料 / 账号 / 外观（主题·字体·语言，接入 {@link UiTheme}/{@link I18n}）/
+ * 通用（启动与关闭）/ 对话与用量（上下文窗口·月预算）/ 语音（输入转写·朗读）/ 图像生成 /
+ * 网络（全局代理）/ 数据与备份（数据与路径·本地备份·导出·WebDAV 云同步与恢复）/
+ * 更新（检查·下载·安装）/ 智能体 / 记忆（开关·沉淀档位·按作用域管理记忆文件）/
+ * 模型提供商 / 模型 / 默认模型 / 技能 / 提示词模板 / MCP 服务 /
+ * 安全（工具防护·文件防护·联网·授权管理）。仅呈现有真实后端支撑的页面，不伪造无功能菜单项。
  * 外观页改动即时生效；语言切换时整窗重建以刷新全部文案。</p>
  * <p>本类为薄编排层：仅负责整窗骨架（菜单/页面容器/语言重建）与各设置页子面板的装配及整表刷新驱动，
  * 具体页面内容由按设置页拆出的子面板（如 {@link SecuritySettingsPanel}/{@link ModelSettingsPanel}）承载。</p>
@@ -129,7 +131,7 @@ public class SettingsWindow {
     @Autowired
     private SkillsView skillsView;
 
-    /** 本地登录认证（软锁）：安全页「账号与登录」卡片直接读写凭证文件。 */
+    /** 本地登录认证（软锁）：账号页直接读写凭证文件。 */
     @Autowired
     private com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService;
 
@@ -138,28 +140,17 @@ public class SettingsWindow {
 
     private SecuritySettingsPanel securityPanel() {
         if (securityPanel == null) {
-            securityPanel = new SecuritySettingsPanel(this, securityAdminService, gimPaths, dockerAvailabilityProbe,
-                    localAuthService);
+            securityPanel = new SecuritySettingsPanel(this, securityAdminService, gimPaths, dockerAvailabilityProbe);
         }
         return securityPanel;
     }
 
-    /** 个人资料子面板（抽自本类）：懒加载单例，语言切换重建时复用同一实例。 */
-    private ProfileSettingsPanel profilePanel;
-
-    private ProfileSettingsPanel profilePanel() {
-        if (profilePanel == null) {
-            profilePanel = new ProfileSettingsPanel(gimPaths, updateChecker);
-        }
-        return profilePanel;
-    }
-
-    /** 更新子面板（独立菜单页）：懒加载单例，语言切换重建时复用同一实例。 */
+    /** 关于子面板（独立菜单页）：懒加载单例，语言切换重建时复用同一实例。 */
     private UpdateSettingsPanel updatePanel;
 
     private UpdateSettingsPanel updatePanel() {
         if (updatePanel == null) {
-            updatePanel = new UpdateSettingsPanel(this, updateChecker);
+            updatePanel = new UpdateSettingsPanel(this, gimPaths, updateChecker);
         }
         return updatePanel;
     }
@@ -174,16 +165,65 @@ public class SettingsWindow {
         return appearancePanel;
     }
 
-    /** 通用子面板（抽自本类）：懒加载单例，承载路径/启动关闭/上下文/预算/语音/图像配置。 */
+    /** 通用子面板（抽自本类）：懒加载单例，仅承载启动与关闭行为（含全局热键）。 */
     private GeneralSettingsPanel generalPanel;
 
     private GeneralSettingsPanel generalPanel() {
         if (generalPanel == null) {
-            generalPanel = new GeneralSettingsPanel(this, gimPaths, appLifecycle, globalHotkeyService,
-                    database, voiceInputService, ttsService, securityAdminService, agentGateway,
-                    proxyManager, modelFactory);
+            generalPanel = new GeneralSettingsPanel(this, appLifecycle, globalHotkeyService);
         }
         return generalPanel;
+    }
+
+    /** 账号子面板（独立菜单页）：懒加载单例，本地登录认证（软锁）凭证的直接读写。 */
+    private AccountSettingsPanel accountPanel;
+
+    private AccountSettingsPanel accountPanel() {
+        if (accountPanel == null) {
+            accountPanel = new AccountSettingsPanel(this, localAuthService);
+        }
+        return accountPanel;
+    }
+
+    /** 对话与用量子面板（独立菜单页）：懒加载单例，承载上下文窗口上限与月度用量预算。 */
+    private ChatUsageSettingsPanel chatUsagePanel;
+
+    private ChatUsageSettingsPanel chatUsagePanel() {
+        if (chatUsagePanel == null) {
+            chatUsagePanel = new ChatUsageSettingsPanel(this, database, agentGateway);
+        }
+        return chatUsagePanel;
+    }
+
+    /** 语音子面板（独立菜单页）：懒加载单例，承载语音输入转写与语音朗读配置。 */
+    private VoiceSettingsPanel voicePanel;
+
+    private VoiceSettingsPanel voicePanel() {
+        if (voicePanel == null) {
+            voicePanel = new VoiceSettingsPanel(this, voiceInputService, ttsService);
+        }
+        return voicePanel;
+    }
+
+    /** 图像生成子面板（独立菜单页）：懒加载单例，配置读写复用安全服务后端。 */
+    private ImageSettingsPanel imagePanel;
+
+    private ImageSettingsPanel imagePanel() {
+        if (imagePanel == null) {
+            imagePanel = new ImageSettingsPanel(this, securityAdminService);
+        }
+        return imagePanel;
+    }
+
+    /** 网络子面板（独立菜单页）：懒加载单例，全局代理保存即应用到进程；并承载联网搜索服务配置（自安全页并入）。 */
+    private NetworkSettingsPanel networkPanel;
+
+    private NetworkSettingsPanel networkPanel() {
+        if (networkPanel == null) {
+            networkPanel = new NetworkSettingsPanel(this, proxyManager, modelFactory, agentGateway,
+                    securityAdminService);
+        }
+        return networkPanel;
     }
 
     /** 备份与恢复子面板（抽自本类）：懒加载单例，承载本地备份/导出与 WebDAV 云同步/恢复。 */
@@ -376,18 +416,21 @@ public class SettingsWindow {
         menuBox.getChildren().addAll(back, search);
 
         Label personal = addSection(I18n.t("settings.section.personal"));
-        addMenu(personal, "\uE77B", I18n.t("settings.menu.profile"), buildProfilePage());
+        addMenu(personal, "\uE716", I18n.t("settings.menu.account"), buildAccountPage());
         addMenu(personal, "\uE790", I18n.t("settings.menu.appearance"), buildAppearancePage());
-        addMenu(personal, "\uE7C3", I18n.t("settings.menu.memory"), buildMemoryPage());
         addMenu(personal, "\uE713", I18n.t("settings.menu.general"), buildGeneralPage());
+        addMenu(personal, "\uE8BD", I18n.t("settings.menu.chat"), buildChatUsagePage());
+        addMenu(personal, "\uE720", I18n.t("settings.menu.voice"), buildVoicePage());
+        addMenu(personal, "\uE91B", I18n.t("settings.menu.image"), buildImagePage());
+        addMenu(personal, "\uE909", I18n.t("settings.menu.network"), buildNetworkPage());
         addMenu(personal, "\uE7B5", I18n.t("settings.menu.backupRestore"), buildBackupRestorePage());
-        addMenu(personal, "\uE777", I18n.t("settings.menu.update"), buildUpdatePage());
+        addMenu(personal, "\uE946", I18n.t("settings.menu.about"), buildUpdatePage());
 
         Label model = addSection(I18n.t("settings.section.model"));
         addMenu(model, "\uE99A", I18n.t("settings.menu.agents"), buildAgentPage());
+        addMenu(model, "\uE7C3", I18n.t("settings.menu.memory"), buildMemoryPage());
         addMenu(model, "\uE753", I18n.t("settings.menu.providers"), buildProviderPage());
         addMenu(model, "\uE7B8", I18n.t("settings.menu.models"), buildModelPage());
-        addMenu(model, "\uE8CC", I18n.t("settings.menu.default"), buildDefaultPage());
 
         Label extension = addSection(I18n.t("settings.section.extension"));
         addMenu(extension, "\uE945", I18n.t("skills.title"), buildSkillsPage());
@@ -456,10 +499,10 @@ public class SettingsWindow {
         ((ToggleButton) menuGroup.getToggles().get(0)).setSelected(true);
     }
 
-    // ---- 页面装配：各页委派给对应子面板构建（提供商/模型/默认三页共享 modelPanel） ----
+    // ---- 页面装配：各页委派给对应子面板构建（提供商/模型两页共享 modelPanel） ----
 
-    private VBox buildProfilePage() {
-        return profilePanel().build();
+    private VBox buildAccountPage() {
+        return accountPanel().build();
     }
 
     private VBox buildAppearancePage() {
@@ -468,6 +511,22 @@ public class SettingsWindow {
 
     private VBox buildGeneralPage() {
         return generalPanel().build();
+    }
+
+    private VBox buildChatUsagePage() {
+        return chatUsagePanel().build();
+    }
+
+    private VBox buildVoicePage() {
+        return voicePanel().build();
+    }
+
+    private VBox buildImagePage() {
+        return imagePanel().build();
+    }
+
+    private VBox buildNetworkPage() {
+        return networkPanel().build();
     }
 
     private VBox buildBackupRestorePage() {
@@ -494,10 +553,6 @@ public class SettingsWindow {
         return modelPanel().buildModelPage();
     }
 
-    private VBox buildDefaultPage() {
-        return modelPanel().buildDefaultPage();
-    }
-
     /** 复用拓展页的技能整页；设置内显示一级标题（拓展 Tab 内被隐去）。 */
     private VBox buildSkillsPage() {
         skillsView.showHeaderTitle(true);
@@ -522,7 +577,7 @@ public class SettingsWindow {
         return hostScene == null ? null : hostScene.getWindow();
     }
 
-    /** 退出登录（安全页账号卡入口）：先退回主界面，再清除会话并在窗口内呈现登录页。 */
+    /** 退出登录（账号页入口）：先退回主界面，再清除会话并在窗口内呈现登录页。 */
     void signOutApp() {
         if (onBack != null) {
             onBack.run();

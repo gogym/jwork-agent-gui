@@ -34,11 +34,12 @@ import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
- * 模型配置子面板：提供商、模型、默认模型三页合抽一处（它们共享 {@link ProviderAdminService}、
- * 表单字段与连接探测态，彼此高度互联，故合并为单一自治协作类，而非三个互依赖的碎片）。
+ * 模型配置子面板：提供商、模型两页合抽一处（它们共享 {@link ProviderAdminService}、
+ * 表单字段与连接探测态，彼此高度互联，故合并为单一自治协作类，而非两个互相依赖的碎片）；
+ * 默认模型以卡片形式内嵌于模型页列表上方（自原「默认模型」独立页并入）。
  * <p>抽自 {@link SettingsWindow}：卡片渲染复用 {@link SettingsLayout}，弹窗归属/即时提示/整表刷新
  * 回调宿主；提供商↔模型联动（保存提供商后刷新模型表单的下拉、设为默认后刷新默认标签）在本类内部闭环。
- * 三页共用同一实例，宿主语言切换重建时复用，容器内容随之重绘。</p>
+ * 两页共用同一实例，宿主语言切换重建时复用，容器内容随之重绘。</p>
  */
 final class ModelSettingsPanel {
 
@@ -298,7 +299,7 @@ final class ModelSettingsPanel {
 
         modelCardsBox.getStyleClass().add("provider-cards");
         VBox.setVgrow(modelCardsBox, Priority.ALWAYS);
-        box.getChildren().addAll(header, modelCardsBox);
+        box.getChildren().addAll(header, defaultModelCard(), modelCardsBox);
         return box;
     }
 
@@ -498,25 +499,21 @@ final class ModelSettingsPanel {
         return detail == null || detail.isBlank() ? time : time + " · " + detail;
     }
 
-    // ---- 默认模型页 ----
+    // ---- 默认模型卡（模型页内嵌，自原「默认模型」独立页并入） ----
 
-    VBox buildDefaultPage() {
-        VBox box = SettingsLayout.page(I18n.t("settings.menu.default"), I18n.t("settings.default.subtitle"));
-
-        Button changeBtn = new Button(I18n.t("settings.default.change"));
-        changeBtn.getStyleClass().add("btn-primary");
-        changeBtn.setOnAction(e -> openDefaultModelPicker());
-
-        defaultModelInfoLabel.getStyleClass().add("row-value");
-
+    /** 默认模型卡片：当前默认模型 + 修改入口，置于模型列表上方。 */
+    private VBox defaultModelCard() {
+        if (!defaultModelInfoLabel.getStyleClass().contains("row-value")) {
+            defaultModelInfoLabel.getStyleClass().add("row-value");
+        }
+        Button changeBtn = SettingsLayout.iconTextButton("\uE70F",
+                I18n.t("settings.default.change"), this::openDefaultModelPicker);
+        HBox control = new HBox(10, defaultModelInfoLabel, changeBtn);
+        control.setAlignment(Pos.CENTER_LEFT);
         List<Node> rows = List.of(
-                SettingsLayout.settingRow(I18n.t("settings.default.current"), null, defaultModelInfoLabel));
-        HBox actions = new HBox(changeBtn);
-        actions.setAlignment(Pos.CENTER_LEFT);
-        actions.setPadding(new Insets(6, 0, 0, 0));
-
-        box.getChildren().addAll(SettingsLayout.groupCard(null, rows), actions);
-        return box;
+                SettingsLayout.settingRow(I18n.t("settings.default.current"),
+                        I18n.t("settings.default.subtitle"), control));
+        return SettingsLayout.groupCard(I18n.t("settings.menu.default"), rows);
     }
 
     /** 弹窗选择默认模型：列出所有已启用模型，可勾选只看多模态，选中后确定即设为默认。 */

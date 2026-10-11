@@ -730,11 +730,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 I18n.t("about.body", gimPaths.root()));
     }
 
-    /** 齿轮菜单底部「退出登录」：确认后清除会话并在窗口内呈现登录页（与安全页账号卡同一套登录门）。 */
+    /** 齿轮菜单底部「退出登录」：确认后清除会话并在窗口内呈现登录页（与设置页账号卡同一套登录门）。 */
     @Override
     public void signOut() {
-        if (!GimDialog.confirm(currentWindow(), I18n.t("settings.security.account.signout"),
-                I18n.t("settings.security.account.signout.confirm"))) {
+        if (!GimDialog.confirm(currentWindow(), I18n.t("settings.account.signout"),
+                I18n.t("settings.account.signout.confirm"))) {
             return;
         }
         appLifecycle.lockToLogin();

@@ -227,7 +227,7 @@ public class ToolbarPickers {
         about.setOnAction(e -> host.showAbout());
 
         // 最底部「退出登录」：清除会话并在窗口内回到登录页（与设置页账号卡同一套登录门）
-        MenuItem signOut = new MenuItem(I18n.t("settings.security.account.signout"), UiTheme.icon("\uE7E8"));
+        MenuItem signOut = new MenuItem(I18n.t("settings.account.signout"), UiTheme.icon("\uE7E8"));
         signOut.setOnAction(e -> host.signOut());
 
         menu.getItems().addAll(settings, new SeparatorMenuItem(),
