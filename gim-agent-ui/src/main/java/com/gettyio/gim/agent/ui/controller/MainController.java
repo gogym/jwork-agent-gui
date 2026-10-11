@@ -31,6 +31,7 @@ import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TerminalView;
 import com.gettyio.gim.agent.ui.view.TasksView;
 import com.gettyio.gim.agent.ui.view.UsageView;
+import com.gettyio.gim.agent.ui.window.AboutDialog;
 import com.gettyio.gim.agent.ui.window.AgentDialog;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.GimDialog;
@@ -184,6 +185,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private Label navUsageLabel;
     @FXML
     private Label sectionSessions;
+    /** 左下用户区：账号 chip（头像 + 账号名），点击直达设置「账号」页；头像取账号名首字 */
+    @FXML
+    private HBox userChip;
+    @FXML
+    private Label userAvatar;
     @FXML
     private Label userNameLabel;
     @FXML
@@ -513,6 +519,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         selectedAgentCode = restoreSelectedAgent();
         sidebar.renderAgentSwitcher();
         agentSwitcher.setOnMouseClicked(e -> sidebar.showAgentMenu());
+        // 账号 chip（头像 + 账号名）：点击直达设置「账号」页；完整设置菜单仍走右侧齿轮
+        userChip.setOnMouseClicked(e -> handleOpenSettings(I18n.t("settings.menu.account")));
         refreshSessions();
         List<ChatSession> scoped = sidebar.sessionsOfAgent();
         if (scoped.isEmpty()) {
@@ -660,7 +668,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         sectionSessions.setText(I18n.t("section.sessions"));
         sectionRecent.setText(I18n.t("section.recent"));
         searchButton.setText(I18n.t("sidebar.search.prompt"));
-        userNameLabel.setText(I18n.t("user.local"));
+        // 账号名/首字头像随语言与登录态刷新（无账号时回退本地化占位）
+        refreshUserBar();
         welcomeTitle.setText(I18n.t("welcome.title"));
         welcomeSubtitle.setText(I18n.t("welcome.subtitle"));
         privacyHint.setText(I18n.t("input.privacy"));
@@ -710,6 +719,14 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         refreshModelBanner();
     }
 
+    /** 用户区刷新：头像取账号名首字（大写化），名称直显账号名；无账号数据时回退本地化占位。 */
+    private void refreshUserBar() {
+        String name = localAuthService.username();
+        boolean named = name != null && !name.isBlank();
+        userAvatar.setText(named ? name.substring(0, 1).toUpperCase() : "G");
+        userNameLabel.setText(named ? name : I18n.t("user.local"));
+    }
+
     /**
      * 刷新「尚未配置模型」常驻提示：无任何启用模型时常驻显示，配置并启用任意模型后自动隐藏。
      * <p>提示是全局状态驱动而非逐轮对话记录，故在启动、语言切换、设置页关闭三处重算。</p>
@@ -743,8 +760,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     @Override
     public void showAbout() {
-        GimDialog.message(currentWindow(), I18n.t("about.title"), I18n.t("about.header"),
-                I18n.t("about.body", gimPaths.root()));
+        AboutDialog.show(currentWindow(), gimPaths);
     }
 
     /** 齿轮菜单底部「退出登录」：确认后清除会话并在窗口内呈现登录页（与设置页账号卡同一套登录门）。 */

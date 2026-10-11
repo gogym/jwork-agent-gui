@@ -994,7 +994,6 @@ public final class JcefOsrView {
         resizeFirstFrameSeen = true;
         if (now - resizeGuardStartNs > RESIZE_HARD_MAX_MS * 1_000_000L) {
             // 帧流持续超时（动画/流式叠加拖动）：无法等到平静，放弃保护回到即时，防画面冻结
-            log.info("OSR resize 帧流超时 {}ms 未平静，放弃攒帧保护即时上屏", RESIZE_HARD_MAX_MS);
             resizeGuardUntilNs = 0L;
             prevFrameSig = null;
             prevFrameSigW = -1;
@@ -1080,8 +1079,6 @@ public final class JcefOsrView {
     private void onResizeHoldElapsed() {
         if (invalidateRetries < RESIZE_VERIFY_MAX && invalidateForVerify()) {
             invalidateRetries++;
-            log.info("OSR resize 平静无新帧，invalidate 请求验证帧（第 {}/{} 轮）",
-                    invalidateRetries, RESIZE_VERIFY_MAX);
             resizeGuardUntilNs = System.nanoTime() + RESIZE_GUARD_MS * 1_000_000L; // 续期敏感期，保证验证帧走比对路径
             armResizeHold(); // 再等一轮平静收验证帧（后续轮次间隔递减）
             return;

@@ -102,8 +102,12 @@
                 </graphic>
             </ToggleButton>
             <HBox styleClass="user-bar">
-                <Label text="G" styleClass="avatar"/>
-                <Label fx:id="userNameLabel" text="本地用户" styleClass="user-name"/>
+                <!-- 账号 chip：头像 + 账号名（初始化后由控制器填入登录账号），点击直达设置「账号」页 -->
+                <HBox fx:id="userChip" styleClass="user-chip" alignment="CENTER_LEFT" spacing="6.0">
+                    <Label fx:id="userAvatar" text="G" styleClass="avatar"/>
+                    <Label fx:id="userNameLabel" text="本地用户" styleClass="user-name"
+                           maxWidth="140.0" ellipsisString="&#x2026;"/>
+                </HBox>
                 <Region HBox.hgrow="ALWAYS"/>
                 <Button fx:id="themeMenuButton" styleClass="nav-item">
                     <graphic>

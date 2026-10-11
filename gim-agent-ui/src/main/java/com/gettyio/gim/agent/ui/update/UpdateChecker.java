@@ -71,7 +71,8 @@ public class UpdateChecker {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
-    private volatile String cachedCurrent;
+    /** 版本缓存（静态：version.properties 进程内单次读取，静态/实例入口共享）。 */
+    private static volatile String cachedVersion;
 
     /** 内置生产更新服务基地址（gim-server-ai）：用户未在设置页手动配置时作为默认。 */
     private static final String DEFAULT_BASE_URL = "https://api.gettyio.com";
@@ -118,17 +119,22 @@ public class UpdateChecker {
 
     /** 当前应用版本（归一化，去 v 前缀与 -SNAPSHOT 后缀）；读不到时回退 0.0.0。 */
     public String currentVersion() {
-        String v = cachedCurrent;
+        return appVersion();
+    }
+
+    /** 应用版本静态入口：无实例场景（关于对话框等）直接读取；结果进程内缓存。 */
+    public static String appVersion() {
+        String v = cachedVersion;
         if (v == null) {
             v = loadVersion();
-            cachedCurrent = v;
+            cachedVersion = v;
         }
         return v;
     }
 
-    private String loadVersion() {
+    private static String loadVersion() {
         Properties p = new Properties();
-        try (InputStream in = getClass().getResourceAsStream("/version.properties")) {
+        try (InputStream in = UpdateChecker.class.getResourceAsStream("/version.properties")) {
             if (in != null) {
                 p.load(in);
             }
