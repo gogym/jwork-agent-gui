@@ -91,9 +91,4 @@ public class MermaidView {
             log.warn("Mermaid 高度回调解析失败", t);
         }
     }
-
-    /** 仅测试用：当前文档高度。 */
-    double currentDocHeight() {
-        return docHeight;
-    }
 }

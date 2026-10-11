@@ -50,7 +50,6 @@ Write-Output ("missing = {0}" -f $missing.Count)
 $missing | ForEach-Object { Write-Output ("   MISSING " + $_) }
 
 $new = @('section.sessions','sidebar.search.prompt','sidebar.agent.new','sidebar.agent.configure',
-         'session.menu.agent','session.agentTip','session.rebindConfirm',
          'settings.agent.skills','settings.agent.mcp','settings.agent.none',
          'agent.skills','agent.mcp','agent.cap.hint','agent.cap.noneSkills','agent.cap.noneMcp','agent.cap.disabled')
 foreach ($name in ($sets.Keys | Sort-Object)) {
@@ -61,7 +60,7 @@ foreach ($name in ($sets.Keys | Sort-Object)) {
 
 # keys retired with the workspace grouping feature
 $banned = @('workspace.menu.agent.configure','workspace.new.title','workspace.ungrouped','session.moveTo',
-            'section.workspace','section.recent')
+            'section.workspace')
 foreach ($name in ($sets.Keys | Sort-Object)) {
   $left = @($banned | Where-Object { $sets[$name] -contains $_ })
   Write-Output ("{0} retired-key leftovers {1}" -f $name, $left.Count)

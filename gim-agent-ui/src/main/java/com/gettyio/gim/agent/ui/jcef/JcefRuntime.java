@@ -79,10 +79,6 @@ public final class JcefRuntime {
         return app().createClient();
     }
 
-    public boolean isInitialized() {
-        return app != null;
-    }
-
     private static File installDir() {
         Path base = Paths.get(System.getProperty("user.home", "."), ".jwork", "cef");
         return base.toFile();

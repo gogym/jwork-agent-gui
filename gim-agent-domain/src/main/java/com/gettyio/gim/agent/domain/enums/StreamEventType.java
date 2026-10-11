@@ -11,9 +11,6 @@ public enum StreamEventType {
     /** 工具调用开始 */
     TOOL_START,
 
-    /** 工具调用结果 */
-    TOOL_RESULT,
-
     /** 工具调用结束（携带输出摘要、成败状态与耗时） */
     TOOL_END,
 

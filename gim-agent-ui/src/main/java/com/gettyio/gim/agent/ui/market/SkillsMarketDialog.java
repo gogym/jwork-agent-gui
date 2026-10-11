@@ -2,7 +2,6 @@ package com.gettyio.gim.agent.ui.market;
 
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
-import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.update.UpdateChecker;
@@ -40,7 +39,6 @@ public class SkillsMarketDialog {
 
     private final Window owner;
     private final MarketService marketService;
-    private final SkillService skillService;
     private final AgentAdminService agentAdminService;
     /** 安装成功后通知（刷新技能页卡片与智能体运行时） */
     private final Runnable onChanged;
@@ -54,11 +52,10 @@ public class SkillsMarketDialog {
 
     private List<MarketService.MarketSkill> loaded = new ArrayList<>();
 
-    public SkillsMarketDialog(Window owner, MarketService marketService, SkillService skillService,
+    public SkillsMarketDialog(Window owner, MarketService marketService,
                               AgentAdminService agentAdminService, Runnable onChanged) {
         this.owner = owner;
         this.marketService = marketService;
-        this.skillService = skillService;
         this.agentAdminService = agentAdminService;
         this.onChanged = onChanged;
     }

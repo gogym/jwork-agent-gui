@@ -5,7 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -84,10 +83,5 @@ public final class MessageMetadataCodec {
             log.warn("消息元数据解析失败，按空元数据处理: {}", json, e);
             return new MessageMetadata(List.of(), false);
         }
-    }
-
-    /** 便捷：只取附件清单。 */
-    public static List<StoredAttachment> readAttachments(String json) {
-        return new ArrayList<>(read(json).attachments());
     }
 }

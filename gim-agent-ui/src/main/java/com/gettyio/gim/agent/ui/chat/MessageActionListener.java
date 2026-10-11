@@ -17,9 +17,6 @@ public interface MessageActionListener {
      */
     void onSpeak(String rawText, Runnable onEnded);
 
-    /** 停止当前朗读（若有）；被打断方将收到其 {@link #onSpeak} 的 onEnded 回调。 */
-    void onSpeakStop();
-
     /** 重新生成：删除最后一条助手消息，就同一用户请求再跑一轮。 */
     void onRegenerate();
 

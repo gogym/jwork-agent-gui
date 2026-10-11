@@ -22,8 +22,4 @@ public enum AuthMethod {
         }
         return X_API_KEY;
     }
-
-    public static boolean isBearerToken(String code) {
-        return BEARER_TOKEN == fromCode(code);
-    }
 }

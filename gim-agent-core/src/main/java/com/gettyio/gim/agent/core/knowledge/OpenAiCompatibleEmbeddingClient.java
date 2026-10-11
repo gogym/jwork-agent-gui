@@ -4,8 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
 import java.net.URI;
@@ -24,8 +22,6 @@ import java.util.List;
  * 本类内部补 {@code /embeddings} 路径。批量输入按每请求 16 条分批，避免超长请求被网关拒收。</p>
  */
 public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
-
-    private static final Logger log = LoggerFactory.getLogger(OpenAiCompatibleEmbeddingClient.class);
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
     /** 单请求批量上限。 */

@@ -211,22 +211,6 @@ public class ChatConversationDao {
                 rs -> mapAggregate(rs, "group_key"), timeParam(range));
     }
 
-    /** 单个会话的用量汇总。 */
-    public UsageAggregate aggregateBySession(String sessionId) {
-        return runner.queryOne(
-                "SELECT ? AS group_key, " + SUM_COLS + FROM_JOIN + " WHERE c.session_id=?",
-                rs -> mapAggregate(rs, "group_key"), sessionId, sessionId)
-                .orElseGet(() -> UsageAggregate.empty(sessionId));
-    }
-
-    /** 单个智能体的用量汇总。 */
-    public UsageAggregate aggregateByAgent(String agentCode) {
-        return runner.queryOne(
-                "SELECT ? AS group_key, " + SUM_COLS + FROM_JOIN + " WHERE c.agent_code=?",
-                rs -> mapAggregate(rs, "group_key"), agentCode, agentCode)
-                .orElseGet(() -> UsageAggregate.empty(agentCode));
-    }
-
     private static UsageAggregate mapAggregate(ResultSet rs, String keyColumn) throws SQLException {
         return new UsageAggregate(
                 rs.getString(keyColumn),

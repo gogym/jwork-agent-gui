@@ -429,7 +429,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         // 输入框选区变化：最近交互在输入框 → 聊天区选区镜像让位（Ctrl+C 归 composer 链处理）
         inputField.setOnSelectionChanged(() -> chatHasSelection = false);
         attachmentBar = new com.gettyio.gim.agent.ui.chat.AttachmentBar(
-                attachChipsBox, inputField, attachButton, gimPaths, this);
+                attachChipsBox, inputField, attachButton, this);
         installFileDropTarget();
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
                 themeMenuButton, modelButton, approvalButton, templateButton, compareButton, inputField,
@@ -914,19 +914,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     }
 
     /**
-     * 供启动接线/托盘唤回：聚焦主窗输入框并把光标移到文末（主窗显隐由生命周期处理）。
-     * <p>仅在对话页时生效：切到定时任务/技能/用量页时输入框已脱离场景树，聚焦会失败并
-     * 把焦点留在原处（可能正是侧栏导航项）。</p>
-     */
-    public void focusComposer() {
-        if (inputField == null || navChat == null || !navChat.isSelected()) {
-            return;
-        }
-        inputField.requestFocus();
-        inputField.positionCaret(inputField.getLength());
-    }
-
-    /**
      * Enter 提交兜底（场景级）：修补「点击发送按钮/侧栏等可聚焦控件后焦点漂移、
      * Enter 静默失效」——焦点不在输入区域时按 Enter（无 Shift）等同点击发送。
      * <p>不改变焦点归属（交互约定：点击哪里焦点去哪里，点击输入框才聚焦该框），
@@ -1067,15 +1054,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private static String imageAlt(String prompt) {
         String t = prompt.replaceAll("[\\[\\]()\\r\\n]+", " ").trim();
         return t.length() <= 60 ? t : t.substring(0, 60) + "\u2026";
-    }
-
-    /**
-     * 统一的流式收发：建一条空气泡，按帧增量渲染，收尾后从库重放（补齐主键与操作按钮）。
-     * <p>{@code chat}/{@code regenerate}/{@code editAndResend} 三种入口都汇到这里；请求侧的落盘
-     * （用户消息、删除旧助手）已在 {@code flux} 组装时于服务层同步完成，此处只订阅流。</p>
-     */
-    private void runStream(Flux<StreamEvent> flux, String sessionId) {
-        runStream(flux, sessionId, false);
     }
 
     /**
@@ -1338,11 +1316,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             }
             onEnded.run();
         });
-    }
-
-    @Override
-    public void onSpeakStop() {
-        ttsService.stop();
     }
 
     @Override

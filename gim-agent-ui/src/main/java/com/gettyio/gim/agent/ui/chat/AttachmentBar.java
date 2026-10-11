@@ -1,6 +1,5 @@
 package com.gettyio.gim.agent.ui.chat;
 
-import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.chat.FileAttachment;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
@@ -9,7 +8,6 @@ import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.jcef.JcefComposer;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.geometry.Pos;
-import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ContextMenu;
 import javafx.scene.control.Label;
@@ -25,7 +23,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.ByteArrayInputStream;
-import java.awt.Desktop;
 import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
@@ -68,7 +65,6 @@ public class AttachmentBar {
     private final FlowPane attachChipsBox;
     private final JcefComposer inputField;
     private final Button attachButton;
-    private final GimPaths gimPaths;
     private final ChatHost host;
 
     /** 待发送的图片附件（与 attachChipsBox 中的图片芯片一一对应） */
@@ -83,11 +79,10 @@ public class AttachmentBar {
     private long attachMenuHiddenAt;
 
     public AttachmentBar(FlowPane attachChipsBox, JcefComposer inputField, Button attachButton,
-                         GimPaths gimPaths, ChatHost host) {
+                         ChatHost host) {
         this.attachChipsBox = attachChipsBox;
         this.inputField = inputField;
         this.attachButton = attachButton;
-        this.gimPaths = gimPaths;
         this.host = host;
     }
 
@@ -307,55 +302,6 @@ public class AttachmentBar {
         return chip;
     }
 
-    /**
-     * 把一组 kind=file 的落盘附件渲染为消息气泡内的“文件行”（图标 + 名 + 大小，点击打开所在目录）。
-     * 发送即时预览（路径未定）与历史重放（真实路径）共用；图片类传入将被忽略。
-     */
-    public List<Node> buildFileRows(List<StoredAttachment> attachments) {
-        List<Node> rows = new ArrayList<>();
-        for (StoredAttachment a : attachments) {
-            if (a == null || !a.isFile()) {
-                continue;
-            }
-            rows.add(buildFileRow(a));
-        }
-        return rows;
-    }
-
-    private Node buildFileRow(StoredAttachment a) {
-        Label icon = UiTheme.icon("\uE8A5");
-        icon.getStyleClass().add("file-row-icon");
-        Label name = new Label(a.name());
-        name.getStyleClass().add("file-row-name");
-        name.setMaxWidth(260);
-        name.setEllipsisString("\u2026");
-        Label size = new Label(a.sizeBytes() > 0 ? humanSize(a.sizeBytes()) : "");
-        size.getStyleClass().add("file-row-size");
-        HBox row = new HBox(6, icon, name, size);
-        row.getStyleClass().add("file-row");
-        row.setAlignment(Pos.CENTER_LEFT);
-        if (a.path() != null && !a.path().isBlank()) {
-            Path abs = gimPaths.attachmentsDir().resolve(a.path());
-            Tooltip.install(row, new Tooltip(I18n.t("attach.file.reveal")));
-            row.setOnMouseClicked(e -> revealInFolder(abs));
-        }
-        return row;
-    }
-
-    /** 在系统文件管理器中打开附件所在目录（原件已清理时回退到附件根目录）。 */
-    private void revealInFolder(Path file) {
-        try {
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
-                Path dir = Files.exists(file) ? file.getParent() : gimPaths.attachmentsDir();
-                if (dir != null) {
-                    Desktop.getDesktop().open(dir.toFile());
-                }
-            }
-        } catch (Exception e) {
-            log.warn("打开附件目录失败: {}", file, e);
-        }
-    }
-
     /** 字节数转人类可读大小。 */
     private static String humanSize(long bytes) {
         if (bytes < 1024) {
@@ -539,33 +485,7 @@ public class AttachmentBar {
         return "image/jpeg";
     }
 
-    // ===================== 缩略图工具（发送气泡与历史重放共用） =====================
-
-    public List<ImageView> thumbsFromBase64(List<ImageAttachment> images) {
-        List<ImageView> out = new ArrayList<>();
-        for (ImageAttachment img : images) {
-            if (img == null || img.base64Data() == null) {
-                continue;
-            }
-            try {
-                out.add(thumbView(Base64.getDecoder().decode(img.base64Data())));
-            } catch (IllegalArgumentException e) {
-                log.warn("附件 Base64 解码失败，跳过缩略图: {}", img.fileName());
-            }
-        }
-        return out;
-    }
-
-    public List<ImageView> thumbsFromStored(List<StoredAttachment> atts) {
-        List<ImageView> out = new ArrayList<>();
-        for (StoredAttachment a : atts) {
-            ImageView v = thumbFromPath(a.path());
-            if (v != null) {
-                out.add(v);
-            }
-        }
-        return out;
-    }
+    // ===================== 缩略图工具 =====================
 
     private static ImageView thumbView(byte[] bytes) {
         ImageView iv = new ImageView(new Image(new ByteArrayInputStream(bytes)));
@@ -574,22 +494,6 @@ public class AttachmentBar {
         iv.setPreserveRatio(true);
         iv.getStyleClass().add("attach-thumb");
         return iv;
-    }
-
-    private ImageView thumbFromPath(String rel) {
-        if (rel == null || rel.isBlank()) {
-            return null;
-        }
-        try {
-            Path p = gimPaths.attachmentsDir().resolve(rel);
-            if (!Files.exists(p)) {
-                return null;
-            }
-            return thumbView(Files.readAllBytes(p));
-        } catch (IOException | RuntimeException e) {
-            log.warn("读取附件缩略图失败: {}", rel, e);
-            return null;
-        }
     }
 
     /** 待发文件/文件夹引用：发送时拼成正文引用块由 Agent 用文件工具读取，UI 侧渲染为图标+名称芯片。 */

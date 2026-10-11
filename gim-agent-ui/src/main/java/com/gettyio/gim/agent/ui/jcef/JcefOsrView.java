@@ -185,17 +185,12 @@ public final class JcefOsrView {
     /** 帧右缘「滚动条搬运带」宽度（px）：拖动过渡期间把该带复制到画布右缘实现滚动条贴边。 */
     private static final int EDGE_BAR = 20;
 
-    private final String queryFn;
-    private final String cancelFn;
-
     /**
      * @param queryFn       JS 侧发起请求的函数名（注入到 {@code window.<queryFn>}）
      * @param cancelFn      JS 侧取消请求的函数名（注入到 {@code window.<cancelFn>}）
      * @param requestHandler 收到 JS→Java 请求（JSON 字符串）时的处理，将在 FX 线程回调；可为 null
      */
     public JcefOsrView(String queryFn, String cancelFn, Consumer<String> requestHandler) {
-        this.queryFn = queryFn;
-        this.cancelFn = cancelFn;
         // 尺寸完全由 CEF 帧驱动，脱离父布局计算：Canvas 属非 resizable 节点，其宽高会被 StackPane
         // 计入 min/pref 尺寸——窗口拉宽后 canvas 变大并把宿主的最小宽度撑大，窗口缩小时布局被卡住
         // 缩不回（表现为内容不缩回、画布被居中偏移）。取消托管后宿主尺寸完全随容器，画布定位固定左上。
@@ -688,10 +683,6 @@ public final class JcefOsrView {
     /** 宿主节点：控制器把它放进容器并撑满（对齐旧 ChatWebView.node() 语义）。 */
     public StackPane node() {
         return host;
-    }
-
-    public Canvas canvas() {
-        return canvas;
     }
 
     /** 最近一次 {@code onPaint} 的位图；尚未出帧时为 {@code null}。 */

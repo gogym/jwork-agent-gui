@@ -229,14 +229,6 @@ public class SecurityAdminService {
 
     // ===================== 联网搜索（提供方 + API Key） =====================
 
-    /** 联网搜索提供方编码；未设置回退 Tavily。 */
-    public String getWebSearchProvider() {
-        return db.settingDao().getValue(KEY_WEB_PROVIDER)
-                .map(String::trim)
-                .filter(v -> !v.isEmpty())
-                .orElse(WEB_PROVIDER_TAVILY);
-    }
-
     public void setWebSearchProvider(String provider) {
         String value = provider == null || provider.isBlank() ? WEB_PROVIDER_TAVILY : provider.trim().toLowerCase();
         db.settingDao().upsert(KEY_WEB_PROVIDER, value, "联网搜索提供方");
@@ -262,11 +254,6 @@ public class SecurityAdminService {
             return;
         }
         db.settingDao().upsert(KEY_WEB_APIKEY, cipher.encrypt(plain.trim()), "联网搜索 API Key（密文）");
-    }
-
-    /** 是否已配置可用的联网搜索 Key。 */
-    public boolean isWebSearchConfigured() {
-        return !getWebSearchApiKeyPlain().isEmpty();
     }
 
     // ===================== 向量知识库 embedding 提供方 =====================

@@ -17,12 +17,10 @@ import java.util.List;
  */
 final class ImageSettingsPanel {
 
-    private final SettingsWindow host;
     /** 图像生成配置（地址/模型/Key）的读写后端：保存即生效。 */
     private final SecurityAdminService securityAdminService;
 
-    ImageSettingsPanel(SettingsWindow host, SecurityAdminService securityAdminService) {
-        this.host = host;
+    ImageSettingsPanel(SecurityAdminService securityAdminService) {
         this.securityAdminService = securityAdminService;
     }
 

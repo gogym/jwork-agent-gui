@@ -210,7 +210,7 @@ public class SettingsWindow {
 
     private ImageSettingsPanel imagePanel() {
         if (imagePanel == null) {
-            imagePanel = new ImageSettingsPanel(this, securityAdminService);
+            imagePanel = new ImageSettingsPanel(securityAdminService);
         }
         return imagePanel;
     }

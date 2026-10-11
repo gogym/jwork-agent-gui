@@ -35,7 +35,7 @@ public class AgentScopeModelFactory {
         GenerateOptions options = buildOptions(spec);
         return switch (spec.protocol()) {
             case DASHSCOPE -> dashscope(spec, options);
-            case OPENAI_COMPATIBLE -> openAi(spec, options);
+            case OPENAI_COMPATIBLE -> openAi(spec);
             case ANTHROPIC_COMPATIBLE -> anthropic(spec);
             case OLLAMA -> ollama(spec);
         };
@@ -64,7 +64,7 @@ public class AgentScopeModelFactory {
         return builder.build();
     }
 
-    private Model openAi(ModelSpec spec, GenerateOptions options) {
+    private Model openAi(ModelSpec spec) {
         OpenAIChatModel.Builder builder = OpenAIChatModel.builder()
                 .apiKey(spec.apiKey())
                 .modelName(spec.modelName())

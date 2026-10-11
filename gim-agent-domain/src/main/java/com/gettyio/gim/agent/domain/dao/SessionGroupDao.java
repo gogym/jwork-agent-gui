@@ -7,7 +7,6 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.List;
-import java.util.Optional;
 
 /**
  * session_groups 表 DAO：会话分组（纯 UI 组织层，归属到某个智能体）。
@@ -50,11 +49,6 @@ public class SessionGroupDao {
         return runner.query(
                 "SELECT " + COLUMNS + " FROM session_groups WHERE agent_code=? ORDER BY created_at ASC",
                 SessionGroupDao::map, agentCode);
-    }
-
-    public Optional<SessionGroup> findByGroupId(String groupId) {
-        return runner.queryOne("SELECT " + COLUMNS + " FROM session_groups WHERE group_id=?",
-                SessionGroupDao::map, groupId);
     }
 
     public int rename(String groupId, String name) {

@@ -85,11 +85,6 @@ public class TerminalView {
         } : onCloseRequest;
     }
 
-    /** 当前是否已有可用的终端会话（进程存活且已启动）。 */
-    public boolean isOpen() {
-        return widget != null;
-    }
-
     /** 首次展开时懒启动 PTY；已启动则复用（把终端面板交回宿主）。 */
     public void ensureStarted() {
         if (widget != null) {

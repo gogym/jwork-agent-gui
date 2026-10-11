@@ -50,10 +50,6 @@ public class StreamEvent {
         return new StreamEvent(StreamEventType.TOOL_START, sessionId, null, toolName, toolInput, null, 0L, false, null);
     }
 
-    public static StreamEvent toolResult(String sessionId, String toolName, String result) {
-        return new StreamEvent(StreamEventType.TOOL_RESULT, sessionId, result, toolName, null, null, 0L, false, null);
-    }
-
     /**
      * 工具调用结束事件：携带工具名、入参（截断）、输出摘要（截断）、耗时（毫秒）与成败。
      * <p>供落盘层累积为 {@code tool_calls} 列、渲染层还原为可折叠工具卡片。</p>

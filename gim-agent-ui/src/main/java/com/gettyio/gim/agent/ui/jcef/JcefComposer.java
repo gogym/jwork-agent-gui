@@ -84,7 +84,6 @@ public final class JcefComposer {
     /** caret 矩形（相对编辑页 viewport）：IME 候选窗定位用，由 JS 随状态上报。 */
     private double caretX;
     private double caretY;
-    private double caretW = 1;
     private double caretH = 18;
 
     // ---------- 装载与待发脚本 ----------
@@ -451,7 +450,6 @@ public final class JcefComposer {
                     mirrorSelected = selected;
                     caretX = dbl(a, 3);
                     caretY = dbl(a, 4);
-                    caretW = dbl(a, 5);
                     caretH = dbl(a, 6);
                     if (selectionChanged && onSelectionChanged != null) {
                         onSelectionChanged.run();

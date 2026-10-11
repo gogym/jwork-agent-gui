@@ -17,15 +17,15 @@
 .empty-title     { -fx-font-size: 17px; }
 .empty-desc      { -fx-font-size: 13px; }
 .card-desc, .card-meta, .page-desc, .page-subtitle,
-.model-hint, .status-label, .info-key, .info-val,
-.section-title, .sub-title, .user-bar .user-name { -fx-font-size: 13px; }
+.model-hint, .status-label,
+.section-title, .user-bar .user-name { -fx-font-size: 13px; }
 /* 侧栏智能体切换卡与弹框条目 */
 .agent-switch-name { -fx-font-size: 15px; }
 .agent-switch-desc, .agent-item-desc { -fx-font-size: 12px; }
 .agent-item-name   { -fx-font-size: 14px; }
 
-/* 聊天气泡与 Markdown 正文（基础表为 14px 档）：正文 16px，标题 +7/+4/+2/+1，代码 -1 */
-.bubble-user, .bubble-text, .md-p, .md-bullet, .md-th, .md-td { -fx-font-size: 16px; }
+/* Markdown 正文（基础表为 14px 档）：正文 16px，标题 +7/+4/+2/+1，代码 -1 */
+.md-p, .md-bullet, .md-th, .md-td { -fx-font-size: 16px; }
 .md-h1 { -fx-font-size: 23px; }
 .md-h2 { -fx-font-size: 20px; }
 .md-h3 { -fx-font-size: 18px; }

@@ -338,7 +338,7 @@ public class SkillsView {
     /** 打开技能市场对话框（安装成功回调刷新本页卡片）。 */
     private void openMarket() {
         Window owner = root.getScene() == null ? null : root.getScene().getWindow();
-        new SkillsMarketDialog(owner, marketService, skillService, agentAdminService, this::reload).show();
+        new SkillsMarketDialog(owner, marketService, agentAdminService, this::reload).show();
     }
 
     private void handleInstall() {
