@@ -18,10 +18,12 @@ package com.gettyio.gim.agent.ui.window.dialog;
 
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.update.UpdateChecker;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.VBox;
@@ -57,9 +59,8 @@ public final class AboutDialog {
      * @param onConfirm 「确定」按钮动作
      */
     static void fill(VBox body, GimPaths paths, Runnable onConfirm) {
-        // 品牌区：圆徽 + 应用名 + 版本胶囊；fillWidth=false 防圆徽/胶囊被拉伸变形
-        Label logo = new Label("G");
-        logo.getStyleClass().add("about-logo");
+        // 品牌区：图形标 + 应用名 + 版本胶囊；fillWidth=false 防图形标/胶囊被拉伸变形
+        ImageView logo = UiTheme.brandMark(56);
         Label name = new Label(I18n.t("app.title"));
         name.getStyleClass().add("about-title");
         Label version = new Label(I18n.t("about.version", UpdateChecker.appVersion()));

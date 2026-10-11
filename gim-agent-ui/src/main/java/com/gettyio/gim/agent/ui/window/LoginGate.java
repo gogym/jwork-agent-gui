@@ -34,6 +34,7 @@ import javafx.scene.control.PasswordField;
 import javafx.scene.control.RadioMenuItem;
 import javafx.scene.control.TextField;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseButton;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
@@ -141,6 +142,8 @@ public final class LoginGate {
 
     private void show() {
         loginStage = new Stage();
+        // 窗口图标（任务栏/Alt+Tab）：与主窗同源的应用徽标
+        UiTheme.applyAppIcon(loginStage);
         loginStage.initStyle(StageStyle.TRANSPARENT);
         loginStage.setResizable(false);
         loginStage.setTitle(I18n.t("app.title"));
@@ -193,7 +196,7 @@ public final class LoginGate {
         return root;
     }
 
-    /** 标题栏：品牌标识与主窗同款（G 徽标 + 应用名）、语言切换、关闭 = 取消认证；空白区可拖动。 */
+    /** 标题栏：品牌标识与主窗同款（应用徽标 + 应用名）、语言切换、关闭 = 取消认证；空白区可拖动。 */
     private HBox buildTitleBar() {
         HBox bar = new HBox();
         bar.getStyleClass().add("title-bar");
@@ -201,8 +204,7 @@ public final class LoginGate {
 
         HBox brand = new HBox(8);
         brand.getStyleClass().add("title-brand");
-        Label logo = new Label("G");
-        logo.getStyleClass().add("title-logo");
+        ImageView logo = UiTheme.brandBadge(20);
         Label text = trLabel("app.title", "title-text");
         Region spacer = new Region();
         spacer.getStyleClass().add("title-spacer");
@@ -309,10 +311,9 @@ public final class LoginGate {
         return main;
     }
 
-    /** 品牌区：放大版徽标（与标题栏同款）+ 模式欢迎语 + 三行产品介绍。 */
+    /** 品牌区：放大版图形标（独立标志，与标题栏徽标同源）+ 模式欢迎语 + 三行产品介绍。 */
     private VBox buildBrand() {
-        Label logo = new Label("G");
-        logo.getStyleClass().add("auth-logo");
+        ImageView logo = UiTheme.brandMark(56);
 
         Label title = trLabel(heroKey(), "auth-hero-title");
         Label intro = new Label(introText());

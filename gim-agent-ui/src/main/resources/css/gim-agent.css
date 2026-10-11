@@ -1082,16 +1082,6 @@
 }
 .title-bar-maximized { -fx-border-color: transparent; }
 .title-brand { -fx-alignment: center-left; -fx-spacing: 8; }
-.title-logo {
-    -fx-background-color: -gim-accent;
-    -fx-background-radius: 999;
-    -fx-min-width: 20px; -fx-min-height: 20px;
-    -fx-pref-width: 20px; -fx-pref-height: 20px;
-    -fx-alignment: center;
-    -fx-text-fill: -gim-bg;
-    -fx-font-weight: bold;
-    -fx-font-size: 11px;
-}
 .title-text { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
 
 .window-controls { -fx-alignment: center; }
@@ -1139,18 +1129,7 @@
 .dialog-state-warn  { -fx-background-color: -gim-warn-bg;      -fx-text-fill: -gim-warn-icon; }
 .dialog-state-error { -fx-background-color: -gim-badge-red-bg; -fx-text-fill: -gim-badge-red-fg; }
 
-/* ---------- 关于对话框（齿轮菜单「关于」）：品牌徽标 + 版本胶囊 + 信息卡 ---------- */
-.about-logo {
-    -fx-background-color: -gim-accent;
-    -fx-background-radius: 999;
-    -fx-min-width: 56px; -fx-min-height: 56px;
-    -fx-pref-width: 56px; -fx-pref-height: 56px;
-    -fx-alignment: center;
-    -fx-text-fill: -gim-bg;
-    -fx-font-weight: bold;
-    -fx-font-size: 26px;
-    -fx-effect: dropshadow(gaussian, rgba(47, 158, 95, 0.30), 16, 0.10, 0, 5);
-}
+/* ---------- 关于对话框（齿轮菜单「关于」）：图形标 + 版本胶囊 + 信息卡 ---------- */
 .about-title { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
 .about-version {
     -fx-background-color: -gim-tint-3;
@@ -1173,18 +1152,6 @@
 /* ---------- 登录门（独立认证小窗）：品牌区与表单卡片单列居中 ---------- */
 /* 同款标题栏（品牌标识）在上；内容列紧凑居中 */
 .auth-main { -fx-padding: 24 40 30 40; }
-/* 品牌徽标：标题栏 .title-logo 的放大版（带柔和绿色光晕） */
-.auth-logo {
-    -fx-background-color: -gim-accent;
-    -fx-background-radius: 999;
-    -fx-min-width: 56px; -fx-min-height: 56px;
-    -fx-pref-width: 56px; -fx-pref-height: 56px;
-    -fx-alignment: center;
-    -fx-text-fill: -gim-bg;
-    -fx-font-weight: bold;
-    -fx-font-size: 26px;
-    -fx-effect: dropshadow(gaussian, rgba(47, 158, 95, 0.30), 16, 0.10, 0, 5);
-}
 .auth-hero-title { -fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
 .auth-intro { -fx-font-size: 13px; -fx-text-fill: -gim-text-3; -fx-line-spacing: 6; }
 /* 表单卡片：白底圆角浮于暖灰画布之上 */

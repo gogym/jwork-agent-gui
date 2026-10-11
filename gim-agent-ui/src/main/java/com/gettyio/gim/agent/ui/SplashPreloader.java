@@ -23,6 +23,7 @@ import javafx.geometry.Pos;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressIndicator;
+import javafx.scene.image.ImageView;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.paint.Color;
@@ -49,6 +50,8 @@ public class SplashPreloader extends Preloader {
     @Override
     public void start(Stage stage) {
         this.stage = stage;
+        // 品牌图形标（绿 J + 星芒）：闪屏首帧即建立品牌印象
+        ImageView logo = UiTheme.brandMark(64);
         Label title = new Label("Jwork");
         title.getStyleClass().add("splash-title");
         ProgressIndicator indicator = new ProgressIndicator();
@@ -56,9 +59,9 @@ public class SplashPreloader extends Preloader {
         status = new Label(I18n.t("splash.starting"));
         status.getStyleClass().add("splash-status");
 
-        VBox card = new VBox(14, title, indicator, status);
+        VBox card = new VBox(14, logo, title, indicator, status);
         card.setAlignment(Pos.CENTER);
-        card.setPrefSize(320, 170);
+        card.setPrefSize(320, 212);
         card.getStyleClass().add("splash-root");
         // 外层透明边距：投影落在 Scene 内，同时不遮挡卡片圆角
         StackPane shell = new StackPane(card);

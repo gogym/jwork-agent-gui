@@ -17,12 +17,14 @@
 package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Cursor;
 import javafx.scene.Parent;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.Tooltip;
+import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseButton;
 import javafx.scene.input.MouseEvent;
 import javafx.scene.layout.BorderPane;
@@ -110,8 +112,8 @@ public final class TitleBar {
     private HBox buildBrand() {
         HBox brand = new HBox(8);
         brand.getStyleClass().add("title-brand");
-        Label logo = new Label("G");
-        logo.getStyleClass().add("title-logo");
+        // 品牌徽标：随包应用图标（绿底圆角方块 + 白 J），替代旧的字形徽标
+        ImageView logo = UiTheme.brandBadge(20);
         Label text = new Label(I18n.t("app.title"));
         text.getStyleClass().add("title-text");
         Region spacer = new Region();

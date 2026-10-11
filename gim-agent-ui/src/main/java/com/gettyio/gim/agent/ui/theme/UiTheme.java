@@ -19,7 +19,10 @@ package com.gettyio.gim.agent.ui.theme;
 import com.gettyio.gim.agent.ui.prefs.UserPrefs;
 import javafx.scene.Scene;
 import javafx.scene.control.Label;
+import javafx.scene.image.Image;
+import javafx.scene.image.ImageView;
 import javafx.scene.text.Font;
+import javafx.stage.Stage;
 import javafx.stage.Window;
 
 import java.io.IOException;
@@ -131,6 +134,36 @@ public final class UiTheme {
         Label l = new Label(text);
         l.getStyleClass().add("icon");
         return l;
+    }
+
+    /**
+     * 应用徽标（绿底圆角方块 + 白 J）：按显示尺寸选择资源档位——
+     * 256 档缩到 20px 会糊边，标题栏等小尺寸位改吃 32 档小图。
+     */
+    public static ImageView brandBadge(double size) {
+        String resource = size <= 24 ? "/icons/app-icon-32.png"
+                : size <= 72 ? "/icons/app-icon-128.png" : "/icons/app-icon-256.png";
+        return brandImage(resource, size);
+    }
+
+    /** 独立图形标（绿 J + 星芒，透明底）：登录门品牌区/关于页/闪屏等品牌展示位。 */
+    public static ImageView brandMark(double size) {
+        return brandImage("/icons/brand-mark.png", size);
+    }
+
+    /** 为窗口设定任务栏与 Alt+Tab 图标（256 档应用徽标）。 */
+    public static void applyAppIcon(Stage stage) {
+        stage.getIcons().add(new Image(UiTheme.class.getResourceAsStream("/icons/app-icon-256.png")));
+    }
+
+    /** 从 classpath 读取品牌图片并等比缩放到给定边长（平滑插值）。 */
+    private static ImageView brandImage(String resource, double size) {
+        ImageView view = new ImageView(new Image(UiTheme.class.getResourceAsStream(resource)));
+        view.setFitWidth(size);
+        view.setFitHeight(size);
+        view.setPreserveRatio(true);
+        view.setSmooth(true);
+        return view;
     }
 
     /**

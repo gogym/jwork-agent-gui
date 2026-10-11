@@ -83,6 +83,10 @@ if ($FinalType -eq "msi") {
     $MsiExtras = @("--win-menu", "--win-shortcut")
 }
 
+# 应用图标（多尺寸 ICO：exe 与 msi 快捷方式共用）：从源码资源目录直取，随包维护同一份
+$IconFile = Join-Path $UiDir "src\main\resources\icons\jwork.ico"
+if (-not (Test-Path $IconFile)) { throw "未找到应用图标: $IconFile" }
+
 & $jpackage `
     --type $FinalType `
     --name $AppName `
@@ -90,6 +94,7 @@ if ($FinalType -eq "msi") {
     --input $StageDir `
     --main-jar $MainJar.Name `
     --main-class $MainClass `
+    --icon $IconFile `
     @MsiExtras `
     --java-options "-Xmx512m" `
     --java-options "-Dfile.encoding=UTF-8" `

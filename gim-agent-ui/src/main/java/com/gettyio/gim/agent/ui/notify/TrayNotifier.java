@@ -28,7 +28,9 @@ import java.awt.SystemTray;
 import java.awt.TrayIcon;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
-import java.awt.image.BufferedImage;
+import java.io.IOException;
+import java.io.InputStream;
+import javax.imageio.ImageIO;
 
 /**
  * 系统托盘通知（M5）：基于 AWT {@link SystemTray} 气球消息（Windows 原生支持），
@@ -125,18 +127,10 @@ public class TrayNotifier {
         }
     }
 
-    /** 生成 16x16 托盘图标：深蓝圆底 + 白色 "G" */
-    private static Image createIconImage() {
-        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_ARGB);
-        java.awt.Graphics2D g = image.createGraphics();
-        g.setRenderingHint(java.awt.RenderingHints.KEY_ANTIALIASING,
-                java.awt.RenderingHints.VALUE_ANTIALIAS_ON);
-        g.setColor(new java.awt.Color(37, 99, 235));
-        g.fillOval(0, 0, 15, 15);
-        g.setColor(java.awt.Color.WHITE);
-        g.setFont(new java.awt.Font(java.awt.Font.SANS_SERIF, java.awt.Font.BOLD, 11));
-        g.drawString("G", 4, 12);
-        g.dispose();
-        return image;
+    /** 托盘图标：随包应用徽标（32 档源图，setImageAutoSize 由系统按 DPI 缩放到托盘尺寸）。 */
+    private static Image createIconImage() throws IOException {
+        try (InputStream in = TrayNotifier.class.getResourceAsStream("/icons/app-icon-32.png")) {
+            return ImageIO.read(in);
+        }
     }
 }

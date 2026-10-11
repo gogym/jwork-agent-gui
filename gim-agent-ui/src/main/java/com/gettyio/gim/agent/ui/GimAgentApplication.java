@@ -87,6 +87,8 @@ public class GimAgentApplication extends Application {
         });
         // 登录门（软锁）凭证服务：首次启动须设置账号密码、会话超期/锁定后须重新登录
         LocalAuthService localAuth = context.localAuthService();
+        // 窗口图标（任务栏/Alt+Tab）：随包应用徽标
+        UiTheme.applyAppIcon(stage);
         // 去掉系统顶部程序 bar，改用自绘标题栏；TRANSPARENT 使窗口可呈现四角圆角（须在建 Scene 前设置）
         stage.initStyle(StageStyle.TRANSPARENT);
         // 关闭 OS 可调整大小：避免 Windows 为可调整的无边框/透明窗口叠加一圈不可见 resize 边框（WS_THICKFRAME），

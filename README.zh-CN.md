@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="gim-agent-ui/src/main/resources/icons/brand-mark.png" width="104" alt="Jwork logo">
+</p>
+
 # Jwork
 
 **Windows 桌面上的本地优先个人 AI 助理工作台。**
