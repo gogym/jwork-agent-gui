@@ -6,6 +6,7 @@ import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
 import com.gettyio.gim.agent.ui.jcef.JcefResources;
+import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.StackPane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -257,6 +258,22 @@ public final class ChatWebView {
 
     public void compareClear() {
         run("ChatAPI.compareClear();");
+    }
+
+    // ---------- 键盘 ----------
+
+    /**
+     * Scene 级快捷键转发（Ctrl+C 复制等）：聊天页选区由 Chromium 维护，把按键合成 AWT
+     * 事件直送聊天 Chromium（与输入框的键盘转发同链），由浏览器执行对应编辑命令。
+     * 转发前确保浏览器持有焦点：编辑命令只作用于有焦点浏览器的选区。
+     */
+    public void forwardShortcut(KeyEvent e, int awtEventId) {
+        try {
+            view.browser().setFocus(true);
+        } catch (Throwable ignored) {
+            // 浏览器未就绪时忽略：此时也无选区可复制
+        }
+        view.forwardKeyEvent(e, awtEventId, e.getCode().getCode(), (char) 0);
     }
 
     // ---------- 队列 ----------

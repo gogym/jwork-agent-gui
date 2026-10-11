@@ -505,6 +505,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         inputFieldHost.sceneProperty().addListener((obs, o, sc) -> {
             if (sc != null) {
                 installEnterFallback(sc);
+                installChatCopyShortcut(sc);
             }
         });
         // 「会话」标题行点击：整块区域展开/收起
@@ -944,6 +945,40 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         Node terminalRoot = terminalView == null ? null : terminalView.getNode();
         for (Node n = node; n != null; n = n.getParent()) {
             if (n == inputFieldHost || n == terminalRoot || n instanceof TextInputControl) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Ctrl+C 兜底：聊天区是 JCEF(Chromium) 渲染，选中文本的复制属 Chromium 编辑命令，
+     * 但聊天视图不接键盘转发（点击聊天区也不抢 FX 焦点），Ctrl+C 会静默失效。
+     * 焦点不在文本控件/终端时，把 Ctrl+C 合成转发给聊天 Chromium（与输入框转发同链），
+     * 由浏览器把选区写入系统剪贴板；输入框自身有选区时保留 composer 链的复制。
+     */
+    private void installChatCopyShortcut(Scene scene) {
+        scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
+            if (e.getCode() != KeyCode.C || !e.isShortcutDown()) {
+                return;
+            }
+            Node focus = scene.getFocusOwner();
+            Node terminalRoot = terminalView == null ? null : terminalView.getNode();
+            if (focus instanceof TextInputControl || within(focus, terminalRoot)) {
+                return;
+            }
+            if (within(focus, inputFieldHost) && inputField.hasSelection()) {
+                return;
+            }
+            e.consume();
+            chatView.forwardShortcut(e, java.awt.event.KeyEvent.KEY_PRESSED);
+        });
+    }
+
+    /** 焦点节点是否位于指定祖先子树内（含自身）；{@code ancestor} 为 null 时恒为 false。 */
+    private static boolean within(Node node, Node ancestor) {
+        for (Node n = node; n != null; n = n.getParent()) {
+            if (n == ancestor) {
                 return true;
             }
         }

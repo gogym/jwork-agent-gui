@@ -191,6 +191,11 @@ public final class JcefComposer {
         return mirrorCaret;
     }
 
+    /** 输入框当前是否有选中文本（随 selectionchange 上行；Ctrl+C 链路据此让位）。 */
+    public boolean hasSelection() {
+        return mirrorSelected != null && !mirrorSelected.isEmpty();
+    }
+
     /** 镜像文本长度。 */
     public int getLength() {
         return mirror.get().length();

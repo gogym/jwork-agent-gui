@@ -619,13 +619,26 @@
     });
 
     // 原生右键：拦截并回调 Java（Java 弹原生 ContextMenu）
+    // 仅消息卡片本体响应（气泡/思考卡/工具卡/附件行/操作条）：行容器与宿主容器的留白
+    // （气泡旁空区、卡片间的缝隙）不弹菜单，已有菜单则按「菜单外点击」收起
     // ctxMenuOpen 跟踪菜单显示态：JCEF(OSR) 区域点击不触发 JavaFX 弹窗自动隐藏，
     // 由下面的 mousedown/wheel 兜底回抛收起（仅菜单开着时过桥，避免每次点击无谓跨进程）
     var ctxMenuOpen = false;
+    var MSG_CARD_SEL = '.bubble-user,.bubble-assistant,.bubble-footer,.thinking-card,'
+            + '.tool-group,.bubble-images img,.file-row';
     document.addEventListener('contextmenu', function (ev) {
         ev.preventDefault();
-        var row = ev.target.closest ? ev.target.closest('.bubble-row') : null;
-        var id = row ? parseInt(row.getAttribute('data-id'), 10) : 0;
+        var t = ev.target;
+        var card = t && t.closest ? t.closest(MSG_CARD_SEL) : null;
+        var row = card && card.closest ? card.closest('.bubble-row') : null;
+        if (!row) {
+            if (ctxMenuOpen) {
+                ctxMenuOpen = false;
+                if (bridge()) { bridge().onDismissMenu(); }
+            }
+            return;
+        }
+        var id = parseInt(row.getAttribute('data-id'), 10);
         ctxMenuOpen = true;
         if (bridge()) { bridge().onContext(isNaN(id) ? 0 : id, ev.clientX, ev.clientY); }
     }, false);
