@@ -8,6 +8,8 @@ import javafx.beans.property.StringProperty;
 import javafx.geometry.Insets;
 import javafx.geometry.Point2D;
 import javafx.scene.Scene;
+import javafx.scene.input.Clipboard;
+import javafx.scene.input.ClipboardContent;
 import javafx.scene.input.InputMethodEvent;
 import javafx.scene.input.InputMethodRequests;
 import javafx.scene.input.InputMethodTextRun;
@@ -36,10 +38,13 @@ import java.util.function.Consumer;
  * <ul>
  *   <li><b>字符输入</b>：JavaFX KEY_TYPED 经 {@code ComposerAPI.insertText}（execCommand）注入 DOM——
  *       彩色 emoji / 增补平面字符天然支持（executeScript 有 ASCII 转义护栏）；</li>
- *   <li><b>编辑键</b>（Backspace/Delete 及 Ctrl 组合）：与字符输入同一 JS 注入链路
- *       （{@code ComposerAPI.deleteText}）——合成 AWT 键盘转发在键盘经 JavaFX 路由时
- *       不产生 Chromium 编辑效果（同 Shift+Enter 软换行的处理教训）；</li>
- *   <li><b>其余功能键</b>（方向/Home/End 等与 Ctrl 组合快捷键）：合成 AWT KeyEvent 转发
+ *   <li><b>编辑键与剪贴板命令</b>（Backspace/Delete、Ctrl+C/V/X/A）：本地处理——删除经
+ *       {@code ComposerAPI.deleteText}（选区整体删 / 按字符词粒度删）；粘贴读系统剪贴板经
+ *       {@code ComposerAPI.insertText} 注入；复制、剪切把 DOM 选区镜像直写系统剪贴板
+ *       （剪切随后注入删除）；全选经 {@code ComposerAPI.selectAll} 注入。合成 AWT 键盘转发
+ *       在键盘经 JavaFX 路由时不产生 Chromium 编辑效果（同 Shift+Enter 软换行的处理教训），
+ *       剪贴板命令属同类，一律不赌转发链；</li>
+ *   <li><b>其余功能键</b>（方向/Home/End 等）：合成 AWT KeyEvent 转发
  *       （{@link JcefOsrView#forwardKeyEvent}），Chromium 原生处理；</li>
  *   <li><b>中文 IME</b>：系统输入法事件由 JavaFX 层接管（{@link InputMethodRequests} +
  *       {@code onInputMethodTextChanged}，焦点节点两者齐备才会启用 IME 事件）——组合文本经桥渲染为
@@ -278,6 +283,47 @@ public final class JcefComposer {
             // 不产生 Chromium 编辑效果——同 Shift+Enter 换行的处理）；Ctrl 修饰按词删
             e.consume();
             execJs("ComposerAPI.deleteText(" + (code == KeyCode.DELETE) + ", " + e.isControlDown() + ");");
+            return;
+        }
+        if (e.isShortcutDown() && code == KeyCode.V) {
+            // 粘贴本地注入：读系统剪贴板纯文本经 ComposerAPI.insertText 写入 DOM（有选区即
+            // 替换、多行原样插入，与 composer.js 的 DOM paste 监听同语义）——剪贴板命令与
+            // 删除/换行同类，走合成 AWT 转发链不产生 Chromium 编辑效果
+            e.consume();
+            String text = Clipboard.getSystemClipboard().getString();
+            if (text != null && !text.isEmpty()) {
+                execJs("ComposerAPI.insertText(" + jsString(text) + ");");
+            }
+            return;
+        }
+        if (e.isShortcutDown() && code == KeyCode.C) {
+            // 复制本地注入：DOM 选区镜像直写系统剪贴板；无选区不动作（Scene 级快捷键过滤器
+            // 仅在输入框有选区时放行到本链，其余场合由聊天页复制接住）
+            e.consume();
+            if (hasSelection()) {
+                ClipboardContent content = new ClipboardContent();
+                content.putString(mirrorSelected);
+                Clipboard.getSystemClipboard().setContent(content);
+            }
+            return;
+        }
+        if (e.isShortcutDown() && code == KeyCode.X) {
+            // 剪切本地注入：先写剪贴板（镜像选区），再注入删除（非折叠选区整体删除）；
+            // 无选区不动作（同原生语义）
+            e.consume();
+            if (hasSelection()) {
+                ClipboardContent content = new ClipboardContent();
+                content.putString(mirrorSelected);
+                Clipboard.getSystemClipboard().setContent(content);
+                execJs("ComposerAPI.deleteText(false, false);");
+            }
+            return;
+        }
+        if (e.isShortcutDown() && code == KeyCode.A) {
+            // 全选本地注入：DOM Range 精确选中编辑区内容（execCommand('selectAll') 会
+            // 波及编辑区之外，不用）
+            e.consume();
+            execJs("ComposerAPI.selectAll();");
             return;
         }
         if (isPassthroughKey(code)) {

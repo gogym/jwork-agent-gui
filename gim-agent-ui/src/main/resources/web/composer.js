@@ -329,6 +329,17 @@
         },
         askSend: function () {
             send('sendNow', [getText()]);
+        },
+        selectAll: function () {
+            // 全选：Range 精确选中编辑区内容（不用 execCommand('selectAll')，后者会
+            // 波及编辑区之外）；Ctrl+A 由 Java 键盘链本地注入调用
+            editor.focus();
+            var r = document.createRange();
+            r.selectNodeContents(editor);
+            var s = window.getSelection();
+            s.removeAllRanges();
+            s.addRange(r);
+            reportState();
         }
     };
 
@@ -380,6 +391,13 @@
         if (t) {
             document.execCommand('insertText', false, t);
         }
+    });
+
+    // 右键一律不出 CEF 默认上下文菜单：OSR（屏幕外承载帧）下该菜单坐标换算失效，
+    // 会错位弹到屏幕左上角；输入框不提供右键菜单（粘贴走 Ctrl+V 本地注入链路）。
+    // 与聊天区拦截 contextmenu 同口径（聊天区拦截后转 JavaFX 原生菜单）。
+    document.addEventListener('contextmenu', function (e) {
+        e.preventDefault();
     });
 
     // 加载后不主动聚焦编辑区（启动不抢焦点，点击输入框才聚焦）；插入类 API 各自自保 focus
