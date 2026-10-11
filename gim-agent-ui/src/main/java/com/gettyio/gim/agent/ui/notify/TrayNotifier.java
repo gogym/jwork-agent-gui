@@ -1,12 +1,8 @@
 package com.gettyio.gim.agent.ui.notify;
 
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import com.gettyio.gim.agent.ui.I18n;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.stereotype.Component;
 
 import java.awt.GraphicsEnvironment;
 import java.awt.Image;
@@ -22,8 +18,6 @@ import java.awt.image.BufferedImage;
  * 系统托盘通知（M5）：基于 AWT {@link SystemTray} 气球消息（Windows 原生支持），
  * 不阻塞 JavaFX 应用线程；平台不支持时 {@link #isAvailable()} 返回 false，由调用方回退到弹窗。
  */
-@Component
-@Lazy(false) // 全局 lazy-init 下保持 eager：@PostConstruct 需在启动期建托盘图标
 public class TrayNotifier {
 
     private static final Logger log = LoggerFactory.getLogger(TrayNotifier.class);
@@ -31,7 +25,7 @@ public class TrayNotifier {
 
     private volatile TrayIcon trayIcon;
 
-    @PostConstruct
+    /** 初始化托盘图标（由组合根在启动期调用；平台不支持时静默降级）。 */
     public void init() {
         if (GraphicsEnvironment.isHeadless() || !SystemTray.isSupported()) {
             log.info("当前平台不支持系统托盘，通知将回退为窗口弹窗");
@@ -99,7 +93,7 @@ public class TrayNotifier {
                 () -> icon.displayMessage(title, finalText, TrayIcon.MessageType.INFO));
     }
 
-    @PreDestroy
+    /** 移除托盘图标（应用退出时由组合根调用）。 */
     public void dispose() {
         TrayIcon icon = this.trayIcon;
         if (icon != null) {

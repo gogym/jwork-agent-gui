@@ -3,11 +3,8 @@ package com.gettyio.gim.agent.ui.desktop;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinUser;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.util.HashSet;
 import java.util.Locale;
@@ -23,7 +20,6 @@ import java.util.concurrent.LinkedBlockingQueue;
  * <p>非 Windows 平台或注册失败（组合键被占用等）只告警降级，不影响主程序；开关持久化在
  * AppSetting {@code app.hotkey.enabled}（默认开）。</p>
  */
-@Component
 public class GlobalHotkeyService {
 
     private static final Logger log = LoggerFactory.getLogger(GlobalHotkeyService.class);
@@ -47,7 +43,6 @@ public class GlobalHotkeyService {
 
     private final GimDatabase db;
 
-    @Autowired
     public GlobalHotkeyService(GimDatabase db) {
         this.db = db;
     }
@@ -228,7 +223,7 @@ public class GlobalHotkeyService {
         }
     }
 
-    @PreDestroy
+    /** 停止消息泵（幂等）：中断循环，loop 的 finally 负责反注册全部热键。 */
     public synchronized void stop() {
         running = false;
         if (worker != null) {

@@ -10,9 +10,6 @@ import javafx.application.Platform;
 import javafx.stage.Window;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
-import org.springframework.stereotype.Component;
 
 import java.awt.Desktop;
 import java.io.IOException;
@@ -40,7 +37,7 @@ import java.util.function.DoubleConsumer;
 /**
  * 更新检查：向 gim-server-ai 查询最新发布版本并与本应用语义化版本比对，支持应用内下载安装。
  * <ul>
- *   <li><b>服务器地址</b>：内置生产默认基地址（{@code application.properties} 的 {@code update.server.base-url}），
+ *   <li><b>服务器地址</b>：内置生产默认基地址（编译期常量 {@link #DEFAULT_BASE_URL}），
  *       设置页可覆盖，覆盖值持久化在 AppSetting {@code app.update.serverBaseUrl}（留空即回退内置默认）；
  *       更新检查接口路径固定为 {@code /ai/update/check}（服务端已免鉴权，无需登录态）。</li>
  *   <li><b>当前版本</b>取自 classpath 资源 {@code version.properties}（{@code app.version}）；比较采用
@@ -50,7 +47,6 @@ import java.util.function.DoubleConsumer;
  *   <li><b>静默检查</b>：{@link #maybeCheckOnStartup(javafx.stage.Window)} 在开关开启且当日未查过时后台执行；强更弹模态，否则仅发托盘气泡。</li>
  * </ul>
  */
-@Component
 public class UpdateChecker {
 
     private static final Logger log = LoggerFactory.getLogger(UpdateChecker.class);
@@ -77,14 +73,9 @@ public class UpdateChecker {
 
     private volatile String cachedCurrent;
 
-    /**
-     * 内置生产更新服务基地址（gim-server-ai）：用户未在设置页手动配置时作为默认。
-     * 来源于 {@code application.properties} 的 {@code update.server.base-url}；缺省为空（退化为纯手填）。
-     */
-    @Value("${update.server.base-url:}")
-    private String defaultBaseUrl;
+    /** 内置生产更新服务基地址（gim-server-ai）：用户未在设置页手动配置时作为默认。 */
+    private static final String DEFAULT_BASE_URL = "https://api.gettyio.com";
 
-    @Autowired
     public UpdateChecker(GimDatabase db, TrayNotifier trayNotifier) {
         this.db = db;
         this.trayNotifier = trayNotifier;
@@ -112,7 +103,7 @@ public class UpdateChecker {
         if (!configured.isEmpty()) {
             return trimTrailingSlash(configured);
         }
-        return trimTrailingSlash(defaultBaseUrl);
+        return trimTrailingSlash(DEFAULT_BASE_URL);
     }
 
     public void setServerBaseUrl(String url) {

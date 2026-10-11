@@ -7,29 +7,19 @@ import javafx.geometry.Insets;
 import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.layout.StackPane;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 /**
  * 拓展整页：内容区左上角三个 Tab —— 「技能」「知识」与「MCP 服务」。
  * <p>技能 Tab 复用 {@link SkillsView}，知识 Tab 复用 {@link KnowledgeView}，MCP Tab 复用自包含组件
  * {@link McpView}（与「设置」中的 MCP 服务共用同一实现，各自独立实例）。语言切换时刷新 Tab 文案。</p>
  */
-@Component
 public class ExtensionsView {
 
-    @Autowired
-    private SkillsView skillsView;
-
-    @Autowired
-    private KnowledgeView knowledgeView;
-
-    @Autowired
-    private McpAdminService mcpAdminService;
-
+    private final SkillsView skillsView;
+    private final KnowledgeView knowledgeView;
+    private final McpAdminService mcpAdminService;
     /** 在线市场服务：MCP Tab 内的「市场」入口复用 */
-    @Autowired
-    private MarketService marketService;
+    private final MarketService marketService;
 
     private final StackPane root = new StackPane();
     private final TabPane tabPane = new TabPane();
@@ -39,7 +29,12 @@ public class ExtensionsView {
     private McpView mcpView;
     private boolean built;
 
-    public ExtensionsView() {
+    public ExtensionsView(SkillsView skillsView, KnowledgeView knowledgeView,
+                          McpAdminService mcpAdminService, MarketService marketService) {
+        this.skillsView = skillsView;
+        this.knowledgeView = knowledgeView;
+        this.mcpAdminService = mcpAdminService;
+        this.marketService = marketService;
         I18n.onChange(lang -> {
             if (built) {
                 applyI18n();
@@ -56,7 +51,7 @@ public class ExtensionsView {
         if (built) {
             return;
         }
-        // MCP 视图需在字段注入完成后创建，首次访问时构建
+        // MCP 视图首次访问时惰性构建
         mcpView = new McpView(mcpAdminService, marketService);
         // 拓展页内隐藏一级标题（与 Tab 名重复）；设置页的 MCP 仍保留标题
         skillsView.showHeaderTitle(false);

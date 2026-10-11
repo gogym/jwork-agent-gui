@@ -18,22 +18,18 @@ import javafx.scene.paint.Color;
 import javafx.scene.text.Font;
 import javafx.scene.text.Text;
 import javafx.scene.text.TextFlow;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
-
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 /**
- * JavaFX 弹窗式人工确认处理器（@Primary 覆盖无 UI 的默认拒绝实现）。
+ * JavaFX 弹窗式人工确认处理器（应用默认的 HITL 通道）。
  * <p>在 FX 线程弹出确认对话框，用户选择"允许/总是允许/拒绝"回填异步决策。
  * 按钮与文案按当前语言即时构建。对话框以主窗口为 owner，居中弹出并把背景磨玻璃化。</p>
  * <p>文件类工具（{@code edit_file}/{@code write_file}）升级为 diff 预览卡：
  * 从 {@link ToolCallsCodec} 还原的结构化入参里提取 path 与 old_string/new_string，
  * 以红删绿增的等宽行展示变更内容，其余工具维持原文本确认框。</p>
  */
-@Component
 public class FxHitlConfirmHandler implements HitlConfirmHandler {
 
     /** 走 diff 预览卡的文件工具（工具名与 FilesystemTool 注册名一致）。 */
@@ -46,8 +42,12 @@ public class FxHitlConfirmHandler implements HitlConfirmHandler {
     private static final Color DIFF_ADDED = Color.web("#2da84b");
     private static final Color DIFF_PATH = Color.web("#0EA5E9");
 
-    @Autowired
-    private AppShell appShell;
+    private final AppShell appShell;
+
+    /** 由组合根装配（主窗外壳提供对话框 owner 与磨玻璃背景）。 */
+    public FxHitlConfirmHandler(AppShell appShell) {
+        this.appShell = appShell;
+    }
 
     @Override
     public CompletableFuture<PermissionDecision> requestConfirm(ToolConfirmRequest request) {

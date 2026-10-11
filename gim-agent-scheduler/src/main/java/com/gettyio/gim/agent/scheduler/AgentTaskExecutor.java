@@ -14,18 +14,18 @@ import com.gettyio.gim.agent.domain.enums.TaskStatus;
 import io.agentscope.core.permission.PermissionMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.context.ApplicationEventPublisher;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Optional;
+import java.util.function.Consumer;
 
 /**
  * 自动化任务执行器：Quartz 调度触发与手动「立即执行」共用的执行语义。
  * <p>按任务定义派生会话（合并输出固定 {@code task-{code}} 复用同一会话；独立输出按执行时刻
  * 派发 {@code task-{code}-yyyyMMdd-HHmmss} 新会话）、按无人值守开关映射工具授权档位
  * （开启 → ACCEPT_EDITS + 自动放行；关闭 → EXPLORE 只读）、按模型覆盖透传提供方与模型。
- * 每次执行（成功或失败）写一条 {@code task_runs} 并发布 {@link TaskCompletedEvent} 供 UI 通知。</p>
+ * 每次执行（成功或失败）写一条 {@code task_runs} 并经 {@link TaskCompletedEvent} 回调通知 UI。</p>
  */
 public class AgentTaskExecutor {
 
@@ -39,12 +39,14 @@ public class AgentTaskExecutor {
 
     private final GimDatabase db;
     private final ChatService chatService;
-    private final ApplicationEventPublisher eventPublisher;
+    /** 任务完成回调（组合根接系统通知；替代原 Spring 事件发布器）。 */
+    private final Consumer<TaskCompletedEvent> onTaskCompleted;
 
-    public AgentTaskExecutor(GimDatabase db, ChatService chatService, ApplicationEventPublisher eventPublisher) {
+    public AgentTaskExecutor(GimDatabase db, ChatService chatService,
+                             Consumer<TaskCompletedEvent> onTaskCompleted) {
         this.db = db;
         this.chatService = chatService;
-        this.eventPublisher = eventPublisher;
+        this.onTaskCompleted = onTaskCompleted;
     }
 
     /**
@@ -147,9 +149,9 @@ public class AgentTaskExecutor {
 
     private void publish(TaskCompletedEvent event) {
         try {
-            eventPublisher.publishEvent(event);
+            onTaskCompleted.accept(event);
         } catch (Exception e) {
-            log.warn("发布任务完成事件失败: {}", event.getTaskCode(), e);
+            log.warn("任务完成回调失败: {}", event.getTaskCode(), e);
         }
     }
 

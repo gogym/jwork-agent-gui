@@ -14,9 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import org.quartz.JobDataMap;
 import org.quartz.JobExecutionContext;
-import org.springframework.context.ApplicationEventPublisher;
 
-import java.lang.reflect.Field;
 import java.nio.file.Path;
 import java.util.Date;
 import java.util.List;
@@ -38,7 +36,7 @@ import static org.mockito.Mockito.when;
 /**
  * {@link AgentTaskJob} 单测：成功与失败两路都写 {@code task_runs} 执行历史，字段随成败区分；
  * 另覆盖授权档位映射（无人值守 → ACCEPT_EDITS + 自动放行）与会话派生（独立输出按时刻新建）。
- * <p>{@code @Autowired} 私有字段以反射注入（无 Spring 上下文）；{@link JobExecutionContext} 用桩。</p>
+ * <p>执行器经 {@code setExecutor} 显式注入（无容器）；{@link JobExecutionContext} 用桩。</p>
  */
 class AgentTaskJobTest {
 
@@ -47,7 +45,7 @@ class AgentTaskJobTest {
 
     private GimDatabase db;
     private ChatService chatService;
-    private ApplicationEventPublisher publisher;
+    private AgentTaskExecutor taskExecutor;
     private AgentTaskJob job;
 
     @BeforeEach
@@ -55,16 +53,10 @@ class AgentTaskJobTest {
         db = new GimDatabase(new SqliteConnectionProvider(tempDir.resolve("gim.db")));
         db.initSchema();
         chatService = mock(ChatService.class);
-        publisher = mock(ApplicationEventPublisher.class);
+        taskExecutor = new AgentTaskExecutor(db, chatService, event -> { });
 
         job = new AgentTaskJob();
-        inject("executor", new AgentTaskExecutor(db, chatService, publisher));
-    }
-
-    private void inject(String name, Object value) throws Exception {
-        Field f = AgentTaskJob.class.getDeclaredField(name);
-        f.setAccessible(true);
-        f.set(job, value);
+        job.setExecutor(taskExecutor);
     }
 
     private static ScheduledTask newTask(String code, Integer once) {
@@ -107,7 +99,7 @@ class AgentTaskJobTest {
         seedTask("ok1", 0);
         stubProactiveRun("今天晴");
 
-        job.executeInternal(context("ok1"));
+        job.execute(context("ok1"));
 
         List<TaskRun> runs = db.taskRunDao().findByCode("ok1");
         assertEquals(1, runs.size());
@@ -127,7 +119,7 @@ class AgentTaskJobTest {
                 any(PermissionMode.class), anyBoolean(), nullable(String.class), nullable(String.class)))
                 .thenThrow(new RuntimeException("模型连接失败"));
 
-        job.executeInternal(context("bad1"));
+        job.execute(context("bad1"));
 
         List<TaskRun> runs = db.taskRunDao().findByCode("bad1");
         assertEquals(1, runs.size());
@@ -143,7 +135,7 @@ class AgentTaskJobTest {
         seedTask("once1", 1);
         stubProactiveRun("done");
 
-        job.executeInternal(context("once1"));
+        job.execute(context("once1"));
 
         assertEquals(TaskStatus.FINISHED.name(), db.taskDao().findByCode("once1").orElseThrow().getStatus());
     }
@@ -161,7 +153,7 @@ class AgentTaskJobTest {
                 eq(PermissionMode.ACCEPT_EDITS), eq(true), eq("p1"), eq("m1")))
                 .thenReturn("ok");
 
-        job.executeInternal(context("un1"));
+        job.execute(context("un1"));
 
         verify(chatService).proactiveRun(eq("task-un1"), eq("gim-agent"), anyString(),
                 eq(PermissionMode.ACCEPT_EDITS), eq(true), eq("p1"), eq("m1"));
@@ -175,7 +167,7 @@ class AgentTaskJobTest {
         db.taskDao().insert(t);
         stubProactiveRun("ok");
 
-        job.executeInternal(context("sep1"));
+        job.execute(context("sep1"));
 
         List<TaskRun> runs = db.taskRunDao().findByCode("sep1");
         assertEquals(1, runs.size());

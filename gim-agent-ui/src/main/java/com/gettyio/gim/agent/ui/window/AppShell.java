@@ -7,7 +7,6 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.Stage;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,10 +19,9 @@ import java.util.function.Consumer;
  * {@link Rectangle} 裁剪，使贴边的标题栏/侧栏也呈现四角圆角；最大化时去掉圆角与边距铺满屏幕。</p>
  * <p>中部再分两层：下层 {@code contentHolder} 放当前视图、上层 {@code frostVeil} 为弹窗期间的
  * 磨玻璃遮罩（模糊只作用于视图，标题栏保持清晰），开关由 {@link FrostedBackdrop} 在对话框弹出/关闭时驱动。</p>
- * <p>作为 Spring 单例在 UI 各组件间共享：{@code GimAgentApplication} 启动时 {@link #configure} 装配，
+ * <p>作为应用单例在 UI 各组件间共享：{@code GimAgentApplication} 启动时 {@link #configure} 装配，
  * 设置视图通过 {@link #setContent} 替换中部，返回应用时 {@link #showApp} 还原，标题栏始终常驻。</p>
  */
-@Component
 public class AppShell {
 
     /** 圆角半径（px），与 CSS 中 .window-shell 的 -fx-background-radius 保持一致。 */

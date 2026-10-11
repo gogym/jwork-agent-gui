@@ -23,6 +23,7 @@
     var flags = { lastAssistantId: 0, lastUserId: 0 };
     var followBottom = true;      // 是否自动跟随到底部
     var wasAtBottom = true;       // 最近一次滚动事件时是否已贴底（视口尺寸变化时据此补滚回底）
+    var bottomSnapTimer = null;   // 整页重放后的贴底兜底定时器（待图片/布局结算后再齐一次底）
     var streaming = {};           // id -> {raw, thinking, node, ...}
     var TRIM_THRESHOLD = 800;     // DOM 消息行超此数且贴底时触发顶部回收（长会话控内存）
     var TRIM_KEEP = 400;          // 回收后保留的最新消息行数
@@ -367,6 +368,16 @@
             streaming = {};
             for (var i = 0; i < msgs.length; i++) { l.appendChild(buildMessage(msgs[i])); }
             updateEmpty();
+            // 整页重放（会话切换/收尾重放）默认定位到最新消息：重建 DOM 会把滚动位置复位到顶部，
+            // 这里立即贴底并恢复跟随态；稍后再齐一次底，等图片解码等异步布局结算后仍不漂离底部。
+            followBottom = true;
+            wasAtBottom = true;
+            scrollToBottom(false);
+            if (bottomSnapTimer) { clearTimeout(bottomSnapTimer); }
+            bottomSnapTimer = setTimeout(function () {
+                bottomSnapTimer = null;
+                if (wasAtBottom) { scrollToBottom(false); }
+            }, 32);
         },
 
         prependOlder: function (msgs) {
@@ -411,7 +422,12 @@
             if (bridge() && newOldest > 0) { bridge().onTrimmed(newOldest); }
         },
 
-        clear: function () { list().innerHTML = ''; streaming = {}; updateEmpty(); },
+        clear: function () {
+            if (bottomSnapTimer) { clearTimeout(bottomSnapTimer); bottomSnapTimer = null; }
+            list().innerHTML = '';
+            streaming = {};
+            updateEmpty();
+        },
 
         // 追加单条消息（发送即时上屏的用户气泡，尚未落库无主键）
         appendMessage: function (m) {
@@ -495,6 +511,8 @@
         reveal: function (id) {
             var row = list().querySelector('.bubble-row[data-id="' + id + '"]');
             if (!row) { return; }
+            // 搜索命中定位优先：取消重放后的贴底兜底，避免稍后的齐底打断本处的平滑定位
+            if (bottomSnapTimer) { clearTimeout(bottomSnapTimer); bottomSnapTimer = null; }
             followBottom = false;
             row.scrollIntoView({ behavior: 'smooth', block: 'center' });
             row.classList.add('hit');

@@ -6,11 +6,6 @@ import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.context.event.EventListener;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -51,8 +46,6 @@ import com.github.sardine.SardineFactory;
  * {@link SyncPayloadCipher} 对载荷加密（文件名加 {@value #ENC_SUFFIX} 后缀）。所有远端
  * 路径 {@code <base>/<文件名>} 平铺，不创建子目录结构。</p>
  */
-@Component
-@Lazy(false) // 全局 lazy-init 下保持 eager：@EventListener(ApplicationReadyEvent) 启动自动同步巡检
 public class WebDavSyncService {
 
     private static final Logger log = LoggerFactory.getLogger(WebDavSyncService.class);
@@ -101,7 +94,6 @@ public class WebDavSyncService {
     /** 同步结果监听者（设置页据此刷新「最近同步」与失败提示） */
     private final List<Consumer<SyncResult>> listeners = new CopyOnWriteArrayList<>();
 
-    @Autowired
     public WebDavSyncService(GimDatabase db, SecretCipher cipher, GimPaths gimPaths,
                              DbBackupService backupService) {
         this.db = db;
@@ -398,7 +390,6 @@ public class WebDavSyncService {
     // ---- 自动同步巡检 ----
 
     /** 应用就绪后启动守护巡检线程：每 30 分钟看一次是否到期（启动时先看一次）。 */
-    @EventListener(ApplicationReadyEvent.class)
     public void startAutoSync() {
         if (autoSyncExecutor != null) {
             return;

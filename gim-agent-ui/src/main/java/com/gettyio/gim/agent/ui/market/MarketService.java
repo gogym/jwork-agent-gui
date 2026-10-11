@@ -11,8 +11,6 @@ import com.gettyio.gim.agent.ui.config.McpAdminService;
 import com.gettyio.gim.agent.ui.update.UpdateChecker;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -60,7 +58,6 @@ import java.util.stream.Stream;
  * 技能包下载沿用 {@link UpdateChecker} 的校验口径：fileHash 64 位十六进制按 SHA-256、32 位按 MD5，
  * 其余长度无法识别则跳过校验。安装链路完全复用 {@link SkillService#importFromMarket(Path)}。</p>
  */
-@Component
 public class MarketService {
 
     private static final Logger log = LoggerFactory.getLogger(MarketService.class);
@@ -92,7 +89,6 @@ public class MarketService {
     /** 依赖探测结果缓存：进程生命周期内可执行文件位置变化极少，探测一次即可。 */
     private final Map<String, Boolean> dependencyCache = new ConcurrentHashMap<>();
 
-    @Autowired
     public MarketService(UpdateChecker updateChecker, SkillService skillService, McpAdminService mcpAdminService) {
         this.updateChecker = updateChecker;
         this.skillService = skillService;

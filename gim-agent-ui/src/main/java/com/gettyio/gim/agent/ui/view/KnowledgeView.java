@@ -26,8 +26,6 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.time.Instant;
@@ -43,14 +41,10 @@ import java.util.Objects;
  * <p>直连 {@link KnowledgeService}：导入即抽文本落盘到该智能体工作区，Harness 每轮注入的目录随之更新，
  * 智能体可按需 read/grep 命中。文案走 {@link I18n}，语言切换刷新。</p>
  */
-@Component
 public class KnowledgeView {
 
-    @Autowired
-    private KnowledgeService knowledgeService;
-
-    @Autowired
-    private SecurityAdminService securityAdminService;
+    private final KnowledgeService knowledgeService;
+    private final SecurityAdminService securityAdminService;
 
     private final VBox root = new VBox();
     private final ComboBox<AgentChoice> agentCombo = new ComboBox<>();
@@ -93,7 +87,9 @@ public class KnowledgeView {
         }
     }
 
-    public KnowledgeView() {
+    public KnowledgeView(KnowledgeService knowledgeService, SecurityAdminService securityAdminService) {
+        this.knowledgeService = knowledgeService;
+        this.securityAdminService = securityAdminService;
         buildUi();
         I18n.onChange(lang -> {
             applyI18n();

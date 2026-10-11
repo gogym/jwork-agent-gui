@@ -83,8 +83,6 @@ import javafx.stage.DirectoryChooser;
 import javafx.stage.Window;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
@@ -106,7 +104,6 @@ import java.util.Optional;
  * <p>侧栏顶部是智能体切换卡：选中的智能体既决定新建会话的归属，也决定
  * 下方会话列表展示哪一份数据（列表只列它的会话，行内不再重复标注）。</p>
  */
-@Component
 public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSidebarHost,
         com.gettyio.gim.agent.ui.chat.MessageActionListener,
         com.gettyio.gim.agent.ui.chat.ChatWebView.ChatViewEventsHolder,
@@ -306,83 +303,103 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 协作类：多模型对比运行器（发送校验/逐列订阅/停止分流），在 initialize() 中构造 */
     private com.gettyio.gim.agent.ui.chat.CompareRunner compareRunner;
 
-    @Autowired
-    private ChatService chatService;
+    private final ChatService chatService;
 
     /** 网关直连：多模型对比绕开落盘层直接订阅各列流（只读、不进历史） */
-    @Autowired
-    private com.gettyio.gim.agent.core.chat.AgentGateway agentGateway;
+    private final com.gettyio.gim.agent.core.chat.AgentGateway agentGateway;
 
-    @Autowired
-    private SettingsWindow settingsWindow;
+    private final SettingsWindow settingsWindow;
 
-    @Autowired
-    private AppShell appShell;
+    private final AppShell appShell;
 
-    @Autowired
-    private TasksView tasksView;
+    private final TasksView tasksView;
 
-    @Autowired
-    private ExtensionsView extensionsView;
+    private final ExtensionsView extensionsView;
 
-    @Autowired
-    private UsageView usageView;
+    private final UsageView usageView;
 
-    @Autowired
-    private TerminalView terminalView;
+    private final TerminalView terminalView;
 
-    @Autowired
-    private AgentAdminService agentAdminService;
+    private final AgentAdminService agentAdminService;
 
-    @Autowired
-    private GimPaths gimPaths;
+    private final GimPaths gimPaths;
 
-    @Autowired
-    private ProviderAdminService providerAdminService;
+    private final ProviderAdminService providerAdminService;
 
-    @Autowired
-    private SecurityAdminService securityAdminService;
+    private final SecurityAdminService securityAdminService;
 
     /** 本地登录认证（软锁）：发送消息视为活跃使用，顺延免登录会话（写盘节流在服务内）。 */
-    @Autowired
-    private com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService;
+    private final com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService;
 
     /** 应用生命周期：齿轮菜单「退出登录」清除会话并在窗口内呈现登录页 */
-    @Autowired
-    private com.gettyio.gim.agent.ui.window.AppLifecycle appLifecycle;
+    private final com.gettyio.gim.agent.ui.window.AppLifecycle appLifecycle;
 
-    @Autowired
-    private KnowledgeService knowledgeService;
+    private final KnowledgeService knowledgeService;
 
-    @Autowired
-    private PlanService planService;
+    private final PlanService planService;
 
-    @Autowired
-    private PromptTemplateAdminService promptTemplateAdminService;
+    private final PromptTemplateAdminService promptTemplateAdminService;
 
-    @Autowired
-    private com.gettyio.gim.agent.ui.throttle.ModelRateGovernor rateGovernor;
+    private final com.gettyio.gim.agent.ui.throttle.ModelRateGovernor rateGovernor;
 
-    @Autowired
-    private com.gettyio.gim.agent.ui.notify.SystemNotifier systemNotifier;
+    private final com.gettyio.gim.agent.ui.notify.SystemNotifier systemNotifier;
 
-    @Autowired
-    private com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
+    private final com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
 
-    @Autowired
-    private com.gettyio.gim.agent.ui.voice.TtsService ttsService;
+    private final com.gettyio.gim.agent.ui.voice.TtsService ttsService;
 
     /** 图像生成客户端：附件菜单「生成图片」入口调用（配置从加密 settings 实时取用） */
-    @Autowired
-    private ImageGenerationClient imageGenerationClient;
+    private final ImageGenerationClient imageGenerationClient;
 
     /** 会话导出服务：侧栏「导出长图/导出网页」共用（Markdown/PDF/DOCX 走设置页数据维护卡片） */
-    @Autowired
-    private ExportService exportService;
+    private final ExportService exportService;
 
     /** 读应用级设置（上下文 token 上限）；仅取 settingDao 的只读用途 */
-    @Autowired
-    private com.gettyio.gim.agent.domain.GimDatabase database;
+    private final com.gettyio.gim.agent.domain.GimDatabase database;
+
+    /** 由组合根在 FX 线程装配（FXML 控制器工厂返回本实例），参数顺序与字段声明一致。 */
+    public MainController(ChatService chatService,
+                          com.gettyio.gim.agent.core.chat.AgentGateway agentGateway,
+                          SettingsWindow settingsWindow, AppShell appShell, TasksView tasksView,
+                          ExtensionsView extensionsView, UsageView usageView, TerminalView terminalView,
+                          AgentAdminService agentAdminService, GimPaths gimPaths,
+                          ProviderAdminService providerAdminService, SecurityAdminService securityAdminService,
+                          com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService,
+                          com.gettyio.gim.agent.ui.window.AppLifecycle appLifecycle,
+                          KnowledgeService knowledgeService, PlanService planService,
+                          PromptTemplateAdminService promptTemplateAdminService,
+                          com.gettyio.gim.agent.ui.throttle.ModelRateGovernor rateGovernor,
+                          com.gettyio.gim.agent.ui.notify.SystemNotifier systemNotifier,
+                          com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService,
+                          com.gettyio.gim.agent.ui.voice.TtsService ttsService,
+                          ImageGenerationClient imageGenerationClient,
+                          ExportService exportService,
+                          com.gettyio.gim.agent.domain.GimDatabase database) {
+        this.chatService = chatService;
+        this.agentGateway = agentGateway;
+        this.settingsWindow = settingsWindow;
+        this.appShell = appShell;
+        this.tasksView = tasksView;
+        this.extensionsView = extensionsView;
+        this.usageView = usageView;
+        this.terminalView = terminalView;
+        this.agentAdminService = agentAdminService;
+        this.gimPaths = gimPaths;
+        this.providerAdminService = providerAdminService;
+        this.securityAdminService = securityAdminService;
+        this.localAuthService = localAuthService;
+        this.appLifecycle = appLifecycle;
+        this.knowledgeService = knowledgeService;
+        this.planService = planService;
+        this.promptTemplateAdminService = promptTemplateAdminService;
+        this.rateGovernor = rateGovernor;
+        this.systemNotifier = systemNotifier;
+        this.voiceInputService = voiceInputService;
+        this.ttsService = ttsService;
+        this.imageGenerationClient = imageGenerationClient;
+        this.exportService = exportService;
+        this.database = database;
+    }
 
     private final ObservableList<ChatSession> sessions = FXCollections.observableArrayList();
     private String currentSessionId;

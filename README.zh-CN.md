@@ -61,7 +61,7 @@ Jwork（原名 Gim Agent）把一整套 AI 智能体工作区放到你的机器�
 
 - **Java 21** + **JavaFX 21**（Atlantafx）+ **JCEF**（Chromium OSR 渲染）
 - **AgentScope Java 2.0.3**（HarnessAgent）作为智能体运行时
-- **Spring Boot 3.5** 作为依赖注入容器（不启动 Web 服务）
+- 手写**组合根**（`AppContext`）显式装配——不引入 DI 框架
 - **SQLite**（xerial JDBC，WAL）——无 ORM，纯 DAO
 - **Quartz** 调度 · **jpackage / WiX** Windows 打包
 

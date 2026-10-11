@@ -11,7 +11,6 @@ import com.gettyio.gim.agent.ui.voice.MicHoldButton;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import com.gettyio.gim.agent.ui.window.GimDialog;
 import io.agentscope.core.permission.PermissionMode;
-import jakarta.annotation.PreDestroy;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -30,8 +29,6 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 import reactor.core.Disposable;
 import reactor.core.scheduler.Schedulers;
 
@@ -47,7 +44,6 @@ import java.util.List;
  * <p>同一次仅允许一条在途生成（避免并发占坑）；隐藏/关闭小窗即取消在途订阅。所有 FX 操作经
  * {@link Platform#runLater} 投递，兼容从热键消息泵线程调用。</p>
  */
-@Component
 public class QuickAskWindow {
 
     private static final Logger log = LoggerFactory.getLogger(QuickAskWindow.class);
@@ -55,7 +51,6 @@ public class QuickAskWindow {
     private final ChatService chatService;
     private final VoiceInputService voiceInputService;
 
-    @Autowired
     public QuickAskWindow(ChatService chatService, VoiceInputService voiceInputService) {
         this.chatService = chatService;
         this.voiceInputService = voiceInputService;
@@ -299,7 +294,7 @@ public class QuickAskWindow {
         }
     }
 
-    @PreDestroy
+    /** 应用终止时收尾：停止在途订阅并隐藏小窗（幂等）。 */
     public void dispose() {
         try {
             hideAndStop();

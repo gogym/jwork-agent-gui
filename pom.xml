@@ -28,7 +28,8 @@
         <javafx.version>21.0.8</javafx.version>
         <jcef.version>141.0.10</jcef.version>
         <agentscope.version>2.0.3</agentscope.version>
-        <spring-boot.version>3.5.16</spring-boot.version>
+        <quartz.version>2.5.2</quartz.version>
+        <jackson.version>2.21.4</jackson.version>
         <sqlite-jdbc.version>3.50.1.0</sqlite-jdbc.version>
         <atlantafx.version>2.0.1</atlantafx.version>
         <jeditermfx.version>1.1.0</jeditermfx.version>
@@ -37,8 +38,9 @@
         <poi.version>5.3.0</poi.version>
         <jna.version>5.16.0</jna.version>
         <lombok.version>1.18.34</lombok.version>
-        <slf4j.version>2.0.16</slf4j.version>
-        <logback.version>1.5.16</logback.version>
+        <slf4j.version>2.0.18</slf4j.version>
+        <logback.version>1.5.34</logback.version>
+        <log4j.version>2.24.3</log4j.version>
         <junit.version>5.11.4</junit.version>
         <mockito.version>5.14.2</mockito.version>
     </properties>
@@ -46,9 +48,9 @@
     <dependencyManagement>
         <dependencies>
             <!-- Sardine 5.10 的 PROPFIND 解析依赖 javax.xml.bind 命名空间的 JAXB 2.3.x；
-                 Spring Boot / AgentScope BOM 会将整族上浮到 4.x（包名改为 jakarta，导致运行时
-                 NoClassDefFoundError: javax/xml/bind/JAXBException），故在此整族钉回 javax 包名的
-                 2.3.x。同链路上的 Quartz 仅 XML 作业定义功能用 JAXB，本项目未使用该功能。 -->
+                 传递链若引入 JAXB 4.x 整族（包名改为 jakarta）会导致运行时
+                 NoClassDefFoundError: javax/xml/bind/JAXBException，故在此整族钉回 javax 包名的
+                 2.3.x 兜底。同链路上的 Quartz 仅 XML 作业定义功能用 JAXB，本项目未使用该功能。 -->
             <dependency>
                 <groupId>jakarta.xml.bind</groupId>
                 <artifactId>jakarta.xml.bind-api</artifactId>
@@ -75,10 +77,11 @@
                 <version>3.0.12</version>
             </dependency>
 
+            <!-- Jackson 整族（databind / datatype-jsr310 等）：与原 Spring Boot BOM 对齐的版本基线 -->
             <dependency>
-                <groupId>org.springframework.boot</groupId>
-                <artifactId>spring-boot-dependencies</artifactId>
-                <version>${spring-boot.version}</version>
+                <groupId>com.fasterxml.jackson</groupId>
+                <artifactId>jackson-bom</artifactId>
+                <version>${jackson.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
             </dependency>
@@ -88,6 +91,35 @@
                 <version>${agentscope.version}</version>
                 <type>pom</type>
                 <scope>import</scope>
+            </dependency>
+
+            <!-- Quartz 调度（原 spring-boot-starter-quartz 传递引入；裸装配见 AppContext） -->
+            <dependency>
+                <groupId>org.quartz-scheduler</groupId>
+                <artifactId>quartz</artifactId>
+                <version>${quartz.version}</version>
+            </dependency>
+            <!-- 日志门面与实现（原经 Spring Boot BOM 管理） -->
+            <dependency>
+                <groupId>org.slf4j</groupId>
+                <artifactId>slf4j-api</artifactId>
+                <version>${slf4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>ch.qos.logback</groupId>
+                <artifactId>logback-classic</artifactId>
+                <version>${logback.version}</version>
+            </dependency>
+            <!-- 日志桥（原经 spring-boot-starter-logging 传递引入）：POI 的 log4j-api 调用路由到 slf4j/logback -->
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-to-slf4j</artifactId>
+                <version>${log4j.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.logging.log4j</groupId>
+                <artifactId>log4j-api</artifactId>
+                <version>${log4j.version}</version>
             </dependency>
 
             <dependency>

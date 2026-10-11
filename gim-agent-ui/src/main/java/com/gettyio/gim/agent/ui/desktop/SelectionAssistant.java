@@ -16,8 +16,6 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.awt.Point;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -29,7 +27,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 抓取在途时重复触发直接忽略。操作条为单例无边框置顶小窗：失焦 / ESC 自动隐藏，
  * 重复触发仅更新摘要与位置。「问 AI」仅预填输入框供用户补充问题；翻译 / 润色预填并立即发送。</p>
  */
-@Component
 public class SelectionAssistant {
 
     private static final Logger log = LoggerFactory.getLogger(SelectionAssistant.class);
@@ -51,7 +48,6 @@ public class SelectionAssistant {
     /** 最近一次抓取的选中文本（操作条动作的载荷） */
     private String pending;
 
-    @Autowired
     public SelectionAssistant(QuickAskWindow quickAsk) {
         this.quickAsk = quickAsk;
     }

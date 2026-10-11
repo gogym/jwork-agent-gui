@@ -7,28 +7,25 @@ import com.gettyio.gim.agent.ui.window.GimDialog;
 import javafx.application.Platform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.annotation.Lazy;
-import org.springframework.context.event.EventListener;
-import org.springframework.stereotype.Component;
 
 /**
- * 系统通知：监听定时任务完成事件。优先走系统托盘气球（M5），
+ * 系统通知：接收定时任务完成回调。优先走系统托盘气球（M5），
  * 托盘不可用时回退到 UI 线程弹窗。
  */
-@Component
-@Lazy(false) // 全局 lazy-init 下保持 eager：@EventListener 需在启动期注册，任务完成事件随时可能到达
 public class SystemNotifier {
 
     private static final Logger log = LoggerFactory.getLogger(SystemNotifier.class);
 
-    @Autowired
-    private TrayNotifier trayNotifier;
+    private final TrayNotifier trayNotifier;
+    private final AppShell appShell;
 
-    @Autowired
-    private AppShell appShell;
+    /** 由组合根装配；任务执行器把本类的 {@link #onTaskCompleted} 作为完成回调。 */
+    public SystemNotifier(TrayNotifier trayNotifier, AppShell appShell) {
+        this.trayNotifier = trayNotifier;
+        this.appShell = appShell;
+    }
 
-    @EventListener
+    /** 任务完成回调（原事件订阅）：成功/失败均通知，托盘不可用时回退弹窗。 */
     public void onTaskCompleted(TaskCompletedEvent event) {
         log.info("收到任务完成事件: {}", event);
         String title = I18n.t("notify.trayTitle", event.getTaskName());

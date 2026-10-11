@@ -30,8 +30,6 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.shape.Rectangle;
 import javafx.stage.Window;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -51,89 +49,88 @@ import java.util.Map;
  * <p>本类为薄编排层：仅负责整窗骨架（菜单/页面容器/语言重建）与各设置页子面板的装配及整表刷新驱动，
  * 具体页面内容由按设置页拆出的子面板（如 {@link SecuritySettingsPanel}/{@link ModelSettingsPanel}）承载。</p>
  */
-@Component
 public class SettingsWindow {
 
-    @Autowired
-    private ProviderAdminService adminService;
-
-    @Autowired
-    private GimPaths gimPaths;
-
-    @Autowired
-    private McpAdminService mcpAdminService;
-
+    private final ProviderAdminService adminService;
+    private final GimPaths gimPaths;
+    private final McpAdminService mcpAdminService;
     /** 在线市场服务：MCP 页内「市场」入口复用 */
-    @Autowired
-    private com.gettyio.gim.agent.ui.market.MarketService marketService;
-
-    @Autowired
-    private SecurityAdminService securityAdminService;
-
-    @Autowired
-    private AgentAdminService agentAdminService;
-
-    @Autowired
-    private DbBackupService dbBackupService;
-
+    private final com.gettyio.gim.agent.ui.market.MarketService marketService;
+    private final SecurityAdminService securityAdminService;
+    private final AgentAdminService agentAdminService;
+    private final DbBackupService dbBackupService;
     /** 读应用级设置（月度用量预算键）；仅取 settingDao 用途 */
-    @Autowired
-    private com.gettyio.gim.agent.domain.GimDatabase database;
-
-    @Autowired
-    private com.gettyio.gim.agent.ui.sync.WebDavSyncService webDavSyncService;
-
-    @Autowired
-    private com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
-
-    @Autowired
-    private com.gettyio.gim.agent.ui.voice.TtsService ttsService;
-
+    private final com.gettyio.gim.agent.domain.GimDatabase database;
+    private final com.gettyio.gim.agent.ui.sync.WebDavSyncService webDavSyncService;
+    private final com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService;
+    private final com.gettyio.gim.agent.ui.voice.TtsService ttsService;
     /** 多智能体网关：通用页上下文窗口上限变更后需失效全部运行体即时重装配。 */
-    @Autowired
-    private com.gettyio.gim.agent.core.chat.MultiAgentGateway agentGateway;
-
+    private final com.gettyio.gim.agent.core.chat.MultiAgentGateway agentGateway;
     /** 全局网络代理：通用页代理卡片直接读写（保存即应用到进程）。 */
-    @Autowired
-    private com.gettyio.gim.agent.ui.config.ProxyManager proxyManager;
-
+    private final com.gettyio.gim.agent.ui.config.ProxyManager proxyManager;
     /** 模型实例缓存：代理出口变更后清空，使下一轮对话按新传输重建模型。 */
-    @Autowired
-    private com.gettyio.gim.agent.core.model.AgentScopeModelFactory modelFactory;
-
+    private final com.gettyio.gim.agent.core.model.AgentScopeModelFactory modelFactory;
     /** 应用级记忆管理：记忆页按作用域浏览/编辑/删除各工作区的 MEMORY.md 与台账。 */
-    @Autowired
-    private com.gettyio.gim.agent.core.memory.MemoryService memoryService;
-
-    @Autowired
-    private ExportService exportService;
-
-    @Autowired
-    private PromptTemplateAdminService promptTemplateAdminService;
-
-    @Autowired
-    private AppLifecycle appLifecycle;
-
-    @Autowired
-    private com.gettyio.gim.agent.ui.update.UpdateChecker updateChecker;
-
-    @Autowired
-    private com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService globalHotkeyService;
-
+    private final com.gettyio.gim.agent.core.memory.MemoryService memoryService;
+    private final ExportService exportService;
+    private final PromptTemplateAdminService promptTemplateAdminService;
+    private final AppLifecycle appLifecycle;
+    private final com.gettyio.gim.agent.ui.update.UpdateChecker updateChecker;
+    private final com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService globalHotkeyService;
     /** Docker 握手探针（与执行路径同源的单例）：安全页沙箱卡复用其 TTL 缓存做初始状态检测。 */
-    @Autowired
-    private com.gettyio.gim.agent.tools.sandbox.DockerAvailabilityProbe dockerAvailabilityProbe;
+    private final com.gettyio.gim.agent.tools.sandbox.DockerAvailabilityProbe dockerAvailabilityProbe;
+    /** 技能页复用组件：与拓展页共用同一实例，两处不同时展示，节点挂接互斥安全。 */
+    private final SkillsView skillsView;
+    /** 本地登录认证（软锁）：账号页直接读写凭证文件。 */
+    private final com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService;
 
     /** MCP 服务页复用组件（自包含）；与拓展页各自实例化，互不干扰场景图父子关系。 */
     private McpView mcpView;
 
-    /** 技能页复用组件：与拓展页共用同一 Spring 单例，两处不同时展示，节点挂接互斥安全。 */
-    @Autowired
-    private SkillsView skillsView;
-
-    /** 本地登录认证（软锁）：账号页直接读写凭证文件。 */
-    @Autowired
-    private com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService;
+    /** 由组合根在 FX 线程装配（构造即建 JavaFX 节点），参数顺序与字段声明一致。 */
+    public SettingsWindow(ProviderAdminService adminService, GimPaths gimPaths,
+                          McpAdminService mcpAdminService,
+                          com.gettyio.gim.agent.ui.market.MarketService marketService,
+                          SecurityAdminService securityAdminService, AgentAdminService agentAdminService,
+                          DbBackupService dbBackupService, com.gettyio.gim.agent.domain.GimDatabase database,
+                          com.gettyio.gim.agent.ui.sync.WebDavSyncService webDavSyncService,
+                          com.gettyio.gim.agent.ui.voice.VoiceInputService voiceInputService,
+                          com.gettyio.gim.agent.ui.voice.TtsService ttsService,
+                          com.gettyio.gim.agent.core.chat.MultiAgentGateway agentGateway,
+                          com.gettyio.gim.agent.ui.config.ProxyManager proxyManager,
+                          com.gettyio.gim.agent.core.model.AgentScopeModelFactory modelFactory,
+                          com.gettyio.gim.agent.core.memory.MemoryService memoryService,
+                          ExportService exportService, PromptTemplateAdminService promptTemplateAdminService,
+                          AppLifecycle appLifecycle,
+                          com.gettyio.gim.agent.ui.update.UpdateChecker updateChecker,
+                          com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService globalHotkeyService,
+                          com.gettyio.gim.agent.tools.sandbox.DockerAvailabilityProbe dockerAvailabilityProbe,
+                          SkillsView skillsView,
+                          com.gettyio.gim.agent.domain.security.LocalAuthService localAuthService) {
+        this.adminService = adminService;
+        this.gimPaths = gimPaths;
+        this.mcpAdminService = mcpAdminService;
+        this.marketService = marketService;
+        this.securityAdminService = securityAdminService;
+        this.agentAdminService = agentAdminService;
+        this.dbBackupService = dbBackupService;
+        this.database = database;
+        this.webDavSyncService = webDavSyncService;
+        this.voiceInputService = voiceInputService;
+        this.ttsService = ttsService;
+        this.agentGateway = agentGateway;
+        this.proxyManager = proxyManager;
+        this.modelFactory = modelFactory;
+        this.memoryService = memoryService;
+        this.exportService = exportService;
+        this.promptTemplateAdminService = promptTemplateAdminService;
+        this.appLifecycle = appLifecycle;
+        this.updateChecker = updateChecker;
+        this.globalHotkeyService = globalHotkeyService;
+        this.dockerAvailabilityProbe = dockerAvailabilityProbe;
+        this.skillsView = skillsView;
+        this.localAuthService = localAuthService;
+    }
 
     /** 安全设置子面板（抽自本类）：懒加载单例，语言切换重建时复用同一实例、容器内容随之重绘。 */
     private SecuritySettingsPanel securityPanel;

@@ -16,7 +16,6 @@ import com.techsenger.jeditermfx.ui.JediTermFxWidget;
 import com.techsenger.jeditermfx.ui.settings.DefaultSettingsProvider;
 import com.pty4j.PtyProcess;
 import com.pty4j.PtyProcessBuilder;
-import jakarta.annotation.PreDestroy;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -29,8 +28,6 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -45,13 +42,11 @@ import java.util.Map;
  * <p>懒启动：首次展开时才拉起 shell 进程，之后收起仅从场景图摘除、进程与历史保留；
  * 重开复用同一 widget。应用退出时 {@link #shutdown()} 统一销毁进程。</p>
  */
-@Component
 public class TerminalView {
 
     private static final Logger logger = LoggerFactory.getLogger(TerminalView.class);
 
-    @Autowired
-    private GimPaths gimPaths;
+    private final GimPaths gimPaths;
 
     /** 抽屉整体：顶部小工具条（标题 + 关闭）+ 终端内容区。 */
     private final VBox root = new VBox();
@@ -71,7 +66,8 @@ public class TerminalView {
     private Runnable onCloseRequest = () -> {
     };
 
-    public TerminalView() {
+    public TerminalView(GimPaths gimPaths) {
+        this.gimPaths = gimPaths;
         buildUi();
         I18n.onChange(lang -> applyI18n());
     }
@@ -163,8 +159,7 @@ public class TerminalView {
         return new String[]{shell == null || shell.isBlank() ? "/bin/bash" : shell, "--login"};
     }
 
-    /** 应用退出：销毁终端进程与线程池资源（Spring 关闭容器时在 FX 线程回调）。 */
-    @PreDestroy
+    /** 应用退出：销毁终端进程与线程池资源（由组合根停机流程在 FX 线程回调）。 */
     public void shutdown() {
         JediTermFxWidget current = widget;
         widget = null;

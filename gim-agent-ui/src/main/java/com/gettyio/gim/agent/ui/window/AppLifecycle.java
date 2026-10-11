@@ -16,8 +16,6 @@ import javafx.scene.layout.Region;
 import javafx.stage.Stage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -35,7 +33,6 @@ import java.util.Optional;
  * <p>依赖 {@link Platform#setImplicitExit(boolean)} 关闭隐式退出，令隐藏主窗不结束进程；
  * 真正的终止统一走 {@link #exit()}。</p>
  */
-@Component
 public class AppLifecycle {
 
     private static final Logger log = LoggerFactory.getLogger(AppLifecycle.class);
@@ -49,18 +46,15 @@ public class AppLifecycle {
     private static final String RUN_VALUE = "Jwork";
 
     private final GimDatabase db;
-
-    @Autowired
-    public AppLifecycle(GimDatabase db) {
-        this.db = db;
-    }
-
-    @Autowired
-    private TrayNotifier trayNotifier;
-
+    private final TrayNotifier trayNotifier;
     /** 本地登录认证（软锁）：唤回主窗时校验会话，超期/锁定先弹独立登录小窗。 */
-    @Autowired
-    private LocalAuthService localAuthService;
+    private final LocalAuthService localAuthService;
+
+    public AppLifecycle(GimDatabase db, TrayNotifier trayNotifier, LocalAuthService localAuthService) {
+        this.db = db;
+        this.trayNotifier = trayNotifier;
+        this.localAuthService = localAuthService;
+    }
 
     private Stage stage;
 
@@ -192,7 +186,7 @@ public class AppLifecycle {
         });
     }
 
-    /** 真正退出：走 JavaFX 正常终止流程（触发 {@code stop()} 关闭 Spring、撤托盘）。 */
+    /** 真正退出：走 JavaFX 正常终止流程（触发应用 {@code stop()} 组合根停机、撤托盘）。 */
     public void exit() {
         Platform.runLater(() -> {
             trayNotifier.dispose();

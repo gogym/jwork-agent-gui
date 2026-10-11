@@ -6,7 +6,6 @@ import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import javax.sound.sampled.AudioFormat;
 import javax.sound.sampled.AudioSystem;
@@ -30,7 +29,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 语义：{@link #startRecording} 起录、{@link #stopRecordingAndTranscribe} 停录并转写，
  * 同一时刻至多一段在录。转写端点兼容 OpenAI / Groq / 各类 whisper 服务端。</p>
  */
-@Component
 public class VoiceInputService {
 
     private static final Logger log = LoggerFactory.getLogger(VoiceInputService.class);

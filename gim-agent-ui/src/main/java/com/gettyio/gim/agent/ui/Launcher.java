@@ -21,7 +21,7 @@ public final class Launcher {
     public static void main(String[] args) {
         // 先于 logback 初始化设定文件日志目录，保证打包后日志一律落 ~/.jwork/logs/
         System.setProperty("gim.log.dir", new GimPaths().logsDir().toString());
-        // 挂接启动画面：Spring 容器引导与主窗加载期间展示（主窗就绪后自动隐藏）
+        // 挂接启动画面：组合根装配与主窗加载期间展示（主窗就绪后自动隐藏）
         System.setProperty("javafx.preloader", SplashPreloader.class.getName());
         // 全局灰度字体平滑：关闭 LCD 次像素渲染，消除字形边缘彩边，字体观感更干净
         System.setProperty("prism.lcdtext", "false");

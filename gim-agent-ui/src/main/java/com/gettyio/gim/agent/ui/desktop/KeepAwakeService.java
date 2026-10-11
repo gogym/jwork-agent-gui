@@ -2,12 +2,8 @@ package com.gettyio.gim.agent.ui.desktop;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.sun.jna.platform.win32.Kernel32;
-import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.util.Locale;
 
@@ -18,7 +14,6 @@ import java.util.Locale;
  * {@code ES_CONTINUOUS} 单独复位后退出。开关持久化在 AppSetting {@code automation.keep_awake}（默认关），
  * 非 Windows 平台或调用失败只告警降级，不影响主程序。</p>
  */
-@Component
 public class KeepAwakeService {
 
     private static final Logger log = LoggerFactory.getLogger(KeepAwakeService.class);
@@ -38,7 +33,6 @@ public class KeepAwakeService {
     private volatile boolean running;
     private Thread worker;
 
-    @Autowired
     public KeepAwakeService(GimDatabase db) {
         this.db = db;
     }
@@ -64,7 +58,6 @@ public class KeepAwakeService {
     }
 
     /** 应用启动时按持久化开关启动保持线程（幂等）。 */
-    @PostConstruct
     public synchronized void start() {
         if (!isSupported() || running || !readSetting()) {
             return;
@@ -112,7 +105,6 @@ public class KeepAwakeService {
         }
     }
 
-    @PreDestroy
     public synchronized void stop() {
         running = false;
         if (worker != null) {

@@ -18,9 +18,10 @@
             <groupId>com.gettyio.gim</groupId>
             <artifactId>gim-agent-core</artifactId>
         </dependency>
+        <!-- Quartz 裸依赖（原经 spring-boot-starter-quartz 传递引入；调度器由 AppContext 显式装配） -->
         <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-quartz</artifactId>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>

@@ -33,8 +33,6 @@ import javafx.scene.text.Text;
 import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
 import javafx.stage.Window;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.io.File;
 import java.util.List;
@@ -45,19 +43,13 @@ import java.util.Locale;
  * <p>支持从目录安装、启/禁用、删除与 SKILL.md 详情预览，直连 {@link SkillService}。
  * 全部文案走 {@link I18n}，语言切换时刷新页头并重绘卡片。</p>
  */
-@Component
 public class SkillsView {
 
-    @Autowired
-    private SkillService skillService;
-
+    private final SkillService skillService;
     /** 技能目录变化后失效引用该技能的智能体运行时（技能仓库在装配时扫描目录） */
-    @Autowired
-    private AgentAdminService agentAdminService;
-
+    private final AgentAdminService agentAdminService;
     /** 在线市场：搜索/安装远端技能（来源标记为 MARKETPLACE） */
-    @Autowired
-    private MarketService marketService;
+    private final MarketService marketService;
 
     private final VBox root = new VBox();
     private final TilePane grid = new TilePane();
@@ -75,7 +67,10 @@ public class SkillsView {
     private Button refreshButton;
     private Button marketButton;
 
-    public SkillsView() {
+    public SkillsView(SkillService skillService, AgentAdminService agentAdminService, MarketService marketService) {
+        this.skillService = skillService;
+        this.agentAdminService = agentAdminService;
+        this.marketService = marketService;
         buildUi();
         I18n.onChange(lang -> {
             applyI18n();

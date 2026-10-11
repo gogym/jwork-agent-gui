@@ -9,7 +9,6 @@ import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.stereotype.Component;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -28,7 +27,6 @@ import java.util.function.Consumer;
  * （自然播完 / 播放出错 / 被打断 / 合成失败统一从 {@code onEnded} 传出，错误消息为空表示正常）。
  * 朗读前正文先经 {@link #markdownToPlainText} 清理，避免把 Markdown 标记读出声。</p>
  */
-@Component
 public class TtsService {
 
     private static final Logger log = LoggerFactory.getLogger(TtsService.class);

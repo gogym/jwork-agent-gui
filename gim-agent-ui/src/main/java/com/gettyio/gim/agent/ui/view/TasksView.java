@@ -13,7 +13,6 @@ import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.desktop.KeepAwakeService;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import com.gettyio.gim.agent.ui.window.GimDialog;
-import jakarta.annotation.PostConstruct;
 import javafx.geometry.Pos;
 import javafx.geometry.Side;
 import javafx.geometry.VPos;
@@ -36,8 +35,6 @@ import javafx.scene.layout.VBox;
 import javafx.stage.Window;
 import javafx.util.StringConverter;
 import org.quartz.CronExpression;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.stereotype.Component;
 
 import java.text.ParseException;
 import java.time.Duration;
@@ -64,19 +61,23 @@ import java.util.regex.Pattern;
  * <p>新建/编辑使用两栏表单弹窗（{@link TaskFormDialog}），操作直连 {@link TaskAdminService}
  * （含 Quartz 联动、手动触发与到期停摆）。全部文案走 {@link I18n}，语言切换时刷新并重绘。</p>
  */
-@Component
 public class TasksView {
 
-    @Autowired
-    private TaskAdminService taskAdminService;
-    @Autowired
-    private PromptTemplateAdminService templateAdminService;
-    @Autowired
-    private AgentAdminService agentAdminService;
-    @Autowired
-    private KeepAwakeService keepAwakeService;
-    @Autowired
-    private VoiceInputService voiceInputService;
+    private final TaskAdminService taskAdminService;
+    private final PromptTemplateAdminService templateAdminService;
+    private final AgentAdminService agentAdminService;
+    private final KeepAwakeService keepAwakeService;
+    private final VoiceInputService voiceInputService;
+
+    public TasksView(TaskAdminService taskAdminService, PromptTemplateAdminService templateAdminService,
+                     AgentAdminService agentAdminService, KeepAwakeService keepAwakeService,
+                     VoiceInputService voiceInputService) {
+        this.taskAdminService = taskAdminService;
+        this.templateAdminService = templateAdminService;
+        this.agentAdminService = agentAdminService;
+        this.keepAwakeService = keepAwakeService;
+        this.voiceInputService = voiceInputService;
+    }
 
     /** 「查看会话」回调（由 MainController 注入）：跳转对话页并打开对应会话。 */
     private Consumer<String> sessionOpener;
@@ -125,8 +126,8 @@ public class TasksView {
     /** 最近一次加载的任务列表（自动化页签筛选与执行记录页任务名共用） */
     private List<ScheduledTask> allTasks = List.of();
 
-    @PostConstruct
-    void init() {
+    /** 装配期（FX 线程）由组合根调用：构建界面并挂接语言切换。 */
+    public void init() {
         buildUi();
         I18n.onChange(lang -> {
             applyI18n();

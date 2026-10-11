@@ -4,7 +4,6 @@ import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.enums.TimeRange;
 import com.gettyio.gim.agent.ui.I18n;
-import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
 import java.util.ArrayDeque;
@@ -21,7 +20,6 @@ import java.util.Optional;
  * <p>方法全部同步：请求记录在 FX 线程，token 回报也在 FX 线程回调（{@code showUsage}），
  * 但仍统一加锁以防未来跨线程调用。</p>
  */
-@Component
 public class ModelRateGovernor {
 
     /** 滚动窗口长度：一分钟。 */

@@ -54,7 +54,7 @@ public final class ChatHistoryPager {
      * 滚动到顶再向上补页；逐条按角色上屏，携带主键以供删除/编辑/重生成/分支。
      */
     public void render(String sessionId) {
-        // 先复位分页态：整页重放会把滚动拉回顶部，不能让旧会话的补页态误触发
+        // 先复位分页态：整页重放会重建 DOM 并把视口复位到最新（底部），不能让旧会话的补页态误触发
         hasMoreOlder = false;
         loadingOlder = false;
         oldestLoadedId = 0;

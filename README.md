@@ -61,7 +61,7 @@ Module dependency direction: `ui → scheduler / tools / core → domain`.
 
 - **Java 21** + **JavaFX 21** (Atlantafx) + **JCEF** (Chromium OSR rendering)
 - **AgentScope Java 2.0.3** (HarnessAgent) for the agent runtime
-- **Spring Boot 3.5** as the DI container (no web server)
+- Hand-wired **composition root** (`AppContext`) — no DI framework
 - **SQLite** (xerial JDBC, WAL) — no ORM, plain DAOs
 - **Quartz** for scheduling · **jpackage / WiX** for Windows packaging
 

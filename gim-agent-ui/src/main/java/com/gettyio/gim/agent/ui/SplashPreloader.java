@@ -12,7 +12,7 @@ import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 
 /**
- * 启动画面（Preloader）：在 Spring 容器引导（{@code init()}）与主窗 FXML 加载期间先行展示，
+ * 启动画面（Preloader）：在组合根装配（{@code init()}）与主窗 FXML 加载期间先行展示，
  * 消除冷启动「无窗口无响应」的感知。经 {@code javafx.preloader} 系统属性挂接（见 {@code Launcher}）。
  * <p>主窗 {@code start()} 就绪后框架发 {@code StateChangeNotification(BEFORE_START)}，此处自动隐藏；
  * 启动阶段文案由主应用经 {@code notifyPreloader} 推送 {@link SplashProgress} 更新（init 线程安全）。</p>
