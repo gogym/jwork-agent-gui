@@ -12,6 +12,9 @@ public interface ChatViewEvents {
     /** 右键消息：{@code id} 主键（0 未落盘），弹原生删除/分支菜单。 */
     void chatContext(long id, double x, double y);
 
+    /** 菜单外点击/滚动：收起消息右键菜单（JCEF 区域点击不触发 JavaFX 弹窗自动隐藏，需 JS 回抛）。 */
+    void chatDismissMenu();
+
     /** 滚动到顶：向上补页入口。 */
     void chatScrollTop();
 

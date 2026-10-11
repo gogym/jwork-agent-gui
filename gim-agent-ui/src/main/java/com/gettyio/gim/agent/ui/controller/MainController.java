@@ -395,6 +395,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private String streamingSessionId;
     /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
     private ContextMenu templateMenu;
+    /** 消息右键菜单：复用单一实例，右键换目标时先收再弹，不叠出多个弹窗 */
+    private ContextMenu chatContextMenu;
     /** 横幅当前展示的计划归属智能体（编辑/确认时定位 PLAN.md） */
     private String planBannerAgent;
 
@@ -527,8 +529,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         chatSplit.setMinWidth(810);
         com.gettyio.gim.agent.ui.chat.ArtifactPreviewWindow.setPreviewSink(
                 (owner, code, lang) -> workspacePanel.showArtifact(code, lang));
-        // 文件树「当前会话」入口跟随启动时恢复的会话（欢迎页空态则只显示共享工作区）
-        workspacePanel.followSession(currentSessionId);
+        // 文件树入口跟随启动时恢复的会话与智能体（欢迎页空态则显示所选智能体的工作区视图）
+        followWorkspace(currentSessionId);
 
         applyI18n();
         toolbar.buildThemeMenu();
@@ -856,10 +858,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         if (currentSessionId == null) {
             // 首条消息才建会话，归属当前选中的智能体；先让侧栏看到这一行，不等回复跑完
             currentSessionId = chatService.createSession(currentAgentCode());
-            // 工作区右栏即时挂上该会话的专属目录入口（首次产出前为空，收尾后自动刷新）
-            if (workspacePanel != null) {
-                workspacePanel.followSession(currentSessionId);
-            }
+            // 工作区右栏即时挂上该会话的专属目录入口（归属当前智能体；首次产出前为空，收尾后自动刷新）
+            followWorkspace(currentSessionId, currentAgentCode());
             refreshSessions();
         }
         List<ImageAttachment> images = attachmentBar.snapshotImages();
@@ -984,9 +984,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         if (currentSessionId == null) {
             // 与发送首条消息同口径：生图也建会话，归属当前选中的智能体
             currentSessionId = chatService.createSession(currentAgentCode());
-            if (workspacePanel != null) {
-                workspacePanel.followSession(currentSessionId);
-            }
+            followWorkspace(currentSessionId, currentAgentCode());
             refreshSessions();
         }
         String sid = currentSessionId;
@@ -1087,7 +1085,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 );
     }
 
-    /** 每轮对话收尾（完成/失败）：工作区右栏若正跟随该会话，就地重建会话入口刷新文件树。 */
+    /** 每轮对话收尾（完成/失败）：工作区右栏若正跟随该会话，就地重建会话/智能体入口刷新文件树。 */
     private void refreshWorkspaceAfterTurn(String sessionId) {
         if (workspacePanel != null && sessionId != null && sessionId.equals(currentSessionId)) {
             workspacePanel.refreshCurrent();
@@ -1246,6 +1244,21 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 .orElse(DEFAULT_AGENT);
     }
 
+    /** 让工作区右栏跟随会话：会话归属按会话列表解析；空态（无会话）跟随当前所选智能体。 */
+    private void followWorkspace(String sessionId) {
+        followWorkspace(sessionId, sessionId == null ? currentAgentCode() : agentOfSession(sessionId));
+    }
+
+    /**
+     * 让工作区右栏跟随会话（显式智能体版）：建会话等「归属已知但列表尚未刷新」的入口直接用，
+     * 避免依赖会话列表时序；工作区解析走 {@link AgentAdminService#workspaceDir(String)}（与运行时装配同源）。
+     */
+    private void followWorkspace(String sessionId, String agentCode) {
+        if (workspacePanel != null) {
+            workspacePanel.followSession(sessionId, agentAdminService.workspaceDir(agentCode));
+        }
+    }
+
     private void switchToSession(String sessionId) {
         currentSessionId = sessionId;
         hidePlanBanner();
@@ -1253,10 +1266,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         // 高亮当前会话行
         sidebar.renderSessions();
         updateHeaderTitle();
-        // 工作区右栏跟随会话：文件树「当前会话」入口切到该会话的专属目录（智能体产物实际落点）
-        if (workspacePanel != null) {
-            workspacePanel.followSession(sessionId);
-        }
+        // 工作区右栏跟随会话：按会话归属智能体解析工作区，「当前会话」入口切到其专属目录（智能体产物实际落点）
+        followWorkspace(sessionId);
     }
 
     // ===================== 消息气泡操作：复制 / 重生成 / 编辑重发 / 删除 =====================
@@ -1421,10 +1432,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         chatView.clear();
         chatEmpty.set(true);
         updateHeaderTitle();
-        // 无会话：文件树收回到「共享工作区」单入口视图
-        if (workspacePanel != null) {
-            workspacePanel.followSession(null);
-        }
+        // 无会话：文件树收回到所选智能体的工作区视图（无「当前会话」入口）
+        followWorkspace(null);
     }
 
     @Override
@@ -1448,19 +1457,19 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
                 .findFirst().orElse(null);
         String title = current == null || current.getTitle() == null ? "" : current.getTitle();
         sessionTitleLabel.setText(title);
-        // 标题栏常驻：新任务空态也要让右上角的终端按钮可达；无会话时标题留空，
-        // 标签仍占位（HBox.hgrow）把终端按钮顶到最右。
+        // 标题栏常驻（归属聊天列）：新任务空态也要让聊天列右上角的终端/工作区按钮可达；
+        // 无会话时标题留空，标签仍占位（HBox.hgrow）把按钮顶到最右。
         chatHeader.setVisible(true);
         chatHeader.setManaged(true);
     }
 
-    /** 右上角终端按钮：在底部展开/收起终端抽屉（收起只摘除节点、进程与历史保留）。 */
+    /** 聊天列右上角终端按钮：在底部展开/收起终端抽屉（收起只摘除节点、进程与历史保留）。 */
     @FXML
     private void handleToggleTerminal() {
         terminalDrawer.toggle();
     }
 
-    /** 右上角工作区按钮：展开/收起右侧工作区栏（收起仅摘节点、树与阅读状态保留）。 */
+    /** 聊天列右上角工作区按钮：展开/收起右侧工作区栏（收起仅摘节点、树与阅读状态保留）。 */
     @FXML
     private void handleToggleWorkspace() {
         if (workspacePanel != null) {
@@ -1580,6 +1589,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /** 当前打开的会话若已不属于选中的智能体，就回到新任务空态（否则列表与主区不一致） */
     private void dropForeignSession() {
         if (currentSessionId == null) {
+            // 空态无会话可丢：切智能体后右栏也要跟到新智能体的工作区视图
+            followWorkspace(null);
             return;
         }
         boolean belongs = sidebar.sessionsOfAgent().stream()
@@ -1689,6 +1700,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     }
 
     @Override
+    public void chatDismissMenu() {
+        if (chatContextMenu != null && chatContextMenu.isShowing()) {
+            chatContextMenu.hide();
+        }
+    }
+
+    @Override
     public void chatScrollTop() {
         Platform.runLater(() -> historyPager.loadOlder());
     }
@@ -1761,21 +1779,26 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     /**
      * 右键消息的原生菜单（分支/删除）：{@code id} 为落盘主键，未落盘（{@code <=0}，如临时流式/新用户气泡）禁用。
      * 坐标取 WebView 客户端像素（WebView 撑满 chatHost，二者局部坐标等价），换算到屏幕坐标弹出。
+     * <p>菜单复用单一实例：右键换目标先收再弹、条目重灌（动作闭包始终绑定当前消息主键）；
+     * JCEF(OSR) 区域点击不触发 FX 弹窗自动隐藏，菜单外的按下/滚动由 JS 经 {@link #chatDismissMenu()} 回抛收起。</p>
      */
     private void showChatContextMenu(long id, double x, double y) {
-        ContextMenu menu = new ContextMenu();
+        if (chatContextMenu == null) {
+            chatContextMenu = new ContextMenu();
+        }
+        chatContextMenu.hide();
         MenuItem fork = new MenuItem(I18n.t("chat.msg.fork"));
         fork.setDisable(id <= 0);
         fork.setOnAction(e -> onFork(id));
         MenuItem delete = new MenuItem(I18n.t("chat.msg.delete"));
         delete.setDisable(id <= 0);
         delete.setOnAction(e -> onDelete(id));
-        menu.getItems().addAll(fork, delete);
+        chatContextMenu.getItems().setAll(fork, delete);
         javafx.geometry.Point2D screen = chatHost.localToScreen(x, y);
         if (screen == null) {
-            menu.show(chatHost, x, y);
+            chatContextMenu.show(chatHost, x, y);
         } else {
-            menu.show(chatHost, screen.getX(), screen.getY());
+            chatContextMenu.show(chatHost, screen.getX(), screen.getY());
         }
     }
 }

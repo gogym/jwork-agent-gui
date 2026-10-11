@@ -16,7 +16,7 @@ import static org.mockito.Mockito.verifyNoInteractions;
 /**
  * {@link ChatBridge} 单测：JS 侧事件的入参兜底与转发路径——
  * 气泡动作（copy/speak/regenerate/edit）转 {@link MessageActionListener}，
- * 其余（就绪/右键/滚动/回收/链接/图片/代码/空态）转 {@link ChatViewEvents}。
+ * 其余（就绪/右键/收菜单/滚动/回收/链接/图片/代码/空态）转 {@link ChatViewEvents}。
  * <p>桥的构造为包私有，故测试与桥同类同包；纯接口替身，不触碰 JavaFX 工具包。</p>
  */
 class ChatBridgeTest {
@@ -81,6 +81,9 @@ class ChatBridgeTest {
 
         bridge.onContext(3, 1.5, 2.5);
         verify(events).chatContext(3L, 1.5, 2.5);
+
+        bridge.onDismissMenu();
+        verify(events).chatDismissMenu();
 
         bridge.onScrollTop();
         verify(events).chatScrollTop();

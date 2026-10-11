@@ -619,12 +619,31 @@
     });
 
     // 原生右键：拦截并回调 Java（Java 弹原生 ContextMenu）
+    // ctxMenuOpen 跟踪菜单显示态：JCEF(OSR) 区域点击不触发 JavaFX 弹窗自动隐藏，
+    // 由下面的 mousedown/wheel 兜底回抛收起（仅菜单开着时过桥，避免每次点击无谓跨进程）
+    var ctxMenuOpen = false;
     document.addEventListener('contextmenu', function (ev) {
         ev.preventDefault();
         var row = ev.target.closest ? ev.target.closest('.bubble-row') : null;
         var id = row ? parseInt(row.getAttribute('data-id'), 10) : 0;
+        ctxMenuOpen = true;
         if (bridge()) { bridge().onContext(isNaN(id) ? 0 : id, ev.clientX, ev.clientY); }
     }, false);
+
+    // 菜单外按下/滚动：收起右键菜单（mousedown 先于后续点击行为触发，左键/中键按下与滚轮立即收）
+    document.addEventListener('mousedown', function (ev) {
+        if (!ctxMenuOpen) { return; }
+        // 右键自身不在此收起：换目标/重开由 Java 侧「先收再弹」在同一 FX 消息内原子完成；
+        // 若此处先收，mousedown 与随后 contextmenu 之间隔着 mouseup 与两次桥调用，菜单会闪出空档
+        if (ev.button === 2) { return; }
+        ctxMenuOpen = false;
+        if (bridge()) { bridge().onDismissMenu(); }
+    }, true);
+    window.addEventListener('wheel', function () {
+        if (!ctxMenuOpen) { return; }
+        ctxMenuOpen = false;
+        if (bridge()) { bridge().onDismissMenu(); }
+    }, { passive: true });
 
     window.ChatAPI = api;
     if (bridge()) { bridge().onReady(); }

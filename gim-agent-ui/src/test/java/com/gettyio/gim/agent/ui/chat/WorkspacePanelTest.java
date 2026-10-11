@@ -69,6 +69,18 @@ class WorkspacePanelTest {
     }
 
     @Test
+    void agentRootFallsBackToSharedRootWhenBlankOrOutside() {
+        Path shared = Paths.get(System.getProperty("user.dir")).resolve("ws").toAbsolutePath().normalize();
+        Path agent = shared.resolve("agents").resolve("agent-983f26ff");
+        assertEquals(agent, WorkspacePanel.agentRootOf(shared, agent));
+        // 尚未解析出智能体工作区（空态/定义缺失）：回退共享根
+        assertEquals(shared, WorkspacePanel.agentRootOf(shared, null));
+        // 越出共享目录：回退共享根（运行时解析恒在共享根内，此处防御非法值）
+        assertEquals(shared, WorkspacePanel.agentRootOf(shared, shared.resolveSibling("outside")));
+        assertEquals(shared, WorkspacePanel.agentRootOf(shared, Paths.get("C:/Windows")));
+    }
+
+    @Test
     void fileNodeDisplayNamePrefersLabelOverride() {
         Path p = Paths.get("615a4b0a-session-dir");
         assertEquals("615a4b0a-session-dir", new WorkspacePanel.FileNode(p, true).displayName());

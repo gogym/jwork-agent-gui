@@ -11,6 +11,7 @@ import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.AgentType;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -80,6 +81,14 @@ public class AgentAdminService {
     /** 新会话未显式选择智能体时使用它 */
     public String effectiveCode(String agentCode) {
         return agentCode == null || agentCode.isBlank() ? defaultAgentCode() : agentCode;
+    }
+
+    /**
+     * 智能体工作区目录（与运行时装配同源，见 {@link MultiAgentGateway#workspaceForAgent(String)}）：
+     * 默认智能体即共享工作区，其余为 {@code agents/<编码>/}。供聊天页右栏文件树跟随会话定位产物落点。
+     */
+    public Path workspaceDir(String agentCode) {
+        return agentGateway.workspaceForAgent(agentCode);
     }
 
     /** 引用该智能体的会话数 */

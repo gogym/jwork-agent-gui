@@ -116,6 +116,7 @@ public final class ChatWebView {
                 case "onImage" -> bridge.onImage(str(a, 0));
                 case "onCopyCode" -> bridge.onCopyCode(str(a, 0));
                 case "onPreviewCode" -> bridge.onPreviewCode(str(a, 0), str(a, 1));
+                case "onDismissMenu" -> bridge.onDismissMenu();
                 case "onEmpty" -> {
                     boolean empty = bool(a, 0);
                     log.info("收到 JS onEmpty={}", empty);

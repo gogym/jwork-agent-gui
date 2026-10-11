@@ -118,7 +118,11 @@
         <StackPane fx:id="contentMargin" styleClass="content-margin">
             <StackPane fx:id="mainPages" styleClass="content-panel">
             <BorderPane fx:id="chatPage">
-                <top>
+                <center>
+                    <!-- 外层横向分栏：左聊天列（标题头/横幅/纵向终端抽屉），右工作区面板（控制器动态挂入，初始收起不占位）。
+                         标题头归属聊天列：右侧面板展开时开关按钮停在聊天列右上角，不越到面板上方 -->
+                    <SplitPane fx:id="workspaceSplit" orientation="HORIZONTAL" styleClass="workspace-split">
+                        <items>
                     <VBox>
                         <HBox fx:id="chatHeader" styleClass="chat-header" alignment="CENTER_LEFT">
                             <Label fx:id="sessionTitleLabel" styleClass="chat-header-title"
@@ -160,13 +164,7 @@
                                 </content>
                             </ScrollPane>
                         </VBox>
-                    </VBox>
-                </top>
-                <center>
-                    <!-- 外层横向分栏：左聊天（含纵向终端抽屉），右工作区面板（控制器动态挂入，初始收起不占位） -->
-                    <SplitPane fx:id="workspaceSplit" orientation="HORIZONTAL" styleClass="workspace-split">
-                        <items>
-                    <SplitPane fx:id="chatSplit" orientation="VERTICAL" styleClass="chat-split">
+                        <SplitPane fx:id="chatSplit" orientation="VERTICAL" styleClass="chat-split" VBox.vgrow="ALWAYS">
                         <items>
                             <VBox styleClass="chat-main">
                                 <StackPane VBox.vgrow="ALWAYS">
@@ -226,6 +224,7 @@
                             </VBox>
                         </items>
                     </SplitPane>
+                    </VBox>
                         </items>
                     </SplitPane>
                 </center>

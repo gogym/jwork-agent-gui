@@ -40,14 +40,16 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.nio.file.DirectoryStream;
 
 /**
  * 工作区右侧栏：把 {@code ~/.jwork/workspace} 下的产物/文件以「文件树 + 就地阅读」的形式挂进聊天页右侧分栏。
- * 文件树首层两个入口：「当前会话」指向 {@code <workspace>/<会话ID>/}——智能体全部文件工具都经 Harness
- * 命名空间隔离（RuntimeContext 只传 sessionId）落在该目录，产物即此处所见，入口随 {@link #followSession}
- * 跟随会话切换、展开面板与每轮收尾时就地刷新（{@link #refreshCurrent()}）；「共享工作区」指向 workspace 根，
- * agents/attachments/memory/skills 等共享内容不受会话影响。
+ * 文件树入口随会话与智能体跟随（{@link #followSession}）：宿主按运行时装配同一口径解析出智能体工作区后传入，
+ * 「当前会话」指向 {@code <智能体工作区>/<会话ID>/}——智能体文件工具经 Harness 命名空间隔离（RuntimeContext
+ * 只传 sessionId）落在该目录；「智能体工作区」（仅非默认智能体，与共享根重合时不重复出现）指向其工作区根，
+ * 外壳脚本等直接产物常落在此层；「共享工作区」指向 workspace 根。入口在会话切换、展开面板与每轮收尾时
+ * 就地刷新（{@link #refreshCurrent()}）。
  * <p>外层横向 {@link SplitPane}（左聊天、右本面板），与聊天并存、可拖拽调宽；收起仅摘除节点（{@link #hide()}），
  * 树与已读内容状态保留。面板内部再分「阅读区」与「文件树」两块，默认单面板（一次只显示其一），
  * 头部按钮可扩为三列（阅读区 + 文件树并排）。</p>
@@ -80,10 +82,14 @@ public final class WorkspacePanel {
 
     /** 当前跟随的会话 ID（可空=尚无会话）：文件树「当前会话」入口指向它。 */
     private String sessionId;
-    /** 当前会话的专属工作区目录（= 智能体实际工作目录，可空）：{@code <workspaceRoot>/<sessionId>}。 */
+    /** 当前智能体的工作区根（恒在共享根内，默认智能体即共享根）：会话入口与「智能体工作区」入口的基准。 */
+    private Path agentRoot;
+    /** 当前会话的专属工作区目录（= 智能体实际工作目录，可空）：{@code <agentRoot>/<sessionId>}。 */
     private Path sessionDir;
     /** 「当前会话」入口树项（可空）；刷新时整体替换该子树，摆脱一次性懒加载的陈旧内容。 */
     private TreeItem<FileNode> sessionItem;
+    /** 「智能体工作区」入口树项（可空=与共享根重合的默认智能体，不重复出现）；刷新时同样整体替换。 */
+    private TreeItem<FileNode> agentItem;
     /** 「共享工作区」入口树项：workspace 根，不受会话切换影响。 */
     private TreeItem<FileNode> sharedItem;
 
@@ -93,7 +99,6 @@ public final class WorkspacePanel {
     private final VBox treePane = new VBox();
     private final TreeView<FileNode> tree = new TreeView<>();
     private final Label crumb = new Label();
-    private final Button backBtn = new Button();
     private final Button columnsBtn = new Button();
     private final Button closeBtn = new Button();
     /** HTML/SVG 阅读复用单个 JCEF OSR 视图，首次渲染时创建。 */
@@ -106,6 +111,7 @@ public final class WorkspacePanel {
     public WorkspacePanel(SplitPane workspaceSplit, GimPaths gimPaths) {
         this.workspaceSplit = workspaceSplit;
         this.workspaceRoot = gimPaths.workspaceDir().toAbsolutePath().normalize();
+        this.agentRoot = this.workspaceRoot;
         build();
     }
 
@@ -126,7 +132,10 @@ public final class WorkspacePanel {
         return workspaceSplit != null && workspaceSplit.getItems().contains(root);
     }
 
-    /** 展开：未挂则先经宿主守护校准窗口（必要时扩窗），再挂入并把分栏位压到约 0.62；每次展开刷新会话入口。 */
+    /**
+     * 展开：未挂则先经宿主守护校准窗口（必要时扩窗），再挂入并把分栏位压到约 0.62；
+     * 每次展开复位到文件列表（返回按钮已移除，「收起再展开」即单面板下的返回路径）并刷新会话入口。
+     */
     public void show() {
         if (workspaceSplit == null) {
             return;
@@ -137,7 +146,10 @@ public final class WorkspacePanel {
             }
             workspaceSplit.getItems().add(root);
             workspaceSplit.setDividerPositions(0.62);
-            // 面板收起期间智能体可能又落了新产物：展开即重建会话入口，所见即所得
+            // 单面板模式的返回路径：收起再展开回到文件列表（openFile/showArtifact 随后会再切到阅读区）
+            showingViewer = false;
+            applyInnerLayout();
+            // 面板收起期间智能体可能又落了新产物：展开即重建会话/智能体入口，所见即所得
             refreshCurrent();
         }
     }
@@ -164,47 +176,64 @@ public final class WorkspacePanel {
     // ===================== 对外入口 =====================
 
     /**
-     * 跟随会话：把文件树「当前会话」入口切到 {@code <workspaceRoot>/<sessionId>/}（智能体实际工作目录）。
-     * <p>整树重建，目录已存在时自动展开；{@code sessionId} 为空（新任务空态）时只显示共享工作区。
-     * 宿主在启动接线、切换会话、首条消息建会话处调用；同一会话重复调用保持现状（保留展开状态）。</p>
+     * 跟随会话：文件树入口切到 {@code agentWorkspace} 语境——「当前会话」= {@code <agentWorkspace>/<sessionId>/}
+     * （智能体文件工具经命名空间隔离的实际落点），「智能体工作区」= agentWorkspace 根（非默认智能体专属）。
+     * <p>{@code agentWorkspace} 由宿主按运行时装配同一口径解析（MultiAgentGateway#workspaceForAgent）；
+     * 为空或越出共享根时回退共享根。整树重建，目录已在时自动展开；{@code sessionId} 为空（新任务空态）时
+     * 只显示智能体/共享工作区入口。同一会话与工作区重复调用保持现状（保留展开状态）。</p>
      */
-    public void followSession(String sessionId) {
+    public void followSession(String sessionId, Path agentWorkspace) {
         String sid = sessionId == null || sessionId.isBlank() ? null : sessionId.trim();
-        if (sid != null && sid.equals(this.sessionId) && sessionItem != null) {
+        Path root = agentRootOf(workspaceRoot, agentWorkspace);
+        if (Objects.equals(sid, this.sessionId) && root.equals(this.agentRoot) && sharedItem != null) {
             return;
         }
         this.sessionId = sid;
-        this.sessionDir = sessionDirOf(workspaceRoot, sid);
+        this.agentRoot = root;
+        this.sessionDir = sessionDirOf(root, sid);
         rebuildTree();
     }
 
     /**
-     * 就地刷新「当前会话」入口：整体替换为未加载的新子树（下次展开重列目录），
-     * 清掉一次性懒加载缓存的陈旧内容。面板展开、每轮流式收尾后由宿主调用；无会话时为空操作。
+     * 就地刷新「当前会话」与「智能体工作区」入口：整体替换为未加载的新子树（下次展开重列目录），
+     * 清掉一次性懒加载缓存的陈旧内容。面板展开、每轮流式收尾后由宿主调用；两者皆无时为空操作。
      */
     public void refreshCurrent() {
-        if (sessionDir == null || tree.getRoot() == null) {
+        if (tree.getRoot() == null) {
             return;
         }
-        TreeItem<FileNode> fresh = dirItem(new FileNode(sessionDir, true, I18n.t("chat.workspace.currentSession")));
-        sessionItem = fresh;
-        tree.getRoot().getChildren().set(0, fresh);
-        if (Files.isDirectory(sessionDir)) {
-            fresh.setExpanded(true);
+        int index = 0;
+        if (sessionDir != null) {
+            sessionItem = dirItem(new FileNode(sessionDir, true, I18n.t("chat.workspace.currentSession")));
+            tree.getRoot().getChildren().set(index++, sessionItem);
+            // 目录已在则自动展开：expandedProperty 监听同步懒列子项，免得用户再点一次
+            if (Files.isDirectory(sessionDir)) {
+                sessionItem.setExpanded(true);
+            }
+        }
+        if (agentItem != null) {
+            agentItem = dirItem(new FileNode(agentRoot, true, I18n.t("chat.workspace.agentWorkspace")));
+            tree.getRoot().getChildren().set(index, agentItem);
+            if (Files.isDirectory(agentRoot)) {
+                agentItem.setExpanded(true);
+            }
         }
     }
 
-    /** 语言切换：两个入口标签重取文案（子节点是文件名，与语言无关）。 */
+    /** 语言切换：各入口标签重取文案（子节点是文件名，与语言无关）。 */
     public void applyI18n() {
         if (sessionItem != null && sessionItem.getValue() != null) {
             sessionItem.setValue(new FileNode(sessionDir, true, I18n.t("chat.workspace.currentSession")));
+        }
+        if (agentItem != null && agentItem.getValue() != null) {
+            agentItem.setValue(new FileNode(agentRoot, true, I18n.t("chat.workspace.agentWorkspace")));
         }
         if (sharedItem != null && sharedItem.getValue() != null) {
             sharedItem.setValue(new FileNode(workspaceRoot, true, I18n.t("chat.workspace.shared")));
         }
     }
 
-    /** 重建整树：合成根（不渲染）下挂「当前会话」（若有）与「共享工作区」两个入口。 */
+    /** 重建整树：合成根（不渲染）下依次挂「当前会话」（若有）、「智能体工作区」（非默认智能体）与「共享工作区」。 */
     private void rebuildTree() {
         TreeItem<FileNode> syntheticRoot = new TreeItem<>();
         sessionItem = sessionDir == null ? null
@@ -212,12 +241,21 @@ public final class WorkspacePanel {
         if (sessionItem != null) {
             syntheticRoot.getChildren().add(sessionItem);
         }
+        // 默认智能体的工作区即共享根：无需重复入口
+        agentItem = agentRoot.equals(workspaceRoot) ? null
+                : dirItem(new FileNode(agentRoot, true, I18n.t("chat.workspace.agentWorkspace")));
+        if (agentItem != null) {
+            syntheticRoot.getChildren().add(agentItem);
+        }
         sharedItem = dirItem(new FileNode(workspaceRoot, true, I18n.t("chat.workspace.shared")));
         syntheticRoot.getChildren().add(sharedItem);
         tree.setRoot(syntheticRoot);
-        // 挂树后再展开（事件沿根到达树）：目录已在则子项即时上树，免得用户再点一次
+        // 目录已在则自动展开：expandedProperty 监听同步懒列子项，免得用户再点一次
         if (sessionItem != null && Files.isDirectory(sessionDir)) {
             sessionItem.setExpanded(true);
+        }
+        if (agentItem != null && Files.isDirectory(agentRoot)) {
+            agentItem.setExpanded(true);
         }
     }
 
@@ -285,10 +323,6 @@ public final class WorkspacePanel {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
-        configureTool(backBtn, "\uE72B", "chat.workspace.back", () -> {
-            showingViewer = false;
-            applyInnerLayout();
-        });
         configureTool(columnsBtn, "\uE8A1", "chat.workspace.columns.expand", () -> {
             threeColumn = !threeColumn;
             applyToolTips();
@@ -296,7 +330,7 @@ public final class WorkspacePanel {
         });
         configureTool(closeBtn, "\uE711", "chat.workspace.close", this::hide);
 
-        HBox header = new HBox(4, crumb, spacer, backBtn, columnsBtn, closeBtn);
+        HBox header = new HBox(4, crumb, spacer, columnsBtn, closeBtn);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("workspace-header");
         return header;
@@ -323,12 +357,12 @@ public final class WorkspacePanel {
 
     private void buildTree() {
         tree.getStyleClass().add("workspace-tree");
-        // 合成根不渲染：首层直接是「当前会话 / 共享工作区」两个入口（见 rebuildTree）
+        // 合成根不渲染：首层直接是「当前会话 / 智能体工作区 / 共享工作区」入口（见 rebuildTree）
         tree.setShowRoot(false);
         tree.setRoot(new TreeItem<>());
         tree.setCellFactory(v -> new FileCell());
-        // 展开目录时懒列子项（TreeItem 无 childrenFactory，用占位子项 + 展开事件实现）
-        tree.addEventHandler(TreeItem.<FileNode>branchExpandedEvent(), e -> onExpand(e.getTreeItem()));
+        // 展开懒加载触发在各目录节点的 expandedProperty 监听上（见 dirItem）：TreeItem 事件派发链
+        // 只经 TreeItem 父链、不经 TreeView 控件，注册在控件上的 branchExpandedEvent 收不到事件
         tree.getSelectionModel().selectedItemProperty().addListener((obs, old, sel) -> {
             if (sel != null && sel.getValue() != null && !sel.getValue().directory()) {
                 openFile(sel.getValue().path());
@@ -536,6 +570,15 @@ public final class WorkspacePanel {
         return isWithin(root, dir) ? dir : null;
     }
 
+    /** 智能体工作区根归一化：候选为空或越出共享根（运行时解析恒在共享根内，此处防御非法值）时回退共享根。 */
+    static Path agentRootOf(Path sharedRoot, Path candidate) {
+        if (candidate == null) {
+            return sharedRoot;
+        }
+        Path root = candidate.toAbsolutePath().normalize();
+        return isWithin(sharedRoot, root) ? root : sharedRoot;
+    }
+
     /** 是否超过给定字节上限。 */
     static boolean tooLarge(long size, long cap) {
         return size > cap;
@@ -561,13 +604,16 @@ public final class WorkspacePanel {
         return dot < 0 ? "" : name.substring(dot + 1);
     }
 
-    /** 面包屑：会话内文件为「当前会话 › 相对子路径」，共享区仍为「workspace › 相对子路径」。 */
+    /** 面包屑：「当前会话 › 相对子路径」/「智能体工作区 › …」/「共享工作区 › …」，按目标所在层取头。 */
     private String crumbFor(Path target) {
         Path base = workspaceRoot;
-        String head = workspaceRoot.getFileName().toString();
+        String head = I18n.t("chat.workspace.shared");
         if (sessionDir != null && isWithin(sessionDir, target)) {
             base = sessionDir;
             head = I18n.t("chat.workspace.currentSession");
+        } else if (!agentRoot.equals(workspaceRoot) && isWithin(agentRoot, target)) {
+            base = agentRoot;
+            head = I18n.t("chat.workspace.agentWorkspace");
         }
         List<String> parts = new ArrayList<>();
         parts.add(head);
@@ -580,7 +626,7 @@ public final class WorkspacePanel {
 
     // ===================== 文件树数据与单元 =====================
 
-    /** 树节点值：路径 + 是否目录 + 显示名覆写（可空，用于「当前会话/共享工作区」两个入口）。 */
+    /** 树节点值：路径 + 是否目录 + 显示名覆写（可空，用于「当前会话/智能体工作区/共享工作区」入口）。 */
     record FileNode(Path path, boolean directory, String label) {
         FileNode(Path path, boolean directory) {
             this(path, directory, null);
@@ -601,14 +647,20 @@ public final class WorkspacePanel {
         return dirItem(new FileNode(p, true));
     }
 
-    /** 目录节点（带显示名覆写）：「当前会话/共享工作区」两个入口节点复用。 */
+    /** 目录节点（带显示名覆写）：「当前会话/智能体工作区/共享工作区」入口节点复用。 */
     private TreeItem<FileNode> dirItem(FileNode node) {
         TreeItem<FileNode> item = new TreeItem<>(node);
         item.getChildren().add(new TreeItem<>());
+        // 展开属性变化即懒列（程序化自动展开与点击展开都走属性变化，不依赖 TreeItem 事件派发）
+        item.expandedProperty().addListener((obs, was, is) -> {
+            if (Boolean.TRUE.equals(is)) {
+                onExpand(item);
+            }
+        });
         return item;
     }
 
-    /** 展开目录时把占位子项替换为真实列表（仅首次，子项仍为占位则再懒列；已加载目录的陈旧内容由会话入口重建刷新）。 */
+    /** 展开目录时把占位子项替换为真实列表（仅首次，子项仍为占位则再懒列；已加载目录的陈旧内容由入口重建刷新）。 */
     private void onExpand(TreeItem<FileNode> item) {
         if (item == null || item.getValue() == null || !item.getValue().directory()) {
             return;

@@ -897,16 +897,18 @@
 .terminal-error { -fx-text-fill: -gim-badge-red-fg; -fx-padding: 12; }
 
 /* ---------- 工作区右侧栏（文件树 + 就地阅读） ---------- */
-/* 外层横向分栏：分隔线与 chat-split 同规格 */
+/* 外层横向分栏：分隔线本体透明——可见左线由面板 1px 左边框承担（与顶线同规格），
+   2px 宽仅作拖拽区 */
 .workspace-split { -fx-padding: 0; -fx-background-color: transparent; -fx-box-border: transparent; }
 .workspace-split > .split-pane-divider {
-    -fx-background-color: -gim-border-4;
+    -fx-background-color: transparent;
     -fx-background-insets: 0;
     -fx-padding: 0 1 0 1;
 }
 .workspace-panel {
-    -fx-background-color: -gim-panel-2;
-    -fx-border-color: transparent transparent transparent -gim-border-4;
+    -fx-background-color: -gim-bg;   /* 白底（对标参考风格：面板与阅读区同纯白，仅以细边框分隔） */
+    /* 顶边框：路径（面包屑）上方的细分割线，与页面标题行分隔；左边框：与聊天区侧分隔 */
+    -fx-border-color: -gim-border-4 transparent transparent -gim-border-4;
     -fx-border-width: 1;
     -fx-min-width: 260;
 }
@@ -934,6 +936,7 @@
 .workspace-tree-pane { -fx-background-color: transparent; }
 .workspace-tree { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 4; }
 .workspace-tree .tree-cell { -fx-background-color: transparent; -fx-text-fill: -gim-text; -fx-font-size: 12px; }
+.workspace-tree .tree-cell:filled:hover { -fx-background-color: -gim-cell-hover; }
 .workspace-tree .tree-cell:selected { -fx-background-color: -gim-hover; -fx-text-fill: -gim-text-title; }
 .workspace-tree-icon {
     -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
