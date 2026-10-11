@@ -94,6 +94,8 @@ public final class JcefComposer {
     private Runnable onSubmit;
     /** 在途的「取最新文本」请求回调（sendNow 应答消费，单槽：快速连按时旧请求让位新请求）。 */
     private Consumer<String> pendingSend;
+    /** 选区变化回调（composer.js selectionchange 上报驱动）：告知宿主「最近一次选区交互在输入框」。 */
+    private Runnable onSelectionChanged;
 
     /** IME 组合态：组合期间键盘事件一律不转发（按键归输入法消化，Enter 不触发发送）。 */
     private volatile boolean imeComposing;
@@ -229,6 +231,11 @@ public final class JcefComposer {
     /** 接线 Enter（无 Shift）提交动作。 */
     public void setOnSubmit(Runnable onSubmit) {
         this.onSubmit = onSubmit;
+    }
+
+    /** 接线选区变化通知（选中文本每次变化即回调）：Ctrl+C 让位判断的「最近交互在输入框」信号。 */
+    public void setOnSelectionChanged(Runnable cb) {
+        this.onSelectionChanged = cb;
     }
 
     /**
@@ -393,11 +400,16 @@ public final class JcefComposer {
                         mirror.set(text);
                     }
                     mirrorCaret = (int) lng(a, 1);
-                    mirrorSelected = str(a, 2);
+                    String selected = str(a, 2);
+                    boolean selectionChanged = !selected.equals(mirrorSelected == null ? "" : mirrorSelected);
+                    mirrorSelected = selected;
                     caretX = dbl(a, 3);
                     caretY = dbl(a, 4);
                     caretW = dbl(a, 5);
                     caretH = dbl(a, 6);
+                    if (selectionChanged && onSelectionChanged != null) {
+                        onSelectionChanged.run();
+                    }
                 }
                 case "sendNow" -> {
                     String text = str(a, 0);

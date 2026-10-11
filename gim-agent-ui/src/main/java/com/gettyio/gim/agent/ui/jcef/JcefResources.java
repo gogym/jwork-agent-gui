@@ -148,7 +148,7 @@ public final class JcefResources {
     }
 
     /**
-     * 生成 {@code bridge-shim.js}：以 {@code window.javaBridge} 形态复刻旧 {@code JSObject} 桥的 12 个方法，
+     * 生成 {@code bridge-shim.js}：以 {@code window.javaBridge} 形态复刻旧 {@code JSObject} 桥的 13 个方法，
      * 每次调用把 {@code {fn,args}} 序列化为 JSON 经 {@code window.<queryFn>} 发往 Java。
      *
      * <p>JSON 在发送前把非 ASCII 字符转义为 <code>&#92;uXXXX</code>（与 Java 侧 {@code executeScript}
@@ -196,7 +196,8 @@ public final class JcefResources {
                         onCopyCode: function (text) { send('onCopyCode', [text]); },
                         onPreviewCode: function (code, lang) { send('onPreviewCode', [code, lang]); },
                         onEmpty: function (empty) { send('onEmpty', [empty]); },
-                        onDismissMenu: function () { send('onDismissMenu', []); }
+                        onDismissMenu: function () { send('onDismissMenu', []); },
+                        onSelection: function (has) { send('onSelection', [!!has]); }
                     };
                 })();
                 """.formatted(queryFn);

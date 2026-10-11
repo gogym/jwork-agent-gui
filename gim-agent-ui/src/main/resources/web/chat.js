@@ -558,6 +558,19 @@
 
         compareClear: function () {
             if (streaming.compare) { streaming.compare.parentNode.removeChild(streaming.compare); streaming.compare = null; }
+        },
+
+        // 复制到系统剪贴板：优先当前选区文本（Ctrl+C 兜底，id 传 null），无选区且给定消息 id 时
+        // 回退该条消息原文（右键菜单「复制」，与悬停操作条复制同源 data-raw）。经既有 onAction('copy')
+        // 通道交 Java 写系统剪贴板，不依赖「合成按键 → Chromium 编辑命令」链路（OSR 下该链不产生编辑效果）。
+        copyText: function (id) {
+            var text = window.getSelection ? String(window.getSelection()) : '';
+            if (!text && id != null) {
+                var rows = list().querySelectorAll('.bubble-row[data-id="' + id + '"]');
+                var holder = rows.length === 1 ? rows[0].querySelector('[data-raw]') : null;
+                text = holder ? (holder.getAttribute('data-raw') || '') : '';
+            }
+            if (text && bridge()) { bridge().onAction('copy', id, text); }
         }
     };
 
@@ -657,6 +670,17 @@
         ctxMenuOpen = false;
         if (bridge()) { bridge().onDismissMenu(); }
     }, { passive: true });
+
+    // 选区有无变化上报（Ctrl+C 兜底让位判断）：仅在 true/false 翻转时过桥，拖选过程不产生桥流量。
+    // 例：用户刚在消息区选好文字时，输入框里的滞留选区不应劫持 Ctrl+C（Java 侧据此让位）。
+    var chatSelState = false;
+    document.addEventListener('selectionchange', function () {
+        var sel = window.getSelection();
+        var has = !!sel && sel.rangeCount > 0 && !sel.isCollapsed;
+        if (has === chatSelState) { return; }
+        chatSelState = has;
+        if (bridge()) { bridge().onSelection(has); }
+    });
 
     window.ChatAPI = api;
     if (bridge()) { bridge().onReady(); }

@@ -15,6 +15,9 @@ public interface ChatViewEvents {
     /** 菜单外点击/滚动：收起消息右键菜单（JCEF 区域点击不触发 JavaFX 弹窗自动隐藏，需 JS 回抛）。 */
     void chatDismissMenu();
 
+    /** 聊天页选区有无变化：Ctrl+C 兜底据此让位（输入框有选区且聊天区无选区时保留输入框的复制）。 */
+    void chatSelection(boolean hasSelection);
+
     /** 滚动到顶：向上补页入口。 */
     void chatScrollTop();
 

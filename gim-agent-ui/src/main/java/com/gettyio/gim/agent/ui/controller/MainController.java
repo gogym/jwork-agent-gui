@@ -397,6 +397,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     private ContextMenu templateMenu;
     /** 消息右键菜单：复用单一实例，右键换目标时先收再弹，不叠出多个弹窗 */
     private ContextMenu chatContextMenu;
+    /** 聊天页当前是否有选区（chat.js selectionchange 翻转上报；Ctrl+C 让位判断用）。 */
+    private volatile boolean chatHasSelection;
     /** 横幅当前展示的计划归属智能体（编辑/确认时定位 PLAN.md） */
     private String planBannerAgent;
 
@@ -424,6 +426,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
         inputField = new com.gettyio.gim.agent.ui.jcef.JcefComposer();
         inputFieldHost.getChildren().add(inputField.node());
         inputField.setOnSubmit(this::handleSend);
+        // 输入框选区变化：最近交互在输入框 → 聊天区选区镜像让位（Ctrl+C 归 composer 链处理）
+        inputField.setOnSelectionChanged(() -> chatHasSelection = false);
         attachmentBar = new com.gettyio.gim.agent.ui.chat.AttachmentBar(
                 attachChipsBox, inputField, attachButton, gimPaths, this);
         installFileDropTarget();
@@ -953,9 +957,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
 
     /**
      * Ctrl+C 兜底：聊天区是 JCEF(Chromium) 渲染，选中文本的复制属 Chromium 编辑命令，
-     * 但聊天视图不接键盘转发（点击聊天区也不抢 FX 焦点），Ctrl+C 会静默失效。
-     * 焦点不在文本控件/终端时，把 Ctrl+C 合成转发给聊天 Chromium（与输入框转发同链），
-     * 由浏览器把选区写入系统剪贴板；输入框自身有选区时保留 composer 链的复制。
+     * 但键盘不经该渲染链（OSR 下合成按键不产生编辑效果——输入框编辑早已全走 JS 注入），
+     * 故改为：JS 读回页面选区 → 既有 onAction('copy') 桥通道 → Java 写系统剪贴板
+     * （与悬停操作条的复制按钮同源），无选区时 JS 侧不动作。
+     * <p>让位规则：焦点在文本控件/终端时放行；输入框有选区且聊天区无选区（输入框的复制保留）、
+     * 或最近一次选区交互发生在输入框（{@code chatHasSelection} 被 composer 侧重置）时放行；
+     * 其余消费事件并触发聊天页复制。</p>
      */
     private void installChatCopyShortcut(Scene scene) {
         scene.addEventFilter(KeyEvent.KEY_PRESSED, e -> {
@@ -967,11 +974,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             if (focus instanceof TextInputControl || within(focus, terminalRoot)) {
                 return;
             }
-            if (within(focus, inputFieldHost) && inputField.hasSelection()) {
+            if (within(focus, inputFieldHost) && inputField.hasSelection() && !chatHasSelection) {
                 return;
             }
             e.consume();
-            chatView.forwardShortcut(e, java.awt.event.KeyEvent.KEY_PRESSED);
+            chatView.copySelection();
         });
     }
 
@@ -1742,6 +1749,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     }
 
     @Override
+    public void chatSelection(boolean hasSelection) {
+        chatHasSelection = hasSelection;
+    }
+
+    @Override
     public void chatScrollTop() {
         Platform.runLater(() -> historyPager.loadOlder());
     }
@@ -1812,7 +1824,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
     }
 
     /**
-     * 右键消息的原生菜单（分支/删除）：{@code id} 为落盘主键，未落盘（{@code <=0}，如临时流式/新用户气泡）禁用。
+     * 右键消息的原生菜单（复制/分支/删除）：{@code id} 为落盘主键，未落盘（{@code <=0}，如临时流式/新用户气泡）时分支/删除禁用；
+     * 复制不受主键限制（选区优先，无选区读该行原文）。
      * 坐标取 WebView 客户端像素（WebView 撑满 chatHost，二者局部坐标等价），换算到屏幕坐标弹出。
      * <p>菜单复用单一实例：右键换目标先收再弹、条目重灌（动作闭包始终绑定当前消息主键）；
      * JCEF(OSR) 区域点击不触发 FX 弹窗自动隐藏，菜单外的按下/滚动由 JS 经 {@link #chatDismissMenu()} 回抛收起。</p>
@@ -1822,13 +1835,15 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.SessionSide
             chatContextMenu = new ContextMenu();
         }
         chatContextMenu.hide();
+        MenuItem copy = new MenuItem(I18n.t("chat.msg.copy"));
+        copy.setOnAction(e -> chatView.copyMessage(id));
         MenuItem fork = new MenuItem(I18n.t("chat.msg.fork"));
         fork.setDisable(id <= 0);
         fork.setOnAction(e -> onFork(id));
         MenuItem delete = new MenuItem(I18n.t("chat.msg.delete"));
         delete.setDisable(id <= 0);
         delete.setOnAction(e -> onDelete(id));
-        chatContextMenu.getItems().setAll(fork, delete);
+        chatContextMenu.getItems().setAll(copy, fork, delete);
         javafx.geometry.Point2D screen = chatHost.localToScreen(x, y);
         if (screen == null) {
             chatContextMenu.show(chatHost, x, y);

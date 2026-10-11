@@ -5,7 +5,7 @@ import com.gettyio.gim.agent.ui.controller.ChatViewEvents;
 /**
  * 暴露给 WebView 内 {@code chat.js} 的 Java 桥对象（挂到 {@code window.javaBridge}）。
  * <p>仅承载 JS→Java 事件：气泡操作（复制/朗读/重生成/编辑重发）转调 {@link MessageActionListener}，
- * 其余（链接、图片、代码复制/预览、右键、收菜单、滚动、空态、就绪）转调 {@link ChatViewEvents}。
+ * 其余（链接、图片、代码复制/预览、右键、收菜单、选区、滚动、空态、就绪）转调 {@link ChatViewEvents}。
  * WebView 的 JS 在 FX 应用线程上执行，方法体可直接操作 JavaFX，无需再 {@code Platform.runLater}。</p>
  * <p>注意：JSObject 反射调用要求方法所在类与其方法均为 public——WebView 侧反射调用 {@code window.javaBridge.xxx}
  * 只能访问公开类，否则静默失败（尤其 {@code onEmpty} 不回抛会导致欢迎页常驻）。所有分支都做了入参兜底，绝不因单个脏事件中断渲染。</p>
@@ -59,6 +59,11 @@ public final class ChatBridge {
     /** 菜单外点击/滚动：交控制器收起已弹出的消息右键菜单。 */
     public void onDismissMenu() {
         events.chatDismissMenu();
+    }
+
+    /** 聊天页选区有无变化：驱动 Ctrl+C 兜底的让位判断。 */
+    public void onSelection(boolean hasSelection) {
+        events.chatSelection(hasSelection);
     }
 
     /** 滚动到顶：触发向上补页。 */

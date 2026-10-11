@@ -6,7 +6,6 @@ import com.gettyio.gim.agent.ui.I18n;
 import com.gettyio.gim.agent.ui.UiTheme;
 import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
 import com.gettyio.gim.agent.ui.jcef.JcefResources;
-import javafx.scene.input.KeyEvent;
 import javafx.scene.layout.StackPane;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -118,6 +117,7 @@ public final class ChatWebView {
                 case "onCopyCode" -> bridge.onCopyCode(str(a, 0));
                 case "onPreviewCode" -> bridge.onPreviewCode(str(a, 0), str(a, 1));
                 case "onDismissMenu" -> bridge.onDismissMenu();
+                case "onSelection" -> bridge.onSelection(bool(a, 0));
                 case "onEmpty" -> {
                     boolean empty = bool(a, 0);
                     log.info("收到 JS onEmpty={}", empty);
@@ -260,20 +260,16 @@ public final class ChatWebView {
         run("ChatAPI.compareClear();");
     }
 
-    // ---------- 键盘 ----------
+    // ---------- 复制 ----------
 
-    /**
-     * Scene 级快捷键转发（Ctrl+C 复制等）：聊天页选区由 Chromium 维护，把按键合成 AWT
-     * 事件直送聊天 Chromium（与输入框的键盘转发同链），由浏览器执行对应编辑命令。
-     * 转发前确保浏览器持有焦点：编辑命令只作用于有焦点浏览器的选区。
-     */
-    public void forwardShortcut(KeyEvent e, int awtEventId) {
-        try {
-            view.browser().setFocus(true);
-        } catch (Throwable ignored) {
-            // 浏览器未就绪时忽略：此时也无选区可复制
-        }
-        view.forwardKeyEvent(e, awtEventId, e.getCode().getCode(), (char) 0);
+    /** Ctrl+C 兜底：复制聊天页当前选区（选区在 Chromium 内维护，JS 读回后经桥写系统剪贴板）；无选区不动作。 */
+    public void copySelection() {
+        run("ChatAPI.copyText(null);");
+    }
+
+    /** 右键菜单「复制」：优先选区文本；无选区时回退该条消息原文（与悬停操作条复制同源）。 */
+    public void copyMessage(long id) {
+        run("ChatAPI.copyText(" + id + ");");
     }
 
     // ---------- 队列 ----------
