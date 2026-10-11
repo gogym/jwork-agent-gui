@@ -116,11 +116,13 @@ final class NetworkSettingsPanel {
         return box;
     }
 
-    /** 联网搜索卡（自安全页「联网」Tab 并入）：搜索提供方与 API Key（加密存储），供 web_search / web_fetch 实时取用。 */
+    /** 联网搜索卡（自安全页「联网」Tab 并入）：提供方 + 其所需配置（Tavily/博查 看 Key，SearXNG 看实例地址），供 web_search / web_fetch 实时取用。 */
     private VBox webSearchCard() {
-        ComboBox<String> providerCombo = SettingsLayout.pillCombo("Tavily");
-        providerCombo.setValue(I18n.t("settings.network.web.provider.tavily"));
-        providerCombo.setOnAction(e -> securityAdminService.setWebSearchProvider(SecurityAdminService.WEB_PROVIDER_TAVILY));
+        ComboBox<String> providerCombo = SettingsLayout.pillCombo(
+                I18n.t("settings.network.web.provider.tavily"),
+                I18n.t("settings.network.web.provider.bocha"),
+                I18n.t("settings.network.web.provider.searxng"));
+        providerCombo.setValue(providerLabel(securityAdminService.getWebSearchProvider()));
 
         PasswordField keyField = new PasswordField();
         keyField.setText(securityAdminService.getWebSearchApiKeyPlain());
@@ -134,16 +136,72 @@ final class NetworkSettingsPanel {
             }
         });
 
+        TextField instanceField = new TextField(securityAdminService.getWebSearchBaseUrl());
+        instanceField.setPromptText(I18n.t("settings.network.web.baseurl.prompt"));
+        instanceField.setMaxWidth(360);
+        Runnable saveInstance = () -> securityAdminService.setWebSearchBaseUrl(instanceField.getText());
+        instanceField.setOnAction(e -> saveInstance.run());
+        instanceField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                saveInstance.run();
+            }
+        });
+
+        Node keyRow = SettingsLayout.settingRow(I18n.t("settings.network.web.key"),
+                I18n.t("settings.network.web.key.desc"), keyField);
+        Node baseUrlRow = SettingsLayout.settingRow(I18n.t("settings.network.web.baseurl"),
+                I18n.t("settings.network.web.baseurl.desc"), instanceField);
+
+        // 切换提供方：仅显示其所需配置（SearXNG 免 Key 只看实例地址），并回填该提供方已存的 Key
+        Runnable refresh = () -> {
+            boolean searxng = SecurityAdminService.WEB_PROVIDER_SEARXNG.equals(providerCode(providerCombo.getValue()));
+            showRow(keyRow, !searxng);
+            showRow(baseUrlRow, searxng);
+        };
+        providerCombo.setOnAction(e -> {
+            securityAdminService.setWebSearchProvider(providerCode(providerCombo.getValue()));
+            keyField.setText(securityAdminService.getWebSearchApiKeyPlain());
+            refresh.run();
+        });
+        refresh.run();
+
         VBox card = SettingsLayout.groupCard(I18n.t("settings.network.web.group"), List.of(
                 SettingsLayout.settingRow(I18n.t("settings.network.web.provider"),
                         I18n.t("settings.network.web.provider.desc"), providerCombo),
-                SettingsLayout.settingRow(I18n.t("settings.network.web.key"),
-                        I18n.t("settings.network.web.key.desc"), keyField)));
+                keyRow, baseUrlRow));
 
         Label hint = new Label(I18n.t("settings.network.web.hint"));
         hint.getStyleClass().add("row-desc");
         hint.setWrapText(true);
         return new VBox(12, card, hint);
+    }
+
+    /** 行级显隐：隐藏时同时让出布局空间（不占位）。 */
+    private static void showRow(Node row, boolean visible) {
+        row.setVisible(visible);
+        row.setManaged(visible);
+    }
+
+    /** 提供方编码 → 下拉显示名；未识别回退 Tavily。 */
+    private static String providerLabel(String code) {
+        if (SecurityAdminService.WEB_PROVIDER_BOCHA.equals(code)) {
+            return I18n.t("settings.network.web.provider.bocha");
+        }
+        if (SecurityAdminService.WEB_PROVIDER_SEARXNG.equals(code)) {
+            return I18n.t("settings.network.web.provider.searxng");
+        }
+        return I18n.t("settings.network.web.provider.tavily");
+    }
+
+    /** 下拉显示名 → 提供方编码；未识别回退 Tavily。 */
+    private static String providerCode(String label) {
+        if (I18n.t("settings.network.web.provider.bocha").equals(label)) {
+            return SecurityAdminService.WEB_PROVIDER_BOCHA;
+        }
+        if (I18n.t("settings.network.web.provider.searxng").equals(label)) {
+            return SecurityAdminService.WEB_PROVIDER_SEARXNG;
+        }
+        return SecurityAdminService.WEB_PROVIDER_TAVILY;
     }
 
     /** 校验并保存代理设置：启用时要求主机与 1-65535 端口齐备，否则回滚并提示；仅设置变化时失效运行体。 */

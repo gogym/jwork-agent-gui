@@ -24,7 +24,7 @@ import java.util.function.Supplier;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link WebSearchTools} 守卫路径单测：验证「未配置 Key / 空入参 / 非法地址」时返回明确的本地化提示而非抛异常，
+ * {@link WebSearchTools} 守卫路径单测：验证「未配置（Key / 实例地址）/ 空入参 / 非法地址」时返回明确的本地化提示而非抛异常，
  * 且这些分支<b>完全不触网</b>（在发起 HTTP 前即返回）。真实联网结果格式化由集成/手工验收覆盖。
  *
  * @author gogym
@@ -32,7 +32,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class WebSearchToolsTest {
 
     private static WebSearchTools withKey(Supplier<String> key) {
-        return new WebSearchTools(key);
+        return new WebSearchTools(() -> WebSearchTools.PROVIDER_TAVILY, key, () -> "");
     }
 
     @Test
@@ -50,12 +50,39 @@ class WebSearchToolsTest {
     }
 
     @Test
+    @DisplayName("web_search：博查未配置 Key 返回配置引导")
+    void bochaMissingKeyGuidesToConfig() {
+        WebSearchTools tools = new WebSearchTools(() -> WebSearchTools.PROVIDER_BOCHA, () -> null, () -> "");
+        assertTrue(tools.webSearch("天气", null).contains("未配置"));
+    }
+
+    @Test
+    @DisplayName("web_search：SearXNG 未配置实例地址返回配置引导，地址缺协议头给出明确提示")
+    void searxngGuardsInstanceAddress() {
+        WebSearchTools missing = new WebSearchTools(() -> WebSearchTools.PROVIDER_SEARXNG, () -> "", () -> "   ");
+        assertTrue(missing.webSearch("天气", null).contains("未配置"));
+        WebSearchTools badScheme = new WebSearchTools(() -> WebSearchTools.PROVIDER_SEARXNG, () -> "",
+                () -> "searx.example.com");
+        assertTrue(badScheme.webSearch("天气", null).contains("http"));
+    }
+
+    @Test
     @DisplayName("web_search：Key 供给抛异常时按未配置处理，不向外抛")
     void keySupplierFailureTreatedAsUnconfigured() {
         Supplier<String> boom = () -> {
             throw new IllegalStateException("解密失败");
         };
         assertTrue(withKey(boom).webSearch("天气", null).contains("未配置"));
+    }
+
+    @Test
+    @DisplayName("web_search：提供方读取抛异常时回退默认分支，不向外抛")
+    void providerSupplierFailureFallsBackToDefault() {
+        Supplier<String> boom = () -> {
+            throw new IllegalStateException("设置读取失败");
+        };
+        WebSearchTools tools = new WebSearchTools(boom, () -> "", () -> "");
+        assertTrue(tools.webSearch("天气", null).contains("未配置"));
     }
 
     @Test

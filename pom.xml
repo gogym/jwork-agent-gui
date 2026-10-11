@@ -27,7 +27,7 @@
 
         <javafx.version>21.0.8</javafx.version>
         <jcef.version>141.0.10</jcef.version>
-        <agentscope.version>2.0.3</agentscope.version>
+        <agentscope.version>2.0.4</agentscope.version>
         <quartz.version>2.5.2</quartz.version>
         <jackson.version>2.21.4</jackson.version>
         <sqlite-jdbc.version>3.50.1.0</sqlite-jdbc.version>

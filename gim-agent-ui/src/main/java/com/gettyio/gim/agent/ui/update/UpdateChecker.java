@@ -31,10 +31,15 @@ import java.awt.Desktop;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.ConnectException;
+import java.net.NoRouteToHostException;
+import java.net.SocketTimeoutException;
 import java.net.URI;
+import java.net.UnknownHostException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -49,6 +54,8 @@ import java.util.Properties;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Consumer;
 import java.util.function.DoubleConsumer;
+
+import javax.net.ssl.SSLException;
 
 /**
  * 更新检查：向 gim-server-ai 查询最新发布版本并与本应用语义化版本比对，支持应用内下载安装。
@@ -260,8 +267,11 @@ public class UpdateChecker {
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() >= 500) {
+                throw new IOException(I18n.t("settings.update.error.serverUnavailable", resp.statusCode()));
+            }
             if (resp.statusCode() / 100 != 2) {
-                throw new IOException("HTTP " + resp.statusCode());
+                throw new IOException(I18n.t("settings.update.error.http", resp.statusCode()));
             }
             JsonNode root = mapper.readTree(resp.body());
             String code = root.path("code").asText("");
@@ -519,7 +529,7 @@ public class UpdateChecker {
                 });
             } catch (Exception e) {
                 Platform.runLater(() -> {
-                    String err = String.valueOf(e.getMessage());
+                    String err = describeError(e);
                     if (attempt < MAX_DOWNLOAD_RETRY) {
                         int r = GimDialog.chooseForced(owner, I18n.t("settings.update.downloadFail.title"), null,
                                 I18n.t("settings.update.downloadFail.body", err),
@@ -570,6 +580,45 @@ public class UpdateChecker {
     }
 
     // ===================== 内部工具 =====================
+
+    /**
+     * 网络异常转用户可读的失败描述：按根因归类（域名解析 / 超时 / 安全连接 / 无法连接），
+     * 全链均无可用描述时给通用网络文案——保证界面不出现 "null" 或裸技术消息。
+     */
+    public static String describeError(Throwable error) {
+        boolean dns = false;
+        boolean timeout = false;
+        boolean tls = false;
+        boolean unreachable = false;
+        String firstMessage = null;
+        for (Throwable t = error; t != null; t = t.getCause()) {
+            if (t instanceof UnknownHostException) {
+                dns = true;
+            } else if (t instanceof HttpTimeoutException || t instanceof SocketTimeoutException) {
+                timeout = true;
+            } else if (t instanceof SSLException) {
+                tls = true;
+            } else if (t instanceof ConnectException || t instanceof NoRouteToHostException) {
+                unreachable = true;
+            }
+            if (firstMessage == null && t.getMessage() != null && !t.getMessage().isBlank()) {
+                firstMessage = t.getMessage();
+            }
+        }
+        if (dns) {
+            return I18n.t("settings.update.error.dns");
+        }
+        if (timeout) {
+            return I18n.t("settings.update.error.timeout");
+        }
+        if (tls) {
+            return I18n.t("settings.update.error.tls");
+        }
+        if (unreachable) {
+            return I18n.t("settings.update.error.unreachable");
+        }
+        return firstMessage != null ? firstMessage : I18n.t("settings.update.error.network");
+    }
 
     private static String safeFileName(String url) {
         String seg = URI.create(url).getPath();

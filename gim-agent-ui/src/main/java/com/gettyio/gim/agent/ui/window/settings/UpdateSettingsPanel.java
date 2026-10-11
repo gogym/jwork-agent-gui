@@ -169,9 +169,9 @@ final class UpdateSettingsPanel {
                     if (checkButton != null) {
                         checkButton.setDisable(false);
                     }
-                    String err = String.valueOf(e.getMessage());
+                    String err = UpdateChecker.describeError(e);
                     setStatus(I18n.t("settings.update.status.failed", err));
-                    host.notify("settings.update.check", I18n.t("settings.update.fail", err));
+                    host.notify("settings.update.check", I18n.t("settings.update.fail", err), GimDialog.Level.ERROR);
                 });
             }
         }, "gim-update-check");
@@ -199,9 +199,9 @@ final class UpdateSettingsPanel {
                 });
             } catch (Exception e) {
                 Platform.runLater(() -> {
-                    String err = String.valueOf(e.getMessage());
+                    String err = UpdateChecker.describeError(e);
                     setStatus(I18n.t("settings.update.status.downloadFailed", err));
-                    host.notify("settings.update.check", I18n.t("settings.update.downloadFail", err));
+                    host.notify("settings.update.check", I18n.t("settings.update.downloadFail", err), GimDialog.Level.ERROR);
                 });
             }
         }, "gim-update-download");
@@ -217,7 +217,7 @@ final class UpdateSettingsPanel {
         if (go == 0) {
             boolean ok = updateChecker.install(file);
             if (!ok) {
-                host.notify("settings.update.check", I18n.t("settings.update.installFail"));
+                host.notify("settings.update.check", I18n.t("settings.update.installFail"), GimDialog.Level.ERROR);
             }
         }
     }

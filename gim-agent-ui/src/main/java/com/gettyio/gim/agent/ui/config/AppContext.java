@@ -519,8 +519,11 @@ public final class AppContext implements AutoCloseable {
                     gw.setPlanModeEnabled(readBool(db, "agent.planMode.enabled", true));
                     // 自定义工具：自然语言设定定时任务——每个智能体一份实例，新建任务归属当前智能体
                     gw.registerToolTarget(new ScheduleTools(schedulerService, db.taskDao(), gw.getAgentId()));
-                    // 联网工具：web_search / web_fetch——Key 从加密的 settings 实时取用，改配不重启即生效
-                    gw.registerToolTarget(new WebSearchTools(securityAdmin::getWebSearchApiKeyPlain));
+                    // 联网工具：web_search / web_fetch——提供方与 Key/实例地址从加密的 settings 实时取用，改配不重启即生效
+                    gw.registerToolTarget(new WebSearchTools(
+                            securityAdmin::getWebSearchProvider,
+                            securityAdmin::getWebSearchApiKeyPlain,
+                            securityAdmin::getWebSearchBaseUrl));
                     // 知识检索工具：knowledge_search——向量召回知识块，与 KNOWLEDGE.md 文件树路线并存
                     gw.registerToolTarget(new KnowledgeSearchTools(embeddingIndexer, gw::getAgentId));
                     // 分类记忆工具：memory_write——按主题写入 memory/<分类>.md（可搜索、随沉淀合并进 MEMORY.md；

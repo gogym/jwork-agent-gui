@@ -1123,6 +1123,21 @@
 .dialog-header { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -gim-text-strong; }
 .dialog-message { -fx-font-size: 13px; -fx-text-fill: -gim-text-2; -fx-line-spacing: 2; }
 .dialog-actions { -fx-alignment: center-right; -fx-padding: 4 0 0 0; }
+/* 消息型弹窗（message）：左侧语义图标徽标 + 右侧文本列；配色随明暗主题变量切换 */
+.dialog-state-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 15px;
+    /* Segoe Fluent Icons 字形在行框内偏上 1px，用顶部内边距补偿，保证字形与徽标同心 */
+    -fx-padding: 2 0 0 0;
+    -fx-background-radius: 8;
+    -fx-min-width: 32px; -fx-min-height: 32px;
+    -fx-pref-width: 32px; -fx-pref-height: 32px;
+    -fx-max-width: 32px; -fx-max-height: 32px;
+    -fx-alignment: center;
+}
+.dialog-state-info  { -fx-background-color: -gim-tint-3;       -fx-text-fill: -gim-tint-fg-3; }
+.dialog-state-warn  { -fx-background-color: -gim-warn-bg;      -fx-text-fill: -gim-warn-icon; }
+.dialog-state-error { -fx-background-color: -gim-badge-red-bg; -fx-text-fill: -gim-badge-red-fg; }
 
 /* ---------- 关于对话框（齿轮菜单「关于」）：品牌徽标 + 版本胶囊 + 信息卡 ---------- */
 .about-logo {

@@ -16,12 +16,16 @@
 
 package com.gettyio.gim.agent.ui.update;
 
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.ConnectException;
+import java.net.UnknownHostException;
+import java.net.http.HttpConnectTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -108,6 +112,28 @@ class UpdateCheckerTest {
         assertDoesNotThrow(() -> checker.verifyChecksum(ok, ""));
         assertDoesNotThrow(() -> checker.verifyChecksum(ok, null));
         assertTrue(Files.exists(ok), "跳过校验时不应删文件");
+    }
+
+    @Test
+    @DisplayName("网络异常转友好文案：DNS/超时/拒连接归类，null 消息不落到界面")
+    void describeErrorFriendlyMessage() {
+        // 包装链中定位根因（外层只是 "send failed"，根因是域名解析失败）
+        IOException wrapped = new IOException("send failed", new UnknownHostException("api.example.com"));
+        assertEquals(I18n.t("settings.update.error.dns"), UpdateChecker.describeError(wrapped));
+
+        assertEquals(I18n.t("settings.update.error.timeout"), UpdateChecker.describeError(
+                new HttpConnectTimeoutException("HTTP connect timed out")));
+        assertEquals(I18n.t("settings.update.error.unreachable"), UpdateChecker.describeError(
+                new ConnectException("Connection refused")));
+
+        // 消息为 null / 无消息：给通用网络文案而不是字面量 "null"
+        String generic = UpdateChecker.describeError(new IOException((String) null));
+        assertEquals(I18n.t("settings.update.error.network"), generic);
+        assertFalse(generic.contains("null"), "界面不得出现 null");
+        assertEquals(I18n.t("settings.update.error.network"), UpdateChecker.describeError(null));
+
+        // 有意义的自定义消息（如未配置地址、校验失败）原样保留
+        assertEquals("custom hint", UpdateChecker.describeError(new IOException("custom hint")));
     }
 
     @Test

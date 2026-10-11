@@ -55,7 +55,9 @@ public class SecurityAdminService {
     private static final String KEY_SHELL_ALLOWLIST = "security.shell.allowlist";
     private static final String KEY_PATH_ROOTS = "security.path.roots";
     private static final String KEY_WEB_PROVIDER = "web.search.provider";
-    private static final String KEY_WEB_APIKEY = "web.search.apiKey";
+    /** API Key 按提供方独立存储（前缀 + 提供方编码）：Tavily 与博查的 Key 互不串用。 */
+    private static final String KEY_WEB_APIKEY_PREFIX = "web.search.apiKey.";
+    private static final String KEY_WEB_BASEURL = "web.search.baseUrl";
     private static final String KEY_KB_BASEURL = "knowledge.embedding.baseUrl";
     private static final String KEY_KB_MODEL = "knowledge.embedding.model";
     private static final String KEY_KB_APIKEY = "knowledge.embedding.apiKey";
@@ -65,8 +67,12 @@ public class SecurityAdminService {
     private static final String KEY_SANDBOX_DOCKER = "agent.sandbox.autoApproveDocker";
     private static final String KEY_SANDBOX_IMAGE = "agent.sandbox.image";
 
-    /** 联网搜索提供方默认值（当前仅内置 Tavily）。 */
+    /** 联网搜索提供方：Tavily——AI 原生搜索（默认）。 */
     public static final String WEB_PROVIDER_TAVILY = "tavily";
+    /** 联网搜索提供方：博查——国内合规搜索（数据不出境）。 */
+    public static final String WEB_PROVIDER_BOCHA = "bocha";
+    /** 联网搜索提供方：SearXNG——自建元搜索实例（免 Key，需实例地址）。 */
+    public static final String WEB_PROVIDER_SEARXNG = "searxng";
 
     /** Docker 沙箱镜像默认值：与执行器内置默认保持单一来源。 */
     public static final String SANDBOX_IMAGE_DEFAULT = SandboxExecutor.DEFAULT_IMAGE;
@@ -249,16 +255,34 @@ public class SecurityAdminService {
         db.settingDao().upsert(KEY_PATH_ROOTS, CapabilityCodec.writeCodes(list), "文件写入授权目录（用户新增）");
     }
 
-    // ===================== 联网搜索（提供方 + API Key） =====================
+    // ===================== 联网搜索（提供方 + API Key + 实例地址） =====================
+
+    /** 当前提供方编码；未设置或空白回退 Tavily。 */
+    public String getWebSearchProvider() {
+        return db.settingDao().getValue(KEY_WEB_PROVIDER)
+                .map(String::trim)
+                .map(String::toLowerCase)
+                .filter(v -> !v.isEmpty())
+                .orElse(WEB_PROVIDER_TAVILY);
+    }
 
     public void setWebSearchProvider(String provider) {
         String value = provider == null || provider.isBlank() ? WEB_PROVIDER_TAVILY : provider.trim().toLowerCase();
         db.settingDao().upsert(KEY_WEB_PROVIDER, value, "联网搜索提供方");
     }
 
-    /** 读取明文 API Key（密文存储，取出即解密）；未配置或解密失败返回空串。供工具运行时实时取用。 */
+    /** 自定义实例地址（当前仅 SearXNG 使用；未配置返回空串）。 */
+    public String getWebSearchBaseUrl() {
+        return db.settingDao().getValue(KEY_WEB_BASEURL).orElse("").trim();
+    }
+
+    public void setWebSearchBaseUrl(String url) {
+        db.settingDao().upsert(KEY_WEB_BASEURL, url == null ? "" : url.trim(), "联网搜索自定义实例地址（SearXNG）");
+    }
+
+    /** 读取明文 API Key（密文存储，取出即解密）：按当前提供方独立存储；未配置或解密失败返回空串。供工具运行时实时取用。 */
     public String getWebSearchApiKeyPlain() {
-        String stored = db.settingDao().getValue(KEY_WEB_APIKEY).orElse("").trim();
+        String stored = db.settingDao().getValue(webApiKeyKey()).orElse("").trim();
         if (stored.isEmpty()) {
             return "";
         }
@@ -269,13 +293,19 @@ public class SecurityAdminService {
         }
     }
 
-    /** 保存 API Key（加密入库）；空白即清除已存 Key。 */
+    /** 保存 API Key（加密入库）：写入当前提供方对应的键；空白即清除该提供方已存 Key。 */
     public void setWebSearchApiKey(String plain) {
+        String key = webApiKeyKey();
         if (plain == null || plain.isBlank()) {
-            db.settingDao().upsert(KEY_WEB_APIKEY, "", "联网搜索 API Key（密文）");
+            db.settingDao().upsert(key, "", "联网搜索 API Key（密文）");
             return;
         }
-        db.settingDao().upsert(KEY_WEB_APIKEY, cipher.encrypt(plain.trim()), "联网搜索 API Key（密文）");
+        db.settingDao().upsert(key, cipher.encrypt(plain.trim()), "联网搜索 API Key（密文）");
+    }
+
+    /** 当前提供方对应的 API Key 存储键。 */
+    private String webApiKeyKey() {
+        return KEY_WEB_APIKEY_PREFIX + getWebSearchProvider();
     }
 
     // ===================== 向量知识库 embedding 提供方 =====================

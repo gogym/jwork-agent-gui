@@ -59,12 +59,20 @@ public final class GimDialog {
     private static final double CORNER_RADIUS = 10;
     private static final String GLYPH_CLOSE = "\uE8BB";
 
+    /** 消息语义级别：决定消息弹窗左侧图标的字形与配色（INFO=中性、WARN=需留意、ERROR=失败/错误）。 */
+    public enum Level { INFO, WARN, ERROR }
+
     private GimDialog() {
     }
 
-    /** 信息提示：单个「确定」按钮。 */
+    /** 信息提示：单个「确定」按钮（默认 INFO 级图标）。 */
     public static void message(Window owner, String title, String header, String message) {
-        Frame f = messageFrame(owner, title, header, message);
+        message(owner, title, header, message, Level.INFO);
+    }
+
+    /** 信息提示（指定语义级别）：失败类用 {@link Level#ERROR}，需留意用 {@link Level#WARN}。 */
+    public static void message(Window owner, String title, String header, String message, Level level) {
+        Frame f = messageFrame(owner, title, header, message, level);
         HBox actions = new HBox(8);
         actions.getStyleClass().add("dialog-actions");
         Button ok = actionButton(I18n.t("common.ok"), true);
@@ -188,19 +196,64 @@ public final class GimDialog {
 
     /** 组装消息型对话框（header + message + 按钮区由调用方补充）。 */
     private static Frame messageFrame(Window owner, String title, String header, String message) {
+        return messageFrame(owner, title, header, message, null);
+    }
+
+    /**
+     * 组装消息型对话框。{@code level} 非空时在文本左侧加语义图标并按级别取色（消息弹窗）；
+     * 为空时保持无图标的纯文本布局（确认 / 多选项弹窗）。
+     */
+    private static Frame messageFrame(Window owner, String title, String header, String message, Level level) {
         Frame f = frame(owner, title);
+        Label h = null;
         if (header != null && !header.isBlank()) {
-            Label h = new Label(header);
+            h = new Label(header);
             h.getStyleClass().add("dialog-header");
             h.setWrapText(true);
-            f.body.getChildren().add(h);
         }
         Label m = new Label(message == null ? "" : message);
         m.getStyleClass().add("dialog-message");
         m.setWrapText(true);
         m.setMaxWidth(460);
-        f.body.getChildren().add(m);
+        if (level == null) {
+            if (h != null) {
+                f.body.getChildren().add(h);
+            }
+            f.body.getChildren().add(m);
+            return f;
+        }
+        VBox texts = new VBox(6);
+        if (h != null) {
+            texts.getChildren().add(h);
+        }
+        texts.getChildren().add(m);
+        HBox.setHgrow(texts, Priority.ALWAYS);
+        HBox row = new HBox(12, stateIcon(level), texts);
+        // 图标与提示文本沿水平中线居中对齐：HBox 默认 fillHeight=true 会把文本列拉满行高，
+        // 行对齐将失去纵向意义（文本被 VBox 顶对齐），必须关掉纵向拉伸
+        row.setFillHeight(false);
+        row.setAlignment(Pos.CENTER_LEFT);
+        // 消息型弹窗留最小宽度：短文案下比例更稳，不显局促
+        f.body.setMinWidth(320);
+        f.body.getChildren().add(row);
         return f;
+    }
+
+    /** 语义级别对应的状态图标（Segoe Fluent Icons / MDL2 字形 + CSS 配色类）。 */
+    private static Label stateIcon(Level level) {
+        String glyph = switch (level) {
+            case WARN -> "\uE7BA";
+            case ERROR -> "\uEA39";
+            default -> "\uE946";
+        };
+        String style = switch (level) {
+            case WARN -> "dialog-state-warn";
+            case ERROR -> "dialog-state-error";
+            default -> "dialog-state-info";
+        };
+        Label icon = new Label(glyph);
+        icon.getStyleClass().addAll("dialog-state-icon", style);
+        return icon;
     }
 
     /** 无边框窗口骨架：透明 Stage + 圆角壳 + 自绘标题栏（标题 + 关闭，可拖动）。 */

@@ -24,6 +24,7 @@ import com.gettyio.gim.agent.domain.enums.AuthMethod;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.config.ModelPriceCatalog;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
@@ -48,6 +49,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextAlignment;
 
+import java.math.BigDecimal;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 
@@ -84,6 +86,8 @@ final class ModelSettingsPanel {
     private final TextField modelCodeField = new TextField();
     private final TextField modelNameField = new TextField();
     private final TextField priorityField = new TextField();
+    private final TextField costInField = new TextField();
+    private final TextField costOutField = new TextField();
     private final ToggleSwitch modelEnabledCheck = new ToggleSwitch();
 
     private final Label defaultModelInfoLabel = new Label("-");
@@ -98,6 +102,8 @@ final class ModelSettingsPanel {
     ModelSettingsPanel(SettingsWindow host, ProviderAdminService adminService) {
         this.host = host;
         this.adminService = adminService;
+        // 新增模型时按编码自动预填参考单价；编辑回填与已有输入由 prefillCostFromCatalog 内部门控
+        modelCodeField.textProperty().addListener((obs, oldCode, newCode) -> prefillCostFromCatalog());
     }
 
     /**
@@ -375,6 +381,7 @@ final class ModelSettingsPanel {
                 CardKit.kvLine(I18n.t("settings.model.code"), m.getModelCode()),
                 CardKit.kvLine(I18n.t("settings.model.provider"), m.getProviderCode()),
                 CardKit.kvLine(I18n.t("settings.model.priority"), String.valueOf(m.getPriority())),
+                CardKit.kvLine(I18n.t("settings.model.cost"), modelCostText(m)),
                 CardKit.kvNodeLine(I18n.t("common.status"), SettingsLayout.statusIconValue(m.getStatus())),
                 CardKit.kvNodeLine(I18n.t("settings.model.multimodal"), SettingsLayout.visionIconValue(m.getSupportsVision())),
                 CardKit.kvLine(I18n.t("settings.model.lastTest"), lastTestText(m)));
@@ -665,6 +672,11 @@ final class ModelSettingsPanel {
         g.addRow(r++, new Label(I18n.t("settings.model.code")), modelCodeField);
         g.addRow(r++, new Label(I18n.t("settings.model.name")), modelNameField);
         g.addRow(r++, new Label(I18n.t("settings.model.priority")), priorityField);
+        // 单价用于用量页成本估算：新增模式下输入模型编码会按参考价自动预填
+        costInField.setPromptText(I18n.t("settings.model.costHint"));
+        g.addRow(r++, new Label(I18n.t("settings.model.costIn")), costInField);
+        costOutField.setPromptText(I18n.t("settings.model.costHint"));
+        g.addRow(r++, new Label(I18n.t("settings.model.costOut")), costOutField);
         g.addRow(r, new Label(I18n.t("common.enable")), modelEnabledCheck);
         return g;
     }
@@ -736,6 +748,8 @@ final class ModelSettingsPanel {
         modelCodeField.setDisable(false);
         modelNameField.clear();
         priorityField.setText("100");
+        costInField.clear();
+        costOutField.clear();
         modelEnabledCheck.setSelected(true);
         modelBaseline = null;
         modelProbeResult = null;
@@ -746,13 +760,16 @@ final class ModelSettingsPanel {
     }
 
     private void loadModelToForm(ModelConfig m) {
+        // 先立起编辑基线再回填：编码 setText 会触发预填监听，基线在位则预填整体跳过
+        modelBaseline = m;
         modelProviderCombo.setValue(m.getProviderCode());
         modelCodeField.setText(m.getModelCode());
         modelCodeField.setDisable(true);
         modelNameField.setText(m.getModelName());
         priorityField.setText(String.valueOf(m.getPriority()));
+        costInField.setText(plainCost(m.getCostPer1kInput()));
+        costOutField.setText(plainCost(m.getCostPer1kOutput()));
         modelEnabledCheck.setSelected(EnabledStatus.isEnabled(m.getEnabled()));
-        modelBaseline = m;
         modelProbeResult = null;
         modelVisionResult = null;
     }
@@ -762,11 +779,22 @@ final class ModelSettingsPanel {
             host.notify("settings.menu.models", I18n.t("settings.status.modelFieldsEmpty"));
             return false;
         }
+        Double costIn;
+        Double costOut;
+        try {
+            costIn = parseCost(costInField.getText());
+            costOut = parseCost(costOutField.getText());
+        } catch (NumberFormatException e) {
+            host.notify("settings.menu.models", I18n.t("settings.status.modelCostInvalid"));
+            return false;
+        }
         ModelConfig m = new ModelConfig();
         m.setProviderCode(modelProviderCombo.getValue());
         m.setModelCode(modelCodeField.getText().trim());
         m.setModelName(modelNameField.getText().trim());
         m.setPriority(parseInt(priorityField.getText(), 100));
+        m.setCostPer1kInput(costIn);
+        m.setCostPer1kOutput(costOut);
         m.setEnabled(modelEnabledCheck.isSelected() ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
         applyModelStatus(m);
         adminService.saveModel(m);
@@ -792,6 +820,50 @@ final class ModelSettingsPanel {
             selModelProvider = codes.get(0);
         }
         modelProviderCombo.setValue(selModelProvider);
+    }
+
+    /** 新增模式下按模型编码预填参考单价；编辑回填、用户已输入时一律跳过。 */
+    private void prefillCostFromCatalog() {
+        if (modelBaseline != null) {
+            return;
+        }
+        if (!costInField.getText().isBlank() || !costOutField.getText().isBlank()) {
+            return;
+        }
+        double[] ref = ModelPriceCatalog.lookup(modelCodeField.getText());
+        if (ref == null) {
+            return;
+        }
+        costInField.setText(plainCost(ref[0]));
+        costOutField.setText(plainCost(ref[1]));
+    }
+
+    /** 单价数值 → 界面文本：去掉多余尾零且避免科学计数法。 */
+    private static String plainCost(Double v) {
+        return v == null ? "" : BigDecimal.valueOf(v).stripTrailingZeros().toPlainString();
+    }
+
+    /** 卡片单价展示：两边都未配置给本地化占位，单边缺失用「—」。 */
+    private String modelCostText(ModelConfig m) {
+        Double in = m.getCostPer1kInput();
+        Double out = m.getCostPer1kOutput();
+        if (in == null && out == null) {
+            return I18n.t("settings.model.cost.unset");
+        }
+        return (in == null ? "—" : plainCost(in)) + " / " + (out == null ? "—" : plainCost(out))
+                + " " + I18n.t("settings.model.costUnit");
+    }
+
+    /** 解析单价输入：空 → null（该侧不参与估算）；非负数字之外抛 NumberFormatException。 */
+    private static Double parseCost(String s) {
+        if (s == null || s.isBlank()) {
+            return null;
+        }
+        double v = Double.parseDouble(s.trim());
+        if (!Double.isFinite(v) || v < 0) {
+            throw new NumberFormatException(s);
+        }
+        return v;
     }
 
     private static int parseInt(String s, int def) {

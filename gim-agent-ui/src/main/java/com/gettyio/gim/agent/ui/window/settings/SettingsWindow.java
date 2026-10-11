@@ -605,7 +605,12 @@ public class SettingsWindow {
 
     /** 即时反馈：以统一对话框呈现需要用户知晓的结果/错误（不驻留，避免跨页面残留）。 */
     void notify(String titleKey, String message) {
-        GimDialog.message(hostWindow(), I18n.t(titleKey), null, message);
+        notify(titleKey, message, GimDialog.Level.INFO);
+    }
+
+    /** 即时反馈（指定语义级别）：失败类提示用 {@link GimDialog.Level#ERROR}，需留意用 {@link GimDialog.Level#WARN}。 */
+    void notify(String titleKey, String message, GimDialog.Level level) {
+        GimDialog.message(hostWindow(), I18n.t(titleKey), null, message, level);
     }
 
     /** 整表刷新：驱动各持有动态内容的子面板重绘，供增删改后统一回显。 */
