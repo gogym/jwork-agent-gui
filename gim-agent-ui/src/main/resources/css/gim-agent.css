@@ -1166,6 +1166,18 @@
 .auth-notice { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
 /* 卡片内输入框：加宽横向内衬（聚焦描边由全局样式承担） */
 .auth-form-card .text-field, .auth-form-card .password-field { -fx-padding: 7 12 7 12; }
+/* 密码框「明文查看」：眼睛按钮叠放字段内部右缘，悬停淡底；字段加宽右内衬避让按钮 */
+.auth-reveal-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 4 5 4 5;
+    -fx-cursor: hand;
+}
+.auth-reveal-btn:hover { -fx-background-color: -gim-cell-hover; }
+.auth-reveal-btn .icon { -fx-font-size: 13px; }
+.auth-reveal-btn.auth-reveal-on .icon { -fx-text-fill: -gim-tint-fg-3; }
+.auth-form-card .text-field.has-reveal,
+.auth-form-card .password-field.has-reveal { -fx-padding: 7 34 7 12; }
 /* 账号行：浅绿底圆角行 + 首字圆徽 */
 .auth-account {
     -fx-background-color: -gim-tint-3;

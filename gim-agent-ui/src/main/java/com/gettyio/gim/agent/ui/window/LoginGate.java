@@ -22,6 +22,7 @@ import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.chat.MenuPopup;
 import com.gettyio.gim.agent.ui.window.settings.SettingsLayout;
 import javafx.application.Platform;
+import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.geometry.Rectangle2D;
 import javafx.scene.Node;
@@ -33,7 +34,9 @@ import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.RadioMenuItem;
 import javafx.scene.control.TextField;
+import javafx.scene.control.TextInputControl;
 import javafx.scene.control.ToggleGroup;
+import javafx.scene.control.Tooltip;
 import javafx.scene.image.ImageView;
 import javafx.scene.input.MouseButton;
 import javafx.scene.layout.BorderPane;
@@ -62,7 +65,8 @@ import java.util.function.Supplier;
  * 认证表单构成的单列内容（水平垂直居中）。窗口固定尺寸、不可缩放，居中于主屏。</p>
  * <ul>
  *   <li><b>首次设置</b>：账号名 + 密码 + 确认，创建即开启会话（无跳过入口，取消即退出/回托盘）。</li>
- *   <li><b>登录</b>：账号只读展示 + 密码 +「忘记密码？」展开重置指引（编辑 auth.json 的 reset 标志）。</li>
+ * <li><b>登录</b>：账号只读展示 + 密码（右侧含明文查看切换）
+ * +「忘记密码？」展开重置指引（编辑 auth.json 的 reset 标志）。</li>
  *   <li><b>重设密码</b>：reset 标志流程，账号名保持不变，仅输入新密码。</li>
  * </ul>
  *
@@ -72,6 +76,9 @@ public final class LoginGate {
 
     /** 关闭按钮字形（Segoe Fluent Icons）。 */
     private static final String GLYPH_CLOSE = "\uE8BB";
+    /** 密码「明文查看」按钮字形：睁眼 RedEye（密文态，点击查看）/ 闭眼 Hide（明文态，点击隐藏）。 */
+    private static final String GLYPH_REVEAL = "\uE7B3";
+    private static final String GLYPH_HIDE = "\uED1A";
     /** 内容列宽度上限（px）：欢迎语与表单卡片的主视觉列。 */
     private static final double CONTENT_WIDTH = 360;
     /** 登录窗尺寸（px）：小巧独立窗（外层透明投影留白 10px 由 CSS 承担）。 */
@@ -385,6 +392,53 @@ public final class LoginGate {
         return box;
     }
 
+    /**
+     * 密码框 + 内嵌右缘的「明文查看」小按钮：默认密文显示（睁眼），点击在密文/明文间切换（闭眼）。
+     * <p>明文用同款 TextField 与 PasswordField 叠放在 StackPane 内、文本双向绑定，
+     * 切换只换可见节点，输入内容不丢；提交逻辑始终读 PasswordField 的文本，无需感知切换。
+     * 按钮叠放字段内部右缘，两个字段加宽右内衬避让按钮。</p>
+     */
+    private StackPane passwordWithReveal(PasswordField password) {
+        TextField plain = new TextField();
+        plain.textProperty().bindBidirectional(password.textProperty());
+        plain.setVisible(false);
+        plain.setManaged(false);
+
+        Label eye = UiTheme.icon(GLYPH_REVEAL);
+        Button reveal = new Button();
+        reveal.getStyleClass().add("auth-reveal-btn");
+        reveal.setFocusTraversable(false);
+        reveal.setGraphic(eye);
+        Tooltip tooltip = new Tooltip(I18n.t("auth.password.reveal.show"));
+        reveal.setTooltip(tooltip);
+        reveal.setOnAction(e -> {
+            boolean show = !plain.isVisible();
+            password.setVisible(!show);
+            password.setManaged(!show);
+            plain.setVisible(show);
+            plain.setManaged(show);
+            TextInputControl editing = show ? plain : password;
+            editing.positionCaret(editing.getText() == null ? 0 : editing.getText().length());
+            editing.requestFocus();
+            eye.setText(show ? GLYPH_HIDE : GLYPH_REVEAL);
+            reveal.getStyleClass().remove("auth-reveal-on");
+            if (show) {
+                reveal.getStyleClass().add("auth-reveal-on");
+            }
+            tooltip.setText(I18n.t(show ? "auth.password.reveal.hide" : "auth.password.reveal.show"));
+        });
+        // 语言切换后就地重译提示：按当前明/密文状态取键
+        langRefreshers.add(() -> tooltip.setText(
+                I18n.t(plain.isVisible() ? "auth.password.reveal.hide" : "auth.password.reveal.show")));
+
+        password.getStyleClass().add("has-reveal");
+        plain.getStyleClass().add("has-reveal");
+        StackPane box = new StackPane(password, plain, reveal);
+        StackPane.setAlignment(reveal, Pos.CENTER_RIGHT);
+        StackPane.setMargin(reveal, new Insets(0, 5, 0, 0));
+        return box;
+    }
+
     /** 账号行（登录/重设模式）：首字圆徽 + 账号名的浅色行，软锁定位下账号名非机密，直接展示便于确认。 */
     private HBox accountReadOnly() {
         String name = auth.username() == null ? "-" : auth.username();
@@ -435,7 +489,7 @@ public final class LoginGate {
                 PasswordField password = new PasswordField();
                 content.getChildren().addAll(
                         accountReadOnly(),
-                        labeledField("auth.login.password", password));
+                        labeledField("auth.login.password", passwordWithReveal(password)));
                 Label forgotHint = hintLabel("auth.login.forgot.hint",
                         auth.authFile().toAbsolutePath().toString());
                 forgotHint.setManaged(false);
