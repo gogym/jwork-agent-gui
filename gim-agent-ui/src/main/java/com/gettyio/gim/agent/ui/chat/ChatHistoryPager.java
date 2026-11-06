@@ -156,6 +156,7 @@ public final class ChatHistoryPager {
         if (ConversationRole.USER.getCode().equalsIgnoreCase(c.getRole())) {
             return payload.user(id, content, meta.attachments());
         }
-        return payload.assistant(id, content, c.getToolCalls(), meta.thinking(), c.getCreatedAt(), meta.interrupted());
+        return payload.assistant(id, content, c.getToolCalls(), meta.thinking(), c.getCreatedAt(),
+                meta.interrupted(), meta.segments());
     }
 }

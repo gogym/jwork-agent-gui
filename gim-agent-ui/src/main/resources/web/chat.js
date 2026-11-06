@@ -209,45 +209,68 @@
         var body = el('div', 'thinking-body');
         if (!live) {
             var sum = (thinking || '').replace(/\s+/g, ' ').trim();
-            if (sum.length > 120) { sum = sum.substring(0, 120) + '…'; }
+            if (sum.length > 200) { sum = sum.substring(0, 200) + '…'; }
             head.appendChild(el('span', 'thinking-summary', sum ? ('· ' + sum) : ''));
             var md = mdToElem(thinking);
             body.appendChild(md);
-            body.style.display = 'none';
         } else {
             var pre = el('pre', 'thinking-text');
             pre.textContent = thinking || '';
             body.appendChild(pre);
             body._pre = pre;
         }
+        // 默认收起（live 与完成态一致）：只露标题行，点击展开查看全文
+        body.style.display = 'none';
         card.appendChild(head);
         card.appendChild(body);
-        if (!live) {
-            head.addEventListener('click', function () {
-                body.style.display = body.style.display === 'none' ? 'block' : 'none';
-            }, false);
-        }
+        head.addEventListener('click', function () {
+            body.style.display = body.style.display === 'none' ? 'block' : 'none';
+        }, false);
         return card;
     }
 
-    function buildToolCard(tools) {
+    // 活动组卡：相邻的思考与工具调用聚合为一组，组内按发生顺序交错显示（参考时序分组样式）
+    // items 元素：{kind:'tool', tool:…} 或 {kind:'thinking', text:…}
+    function buildActivityCard(items) {
+        var tools = 0;
         var failed = 0;
-        for (var i = 0; i < tools.length; i++) { if (!tools[i].ok) { failed++; } }
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].kind === 'tool') { tools++; if (!items[i].tool.ok) { failed++; } }
+        }
         var card = el('div', 'tool-group');
         var head = el('div', 'tool-group-header');
         head.appendChild(iconEl(CHEV_SVG, 'tool-group-chevron'));
-        var title = failed > 0
-            ? (LABELS.toolFailed || 'Executed {0} tool call(s), {1} failed').replace('{0}', tools.length).replace('{1}', failed)
-            : (LABELS.toolCount || 'Executed {0} tool call(s)').replace('{0}', tools.length);
+        var title = tools > 0
+            ? (failed > 0
+                ? (LABELS.toolFailed || 'Executed {0} tool call(s), {1} failed').replace('{0}', tools).replace('{1}', failed)
+                : (LABELS.toolCount || 'Executed {0} tool call(s)').replace('{0}', tools))
+            : (LABELS.processed || 'Processed');
         head.appendChild(el('span', 'tool-group-title', title));
         var body = el('div', 'tool-group-body');
-        for (var j = 0; j < tools.length; j++) {
-            body.appendChild(toolRow(tools[j]));
+        for (var j = 0; j < items.length; j++) {
+            body.appendChild(items[j].kind === 'tool' ? toolRow(items[j].tool) : thinkingRow(items[j].text));
         }
         card.appendChild(head);
         card.appendChild(body);
         head.addEventListener('click', function () { card.classList.toggle('open'); }, false);
         return card;
+    }
+
+    // 组内思考行：与工具行同构，默认收起，点击展开 Markdown 全文
+    function thinkingRow(text) {
+        var item = el('div', 'tool-group-item');
+        var row = el('div', 'tool-group-row');
+        row.appendChild(iconEl(CHECK_SVG, 'tool-group-icon ok'));
+        row.appendChild(el('span', 'tool-group-name', LABELS.thinkingDone || 'Thought'));
+        var sum = (text || '').replace(/\s+/g, ' ').trim();
+        if (sum.length > 200) { sum = sum.substring(0, 200) + '…'; }
+        if (sum) { row.appendChild(el('span', 'tool-group-summary', '· ' + sum)); }
+        var detail = el('div', 'tool-group-detail thinking-detail');
+        detail.appendChild(wrapContent(text));
+        row.addEventListener('click', function () { item.classList.toggle('open'); }, false);
+        item.appendChild(row);
+        item.appendChild(detail);
+        return item;
     }
 
     function toolRow(r) {
@@ -294,7 +317,7 @@
         if (!s && r.output) { s = String(r.output).split('\n')[0]; }
         if (!s) { return null; }
         s = String(s).replace(/\s+/g, ' ').trim();
-        return s.length > 120 ? s.substring(0, 120) + '…' : (s || null);
+        return s.length > 200 ? s.substring(0, 200) + '…' : (s || null);
     }
 
     // 深度优先取首个非空字符串值
@@ -363,12 +386,51 @@
             if (m.content) { hostBox.appendChild(el('div', 'bubble-user', norm(m.content))); }
             hostBox.appendChild(actionBar('user', m.id, m.content, false));
         } else {
-            if (m.thinking) { hostBox.appendChild(buildThinkingCard(m.thinking, false)); }
-            if (m.tools && m.tools.length) { hostBox.appendChild(buildToolCard(m.tools)); }
-            var body = el('div', 'bubble-assistant');
-            var contentBox = el('div', 'bubble-content');
-            if (m.content) { contentBox.appendChild(mdToElem(m.content)); }
-            body.appendChild(contentBox);
+            var textBubbles = [];
+            // 相邻的思考/工具聚合为一组活动卡，正文段按发生顺序穿插；文本段出现即收尾当前组
+            var group = null;
+            var flushGroup = function () {
+                if (group && group.length) { hostBox.appendChild(buildActivityCard(group)); }
+                group = null;
+            };
+            if (m.segments && m.segments.length) {
+                // 时序分段：思考/工具/正文按发生顺序交错渲染；组卡与思考行默认收起，点击展开
+                for (var si = 0; si < m.segments.length; si++) {
+                    var seg = m.segments[si];
+                    if (seg.type === 'text' && seg.text) {
+                        flushGroup();
+                        var sb = el('div', 'bubble-assistant');
+                        sb.appendChild(wrapContent(seg.text));
+                        hostBox.appendChild(sb);
+                        textBubbles.push(sb);
+                    } else if (seg.type === 'thinking' && seg.text) {
+                        if (!group) { group = []; }
+                        group.push({ kind: 'thinking', text: seg.text });
+                    } else if (seg.type === 'tools' && seg.tools && seg.tools.length) {
+                        if (!group) { group = []; }
+                        for (var ti = 0; ti < seg.tools.length; ti++) { group.push({ kind: 'tool', tool: seg.tools[ti] }); }
+                    }
+                }
+                flushGroup();
+            } else {
+                if (m.thinking) { group = [{ kind: 'thinking', text: m.thinking }]; }
+                if (m.tools && m.tools.length) {
+                    if (!group) { group = []; }
+                    for (var li = 0; li < m.tools.length; li++) { group.push({ kind: 'tool', tool: m.tools[li] }); }
+                }
+                flushGroup();
+                var fb = el('div', 'bubble-assistant');
+                fb.appendChild(wrapContent(m.content));
+                hostBox.appendChild(fb);
+                textBubbles.push(fb);
+            }
+            // 操作条挂最后一个正文气泡；无正文段（纯思考/工具轮）时补一个空气泡承载操作
+            var body = textBubbles.length ? textBubbles[textBubbles.length - 1] : null;
+            if (!body) {
+                body = el('div', 'bubble-assistant');
+                body.appendChild(wrapContent(''));
+                hostBox.appendChild(body);
+            }
             var footer = actionBar('assistant', m.id, m.rawContent || m.content, true);
             footer.appendChild(el('span', 'msg-ai-label', LABELS.aiGenerated || ''));
             if (m.time) {
@@ -376,10 +438,16 @@
                 footer.insertBefore(t, footer.querySelector('.msg-ai-label'));
             }
             body.appendChild(footer);
-            hostBox.appendChild(body);
         }
         row.appendChild(hostBox);
         return row;
+    }
+
+    /** 助手正文容器：有文本才建 Markdown 节点（空段只留容器承载操作条）。 */
+    function wrapContent(text) {
+        var cb = el('div', 'bubble-content');
+        if (text) { cb.appendChild(mdToElem(text)); }
+        return cb;
     }
 
     function list() { return document.getElementById('list'); }

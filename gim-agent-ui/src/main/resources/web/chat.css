@@ -175,6 +175,8 @@ body {
     min-width: 0;
     overflow-wrap: break-word;
 }
+/* 时序交错布局：同一条助手消息的思考卡/工具组/多个正文段之间留缝（卡片自带下边距，正文气泡补足） */
+.bubble-host > .bubble-assistant:not(:last-child) { margin-bottom: 8px; }
 
 .bubble-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; justify-content: flex-end; }
 .bubble-images img {
@@ -416,6 +418,10 @@ html[data-theme="dark"] .thinking-card { background: var(--gim-code-bg); }
 .tool-group-summary { color: var(--gim-text-4); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
 .tool-group-detail { display: none; margin: 2px 0 6px 18px; }
 .tool-group-item.open .tool-group-detail { display: block; }
+/* 组内思考行展开态：Markdown 全文，弱化色 + 限高滚动（与工具输出一致） */
+.thinking-detail { color: var(--gim-text-3); font-size: var(--meta-font); line-height: 1.6; max-height: 240px; overflow-y: auto; }
+.thinking-detail .bubble-content > :first-child { margin-top: 0; }
+.thinking-detail .bubble-content > :last-child { margin-bottom: 0; }
 .tool-detail-label { font-size: var(--meta-font); color: var(--gim-text-4); margin: 4px 0 2px; }
 .tool-detail-text {
     display: block;

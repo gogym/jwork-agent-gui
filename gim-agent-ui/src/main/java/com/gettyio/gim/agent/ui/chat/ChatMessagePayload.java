@@ -18,12 +18,14 @@ package com.gettyio.gim.agent.ui.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.core.chat.ChatSegmentCodec;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.core.chat.ToolCallRecordCodec;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatFile;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatImage;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
+import com.gettyio.gim.agent.ui.chat.payload.WebChatSegment;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatTool;
 import com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer;
 import com.gettyio.gim.agent.ui.i18n.I18n;
@@ -142,24 +144,81 @@ public final class ChatMessagePayload {
     /**
      * 历史重放 / 收尾：助手消息（Markdown 源文、思考全文、工具调用列原文、中断标记）。
      * 正文里的本地图片引用内联为 data URI；{@code toolCallsJson} 解码为结构化记录。
+     * <p>带时序分段时正文按段拆开交 {@code segments}，前端还原「思考卡 → 正文 → 工具组」
+     * 交错布局；中断标记追加到最后一个正文段尾（与旧口径一致：无正文时不追加）。</p>
      */
     public WebChatMessage assistant(long id, String content, String toolCallsJson, String thinking,
                                     LocalDateTime createdAt, boolean interrupted) {
+        return assistant(id, content, toolCallsJson, thinking, createdAt, interrupted, null);
+    }
+
+    /** 同上，带时序分段（来自 metadata.segments，无则退化为旧版扁平渲染）。 */
+    public WebChatMessage assistant(long id, String content, String toolCallsJson, String thinking,
+                                    LocalDateTime createdAt, boolean interrupted,
+                                    List<ChatSegmentCodec.ChatSegment> segments) {
         String original = content == null ? "" : content;
-        String body = original;
-        if (interrupted && !body.isEmpty()) {
-            body = body + "\n" + I18n.t("chat.interrupted");
-        }
-        body = inlineLocalImages(body);
         List<WebChatTool> tools = new ArrayList<>();
         for (ToolCallRecordCodec.ToolCallRecord r : ToolCallRecordCodec.decode(toolCallsJson)) {
             tools.add(new WebChatTool(r.name(), r.input(), r.output(), r.ok(), r.durationMillis()));
         }
-        // 复制取原文 Markdown（本地图片已内联为 data URI 的正文不适合复制）；仅当与展示正文不同才附上
-        String rawContent = original.equals(body) ? null : original;
-        return new WebChatMessage(id, "assistant", body, List.of(), List.of(), tools,
-                (thinking == null || thinking.isBlank()) ? null : thinking,
-                createdAt == null ? null : TIME.format(createdAt), rawContent);
+        String time = createdAt == null ? null : TIME.format(createdAt);
+        String thinkingText = (thinking == null || thinking.isBlank()) ? null : thinking;
+        List<WebChatSegment> segs = buildSegments(segments, interrupted ? "\n" + I18n.t("chat.interrupted") : null);
+        if (segs.isEmpty()) {
+            // 旧版扁平渲染：思考/工具卡在气泡外，正文整段渲染
+            String body = original;
+            if (interrupted && !body.isEmpty()) {
+                body = body + "\n" + I18n.t("chat.interrupted");
+            }
+            body = inlineLocalImages(body);
+            String rawContent = original.equals(body) ? null : original;
+            return new WebChatMessage(id, "assistant", body, List.of(), List.of(), tools, thinkingText, time, rawContent);
+        }
+        String inlined = String.join("", segs.stream()
+                .filter(s -> "text".equals(s.type()) && s.text() != null)
+                .map(WebChatSegment::text)
+                .toList());
+        // 任一正文段内联了本地图片（或带中断标记）时附上原文供复制
+        String rawContent = !inlined.equals(original) || interrupted ? original : null;
+        return new WebChatMessage(id, "assistant", original, List.of(), List.of(), tools, thinkingText, time,
+                rawContent, segs);
+    }
+
+    /**
+     * 把时序分段映射为 JS 载荷：正文段做本地图片内联；中断标记落到最后一个正文段尾。
+     * 无输入分段或去空段后为空时返回空列表（前端退化为旧版扁平渲染）。
+     */
+    private List<WebChatSegment> buildSegments(List<ChatSegmentCodec.ChatSegment> segments, String interruptNote) {
+        if (segments == null || segments.isEmpty()) {
+            return List.of();
+        }
+        List<WebChatSegment> out = new ArrayList<>();
+        for (ChatSegmentCodec.ChatSegment s : segments) {
+            if (s == null) {
+                continue;
+            }
+            if (ChatSegmentCodec.ChatSegment.TOOLS.equals(s.type())) {
+                if (!s.tools().isEmpty()) {
+                    List<WebChatTool> mapped = new ArrayList<>(s.tools().size());
+                    for (ToolCallRecordCodec.ToolCallRecord r : s.tools()) {
+                        mapped.add(new WebChatTool(r.name(), r.input(), r.output(), r.ok(), r.durationMillis()));
+                    }
+                    out.add(new WebChatSegment("tools", null, mapped));
+                }
+            } else if (s.text() != null && !s.text().isEmpty()) {
+                out.add(new WebChatSegment(s.type(), inlineLocalImages(s.text()), null));
+            }
+        }
+        if (interruptNote != null) {
+            for (int i = out.size() - 1; i >= 0; i--) {
+                if ("text".equals(out.get(i).type())) {
+                    WebChatSegment t = out.get(i);
+                    out.set(i, new WebChatSegment("text", t.text() + interruptNote, null));
+                    break;
+                }
+            }
+        }
+        return out;
     }
 
     // ---------- 内部 ----------

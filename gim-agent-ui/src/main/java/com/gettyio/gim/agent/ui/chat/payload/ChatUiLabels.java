@@ -36,6 +36,7 @@ import com.gettyio.gim.agent.ui.i18n.I18n;
  * @param thinkingDone 思考卡完成文案
  * @param toolCount   工具卡标题模板（{@code {0}} 为调用次数）
  * @param toolFailed  工具卡失败标题模板（{@code {0}} 次数、{@code {1}} 失败数）
+ * @param processed   纯思考组（组内无工具调用）的标题文案
  * @param toolInput   工具详情「入参」标签
  * @param toolOutput  工具详情「输出」标签
  * @param delegate    子智能体委派显示模板（{@code {0}} 为目标智能体）
@@ -43,7 +44,7 @@ import com.gettyio.gim.agent.ui.i18n.I18n;
  * @author gogym
  */
 @JsonPropertyOrder({"copy", "copied", "preview", "speak", "regenerate", "editResend", "aiGenerated",
-        "thinking", "thinkingDone", "toolCount", "toolFailed", "toolInput", "toolOutput", "delegate"})
+        "thinking", "thinkingDone", "toolCount", "toolFailed", "processed", "toolInput", "toolOutput", "delegate"})
 public record ChatUiLabels(
         String copy,
         String copied,
@@ -56,6 +57,7 @@ public record ChatUiLabels(
         String thinkingDone,
         String toolCount,
         String toolFailed,
+        String processed,
         String toolInput,
         String toolOutput,
         String delegate) {
@@ -74,6 +76,7 @@ public record ChatUiLabels(
                 I18n.t("chat.thinking.done"),
                 I18n.t("chat.tool.group.count", "{0}", "{1}"),
                 I18n.t("chat.tool.group.failed", "{0}", "{1}"),
+                I18n.t("chat.tool.group.processed"),
                 I18n.t("chat.tool.params"),
                 I18n.t("chat.tool.output"),
                 I18n.t("chat.tool.subagent.delegate", "{0}"));

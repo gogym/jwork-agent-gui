@@ -221,6 +221,8 @@ public class ChatService {
         AtomicReference<TokenUsage> usageRef = new AtomicReference<>(TokenUsage.ZERO);
         // 本轮工具调用详情（TOOL_END 事件）按发生顺序累积，收尾时写入 tool_calls 列供历史折叠重放
         List<ToolCallRecordCodec.ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
+        // 时序分段：按事件发生顺序合并 text/thinking/tools，收尾写入 metadata.segments 供历史交错重放
+        List<ChatSegmentCodec.ChatSegment> segments = Collections.synchronizedList(new ArrayList<>());
         // 三路终态（完成/出错/取消）都会尝试落盘，settled 保证只落一次；
         // 出错与取消（用户停止）都带 interrupted 标记，半截应答不再丢失
         AtomicBoolean settled = new AtomicBoolean();
@@ -228,20 +230,47 @@ public class ChatService {
                 .doOnNext(event -> {
                     if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                         assistantBuf.append(event.getText());
+                        appendSegment(segments, ChatSegmentCodec.ChatSegment.ofText(event.getText()));
                     } else if (event.getType() == StreamEventType.THINKING_DELTA && event.getText() != null) {
                         thinkingBuf.append(event.getText());
+                        appendSegment(segments, ChatSegmentCodec.ChatSegment.ofThinking(event.getText()));
                     } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
                         usageRef.set(event.getUsage());
                     } else if (event.getType() == StreamEventType.TOOL_END) {
-                        toolCalls.add(toRecord(event));
+                        ToolCallRecordCodec.ToolCallRecord record = toRecord(event);
+                        toolCalls.add(record);
+                        appendSegment(segments, ChatSegmentCodec.ChatSegment.ofTools(List.of(record)));
                     }
                 })
                 .doOnComplete(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), false, settled, toolCalls))
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), false, settled, toolCalls, segments))
                 .doOnError(e -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls))
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls, segments))
                 .doOnCancel(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls));
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls, segments));
+    }
+
+    /**
+     * 追加进时序分段：与尾段同类型则合并（同段文本拼接 / 同段工具累积），
+     * 否则新开一段。事件流串行到达，合并逻辑无需额外同步。
+     */
+    private static void appendSegment(List<ChatSegmentCodec.ChatSegment> segments, ChatSegmentCodec.ChatSegment next) {
+        if (segments.isEmpty()) {
+            segments.add(next);
+            return;
+        }
+        ChatSegmentCodec.ChatSegment last = segments.get(segments.size() - 1);
+        if (!last.type().equals(next.type())) {
+            segments.add(next);
+            return;
+        }
+        if (ChatSegmentCodec.ChatSegment.TOOLS.equals(last.type())) {
+            List<ToolCallRecordCodec.ToolCallRecord> merged = new ArrayList<>(last.tools());
+            merged.addAll(next.tools());
+            segments.set(segments.size() - 1, ChatSegmentCodec.ChatSegment.ofTools(merged));
+        } else {
+            segments.set(segments.size() - 1, new ChatSegmentCodec.ChatSegment(last.type(), last.text() + next.text(), null));
+        }
     }
 
     /** 把一条 {@link StreamEventType#TOOL_END} 事件转为落盘视图。 */
@@ -438,12 +467,14 @@ public class ChatService {
 
     private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText, String thinking,
                                   TokenUsage usage, boolean interrupted, List<ToolCallRecordCodec.ToolCallRecord> toolCalls) {
-        persistAssistant(sessionId, agentCode, modelCode, assistantText, thinking, usage, interrupted, new AtomicBoolean(), toolCalls);
+        persistAssistant(sessionId, agentCode, modelCode, assistantText, thinking, usage, interrupted,
+                new AtomicBoolean(), toolCalls, null);
     }
 
     private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText, String thinking,
                                   TokenUsage usage, boolean interrupted, AtomicBoolean settled,
-                                  List<ToolCallRecordCodec.ToolCallRecord> toolCalls) {
+                                  List<ToolCallRecordCodec.ToolCallRecord> toolCalls,
+                                  List<ChatSegmentCodec.ChatSegment> segments) {
         if (settled != null && !settled.compareAndSet(false, true)) {
             return;
         }
@@ -475,8 +506,12 @@ public class ChatService {
             c.setLlmElapsedMillis(usage.elapsedMillis());
         }
         c.setCreatedAt(LocalDateTime.now());
-        // 附件/中断/思考统一入 metadata（无思考的普通完成轮与原先一致，列留空）
-        c.setMetadata(MessageMetadataCodec.write(List.of(), interrupted, thinking));
+        // 附件/中断/思考/时序分段统一入 metadata（无思考的普通完成轮与原先一致，列留空）。
+        // 分段仅存「多段」轮次：单段布局与旧版扁平渲染等价，不必复制一份
+        List<ChatSegmentCodec.ChatSegment> segmentSnapshot = segments == null ? List.of() : List.copyOf(segments);
+        List<ChatSegmentCodec.ChatSegment> segmentsToStore =
+                segmentSnapshot.size() >= 2 ? segmentSnapshot : List.of();
+        c.setMetadata(MessageMetadataCodec.write(List.of(), interrupted, thinking, segmentsToStore));
         db.conversationDao().insert(c);
         db.sessionDao().incrementMessageCount(sessionId, 1);
     }

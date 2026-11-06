@@ -29,7 +29,7 @@ import java.util.List;
  * <ul>
  *   <li>{@code id / role / content} 恒序列化（正文缺失按空串）——前端凭 {@code data-id}
  *       做删除/编辑/重生成/复制定位；</li>
- *   <li>{@code images / files / tools} 为 null 或空集合时整体省略（对应附件区/工具卡不渲染）；</li>
+ *   <li>{@code images / files / tools / segments} 为 null 或空集合时整体省略（对应附件区/工具卡不渲染）；</li>
  *   <li>{@code thinking / time} 无值省略；{@code rawContent} 仅在展示正文与原文不同
  *       （助手 Markdown 内联本地图片为 data URI）时附上，供「复制」取原文。</li>
  * </ul>
@@ -43,10 +43,11 @@ import java.util.List;
  * @param thinking   思考过程全文（仅助手），无则省略
  * @param time       本地化时间文本（仅助手历史重放），无则省略
  * @param rawContent 复制用原文（仅本地图片内联后与展示正文不同时非 null）
+ * @param segments   助手消息时序分段（有交错时非空，前端按段还原时序布局），无则省略
  *
  * @author gogym
  */
-@JsonPropertyOrder({"id", "role", "content", "images", "files", "tools", "thinking", "time", "rawContent"})
+@JsonPropertyOrder({"id", "role", "content", "images", "files", "tools", "thinking", "time", "rawContent", "segments"})
 @JsonInclude(JsonInclude.Include.NON_NULL)
 public record WebChatMessage(
         long id,
@@ -57,10 +58,11 @@ public record WebChatMessage(
         @JsonInclude(JsonInclude.Include.NON_EMPTY) List<WebChatTool> tools,
         String thinking,
         String time,
-        String rawContent) {
+        String rawContent,
+        @JsonInclude(JsonInclude.Include.NON_EMPTY) List<WebChatSegment> segments) {
 
     /**
-     * 规整入参：role/content 缺省为空串（恒序列化），三个集合缺省为空列表
+     * 规整入参：role/content 缺省为空串（恒序列化），集合缺省为空列表
      * （配合字段级 {@code NON_EMPTY} 省略，前端见空如无）。
      */
     public WebChatMessage {
@@ -69,5 +71,12 @@ public record WebChatMessage(
         images = images == null ? List.of() : List.copyOf(images);
         files = files == null ? List.of() : List.copyOf(files);
         tools = tools == null ? List.of() : List.copyOf(tools);
+        segments = segments == null ? List.of() : List.copyOf(segments);
+    }
+
+    /** 旧签名入口：无时序分段。 */
+    public WebChatMessage(long id, String role, String content, List<WebChatImage> images, List<WebChatFile> files,
+                          List<WebChatTool> tools, String thinking, String time, String rawContent) {
+        this(id, role, content, images, files, tools, thinking, time, rawContent, null);
     }
 }

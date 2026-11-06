@@ -41,6 +41,7 @@ public final class MessageMetadataCodec {
     private static final String KEY_ATTACHMENTS = "attachments";
     private static final String KEY_INTERRUPTED = "interrupted";
     private static final String KEY_THINKING = "thinking";
+    private static final String KEY_SEGMENTS = "segments";
 
     private MessageMetadataCodec() {
     }
@@ -51,25 +52,40 @@ public final class MessageMetadataCodec {
      * @param attachments 图片/文件附件清单，永不为 null
      * @param interrupted 应答是否被中断（出错或用户停止），仅助手消息可能为 true
      * @param thinking    本轮模型的思考过程全文（仅助手消息可能非 null）
+     * @param segments    助手消息的时序分段（text/thinking/tools 交错），无分段为空列表
      */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record MessageMetadata(List<StoredAttachment> attachments, boolean interrupted, String thinking) {
+    public record MessageMetadata(List<StoredAttachment> attachments, boolean interrupted, String thinking,
+                                  List<ChatSegmentCodec.ChatSegment> segments) {
 
         public MessageMetadata {
             attachments = attachments == null ? List.of() : List.copyOf(attachments);
+            segments = segments == null ? List.of() : List.copyOf(segments);
         }
 
         /** 便捷视图：无思考过程（附件 + 中断标记）。 */
         public MessageMetadata(List<StoredAttachment> attachments, boolean interrupted) {
             this(attachments, interrupted, null);
         }
+
+        /** 便捷视图：带思考过程、无时序分段。 */
+        public MessageMetadata(List<StoredAttachment> attachments, boolean interrupted, String thinking) {
+            this(attachments, interrupted, thinking, null);
+        }
     }
 
     /** 写元数据 JSON；无附件、未中断且无思考时返回 {@code null}（metadata 列留空）。 */
     public static String write(List<StoredAttachment> attachments, boolean interrupted, String thinking) {
+        return write(attachments, interrupted, thinking, null);
+    }
+
+    /** 写元数据 JSON（带时序分段）；无任何可写内容时返回 {@code null}（metadata 列留空）。 */
+    public static String write(List<StoredAttachment> attachments, boolean interrupted, String thinking,
+                               List<ChatSegmentCodec.ChatSegment> segments) {
         boolean hasAttachments = attachments != null && !attachments.isEmpty();
         boolean hasThinking = thinking != null && !thinking.isBlank();
-        if (!hasAttachments && !interrupted && !hasThinking) {
+        boolean hasSegments = segments != null && !segments.isEmpty();
+        if (!hasAttachments && !interrupted && !hasThinking && !hasSegments) {
             return null;
         }
         Map<String, Object> node = new LinkedHashMap<>();
@@ -81,6 +97,9 @@ public final class MessageMetadataCodec {
         }
         if (hasThinking) {
             node.put(KEY_THINKING, thinking);
+        }
+        if (hasSegments) {
+            node.put(KEY_SEGMENTS, MAPPER.valueToTree(segments));
         }
         try {
             return MAPPER.writeValueAsString(node);
