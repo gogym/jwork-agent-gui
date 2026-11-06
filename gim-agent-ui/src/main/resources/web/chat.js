@@ -13,7 +13,6 @@
     var SPEAK_SVG = '<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>';
     var REFRESH_SVG = '<svg viewBox="0 0 24 24"><path d="M17.65 6.35A7.958 7.958 0 0 0 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08A5.99 5.99 0 0 1 12 18c-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>';
     var EDIT_SVG = '<svg viewBox="0 0 24 24"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zM20.71 7.04a.996.996 0 0 0 0-1.41l-2.34-2.34a.996.996 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>';
-    var DOC_SVG = '<svg viewBox="0 0 24 24"><path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H14z"/></svg>';
     var CHECK_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
     var ERR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>';
     var CHEV_SVG = '<svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>';
@@ -129,15 +128,52 @@
     }
 
     // ---------- 消息节点构建 ----------
+    // 文件类型→徽标底色/字母（对齐参考图：白页+彩色圆角徽标+白字，xlsx 绿 X）
+    var FILE_TYPE_META = {
+        xlsx: { color: '#1e7145', letter: 'X' },
+        xls: { color: '#1e7145', letter: 'X' },
+        csv: { color: '#1e7145', letter: 'X' },
+        docx: { color: '#2b579a', letter: 'W' },
+        doc: { color: '#2b579a', letter: 'W' },
+        pdf: { color: '#c94a3f', letter: 'P' }
+    };
+
+    function fileExt(name) {
+        var i = String(name).lastIndexOf('.');
+        return i >= 0 ? String(name).substring(i + 1).toLowerCase() : '';
+    }
+
+    function fileTypeIcon(name) {
+        var ext = fileExt(name);
+        var meta = FILE_TYPE_META[ext]
+                || { color: '#8a8a83', letter: ext ? ext.charAt(0).toUpperCase() : 'F' };
+        return '<svg viewBox="0 0 24 24">'
+            + '<path d="M14 2H6c-1.1 0-1.99.9-1.99 2L4 20c0 1.1.89 2 1.99 2H18c1.1 0 2-.9 2-2V8l-6-6z" '
+            + 'fill="var(--gim-content)" stroke="var(--gim-border-2)" stroke-width="1"/>'
+            + '<path d="M14 2v6h6" fill="none" stroke="var(--gim-border-2)" stroke-width="1"/>'
+            + '<rect x="3" y="12" width="12" height="10" rx="2" fill="' + meta.color + '"/>'
+            + '<text x="9" y="19.6" text-anchor="middle" font-size="8" font-weight="700" '
+            + 'fill="#fff" font-family="Segoe UI, sans-serif">' + meta.letter + '</text>'
+            + '</svg>';
+    }
+
     function fileRow(f) {
         var row = el('div', 'file-row');
-        row.appendChild(iconEl(DOC_SVG, 'file-ic'));
-        row.appendChild(el('span', 'file-name', esc(f.name)));
-        if (f.size) { row.appendChild(el('span', 'file-size', esc(f.size))); }
+        row.appendChild(iconEl(fileTypeIcon(f.name), 'file-ic'));
+        var text = el('div', 'file-text');
+        text.appendChild(el('div', 'file-name', esc(f.name)));
+        text.appendChild(el('div', 'file-type', esc(fileTypeLabel(f.name))));
+        row.appendChild(text);
+        row.title = f.name + (f.size ? ' · ' + f.size : '');
         if (f.path && bridge()) {
             row.addEventListener('click', function () { bridge().onImage(f.path); }, false);
         }
         return row;
+    }
+
+    function fileTypeLabel(name) {
+        var ext = fileExt(name);
+        return ext ? ext.toUpperCase() : 'FILE';
     }
 
     function iconEl(svg, cls) {

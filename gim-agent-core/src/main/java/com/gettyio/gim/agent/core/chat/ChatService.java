@@ -60,8 +60,8 @@ public class ChatService {
     /** 分组名长度上限：与标题同口径（UI 也拿它限输入框） */
     public static final int GROUP_NAME_MAX_LEN = 30;
 
-    /** 单个文档附件的字节上限（10MB）：超过不落盘不抽取。 */
-    private static final long MAX_DOC_BYTES = 10L * 1024 * 1024;
+    /** 单个文档附件的字节上限（50MB）：超过不落盘不抽取。 */
+    private static final long MAX_DOC_BYTES = 50L * 1024 * 1024;
 
     private final AgentGateway gateway;
     private final GimDatabase db;
@@ -348,7 +348,7 @@ public class ChatService {
                 continue;
             }
             if (f.sizeBytes() > MAX_DOC_BYTES) {
-                log.warn("文档附件超过 10MB 上限，跳过: {}", f.fileName());
+                log.warn("文档附件超过 50MB 上限，跳过: {}", f.fileName());
                 continue;
             }
             byte[] bytes;

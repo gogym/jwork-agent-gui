@@ -651,6 +651,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
      * 见 {@link com.gettyio.gim.agent.ui.chat.AttachmentBar#addDroppedFiles}）。
      * JCEF 画布不消费 JavaFX 拖拽事件，在页面容器 chatPage 上统一拦截即可覆盖消息区与输入区；
      * 悬停期间在聊天区浮出提示层，离开或投放后收起。
+     * <p>另挂一条 Windows 原生兜底通道：主窗是 {@code TRANSPARENT} 窗口，Glass 的 OLE 拖放
+     * 注册在此形态下不生效（上面的 DragEvent 处理器实际收不到事件），改由
+     * {@link com.gettyio.gim.agent.ui.desktop.NativeFileDrop} 的 DragAcceptFiles +
+     * WM_DROPFILES 接管「从资源管理器拖入」，最终同样汇入 addDroppedFiles。两通道在系统层互斥，
+     * 不会双份入列。</p>
      */
     private void installFileDropTarget() {
         dropOverlayLabel = new Label(I18n.t("chat.drop.hint"));
@@ -676,6 +681,25 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             boolean done = attachmentBar.addDroppedFiles(e.getDragboard().getFiles()) > 0;
             e.setDropCompleted(done);
             e.consume();
+        });
+
+        // 原生拖放接管：注意节点 sceneProperty 在 Scene 构造时即置位，而 Scene.getWindow() 要等
+        // Stage.setScene 才有值，且此后 sceneProperty 不会再触发——必须改听 scene.windowProperty
+        chatPage.sceneProperty().addListener((obs, o, sc) -> {
+            if (sc == null) {
+                return;
+            }
+            sc.windowProperty().addListener((obs2, o2, w) -> {
+                if (w != null) {
+                    com.gettyio.gim.agent.ui.desktop.NativeFileDrop.install(w,
+                            files -> attachmentBar.addDroppedFiles(files));
+                }
+            });
+            // 场景可能已晚于窗口挂接（重复挂场景），直接补一次；install 内部幂等
+            if (sc.getWindow() != null) {
+                com.gettyio.gim.agent.ui.desktop.NativeFileDrop.install(sc.getWindow(),
+                        files -> attachmentBar.addDroppedFiles(files));
+            }
         });
     }
 

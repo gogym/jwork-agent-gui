@@ -78,8 +78,8 @@ public class AttachmentBar {
     private static final String[] DOC_EXTENSIONS = {
             "*.pdf", "*.docx", "*.xlsx", "*.txt", "*.md", "*.markdown", "*.csv"
     };
-    /** 单个文档附件字节上限（10MB）：与 ChatService 口径一致。 */
-    private static final long MAX_DOC_BYTES = 10L * 1024 * 1024;
+    /** 单个文档附件字节上限（50MB）：与 ChatService 口径一致。 */
+    private static final long MAX_DOC_BYTES = 50L * 1024 * 1024;
 
     private final FlowPane attachChipsBox;
     private final JcefComposer inputField;
@@ -275,7 +275,7 @@ public class AttachmentBar {
                 || n.endsWith(".txt") || n.endsWith(".md") || n.endsWith(".markdown") || n.endsWith(".csv");
     }
 
-    /** 加入一个待发文档附件（读字节 Base64）；超 10MB 拒绝并提示。 */
+    /** 加入一个待发文档附件（读字节 Base64）；超 50MB 拒绝并提示。 */
     private void addPendingDoc(File file) {
         if (file.length() > MAX_DOC_BYTES) {
             GimDialog.message(host.currentWindow(), I18n.t("attach.menu.file"), I18n.t("attach.menu.file"),
