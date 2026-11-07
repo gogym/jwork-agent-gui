@@ -109,6 +109,14 @@ public final class ChatBridge {
         events.chatImage(path);
     }
 
+    /**
+     * 产物卡动作：{@code action} ∈ preview（右栏就地阅读）/ open（系统默认程序）/ reveal（所在文件夹）。
+     * 路径由 Java 侧按工作区边界校验，前端只递交交付目录里的那条绝对路径。
+     */
+    public void onArtifact(String path, String action) {
+        events.chatArtifact(path, action);
+    }
+
     /** 代码块复制按钮。 */
     public void onCopyCode(String text) {
         events.chatCopyCode(text);

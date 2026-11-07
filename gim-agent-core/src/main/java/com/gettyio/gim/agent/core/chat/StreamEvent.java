@@ -87,6 +87,16 @@ public class StreamEvent {
         return new StreamEvent(StreamEventType.USAGE, sessionId, null, null, null, null, 0L, false, usage);
     }
 
+    /**
+     * 运行体提示事件（步数触顶自动续跑等）：只在流内展示，不并入助手正文落盘。
+     *
+     * @param code 提示编码，UI 按 {@code chat.<code>} 本地化渲染（core 无资源包，文案不能在此拼死）
+     * @param args 逗号分隔的占位参数，对应 i18n 的 {@code {0}\{1}\…}
+     */
+    public static StreamEvent notice(String sessionId, String code, String args) {
+        return new StreamEvent(StreamEventType.NOTICE, sessionId, args, code, null, null, 0L, false, null);
+    }
+
     public static StreamEvent complete(String sessionId) {
         return new StreamEvent(StreamEventType.COMPLETE, sessionId, null, null, null, null, 0L, false, null);
     }

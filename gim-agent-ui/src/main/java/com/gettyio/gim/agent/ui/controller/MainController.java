@@ -37,12 +37,14 @@ import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.tools.image.ImageGenerationClient;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiFormat;
 import com.gettyio.gim.agent.ui.prefs.UserPrefs;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.export.ExportService;
+import com.gettyio.gim.agent.ui.chat.payload.WebChatTool;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TerminalView;
 import com.gettyio.gim.agent.ui.view.TasksView;
@@ -1142,8 +1144,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         // 发送/重生成都算活跃使用：顺延免登录有效期（已锁定/已过期会话不受影响）
         localAuthService.touch();
         final long streamId = --streamSeq;
+        // 本轮起始时刻：收尾时据此在工作区树里标出「本轮新增」的落盘文件
+        final long turnStart = System.currentTimeMillis();
         chatEmpty.set(false);
         chatView.streamStart(streamId);
+        statusBar.beginTurn();
         StringBuilder acc = new StringBuilder();
         enterStreamingUi(sessionId);
         activeStream = flux
@@ -1163,7 +1168,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
                                 chatView.streamEnd(streamId);
                                 exitStreamingUi();
                                 refreshSessions();
-                                refreshWorkspaceAfterTurn(sessionId);
+                                refreshWorkspaceAfterTurn(sessionId, turnStart);
                             });
                         },
                         () -> Platform.runLater(() -> {
@@ -1172,7 +1177,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
                             // 完成：从库重放，令刚落的助手/用户气泡拿到真实主键与操作能力
                             historyPager.render(sessionId);
                             // 本轮新落的产物就地可见（面板收起时由展开时刷新兜底）
-                            refreshWorkspaceAfterTurn(sessionId);
+                            refreshWorkspaceAfterTurn(sessionId, turnStart);
                             // 规划轮跑完：展示并让用户确认/编辑计划文件
                             if (planTurn) {
                                 reviewPlan(agentOfSession(sessionId));
@@ -1184,9 +1189,9 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     }
 
     /** 每轮对话收尾（完成/失败）：工作区右栏若正跟随该会话，就地重建会话/智能体入口刷新文件树。 */
-    private void refreshWorkspaceAfterTurn(String sessionId) {
+    private void refreshWorkspaceAfterTurn(String sessionId, long turnStartMillis) {
         if (workspacePanel != null && sessionId != null && sessionId.equals(currentSessionId)) {
-            workspacePanel.refreshCurrent();
+            workspacePanel.refreshCurrent(turnStartMillis);
         }
     }
 
@@ -1202,9 +1207,20 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             } else if (e.getType() == StreamEventType.THINKING_DELTA && e.getText() != null) {
                 chatView.streamThinking(id, e.getText());
             } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null) {
-                frame.append("\n").append(I18n.t("chat.toolCall", e.getToolName()));
+                // 工具轨迹不再写进正文：底栏报当前动作，气泡里的实时工具卡由 TOOL_END 负责
+                if (e.getToolInput() == null) {
+                    statusBar.toolStarted(e.getToolName());
+                } else {
+                    statusBar.toolArgs(e.getToolName(), e.getToolInput());
+                }
+            } else if (e.getType() == StreamEventType.TOOL_END && e.getToolName() != null) {
+                chatView.streamToolCard(id, new WebChatTool(e.getToolName(), e.getToolInput(),
+                        e.getToolOutput(), e.isToolOk(), e.getToolDurationMillis()));
             } else if (e.getType() == StreamEventType.CONFIRM_REQUEST && e.getToolName() != null) {
                 frame.append("\n").append(I18n.t("chat.toolConfirm", e.getToolName()));
+            } else if (e.getType() == StreamEventType.NOTICE && e.getText() != null) {
+                // 运行体旁白（步数触顶自动续跑等）：实时可见即可，不并入助手正文落盘
+                frame.append("\n").append(UiFormat.notice(e));
             }
         }
         if (frame.length() > 0) {
@@ -1320,6 +1336,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     public void exitStreamingUi() {
         activeStream = null;
         streamingSessionId = null;
+        statusBar.endTurn();
         Node graphic = sendButton.getGraphic();
         if (graphic instanceof Label icon) {
             icon.setText("\uE74A");
@@ -1827,16 +1844,27 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         historyPager.onTrimmed(newOldestId);
     }
 
-    /** 打开聊天内的 http(s) 外链：交给系统默认浏览器；失败仅记日志。 */
+    /**
+     * 打开聊天正文里的链接：http(s) 交系统浏览器；{@code file:} URI / 工作区相对路径 / 本机绝对路径
+     * 归一为本地文件后交系统程序打开。
+     * <p>此前 {@code file:///} 一律走 {@code Desktop.browse}，产物路径点不开（且 href 早被前端消毒抹掉），
+     * 「模型报了路径用户却拿不到文件」的最后一环就断在这里；越出工作区的绝对路径直接拒绝。</p>
+     */
     @Override
     public void chatLink(String url) {
         if (url == null || url.isBlank()) {
             return;
         }
+        String raw = url.trim();
+        java.nio.file.Path local = localArtifactTarget(raw);
+        if (local != null) {
+            Platform.runLater(() -> openLocalFile(local));
+            return;
+        }
         try {
             if (java.awt.Desktop.isDesktopSupported()
                     && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
-                java.awt.Desktop.getDesktop().browse(java.net.URI.create(url));
+                java.awt.Desktop.getDesktop().browse(java.net.URI.create(raw));
             }
         } catch (Exception e) {
             log.warn("打开外链失败: {}", url, e);
@@ -1850,6 +1878,84 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             return;
         }
         Platform.runLater(() -> revealInFolder(path));
+    }
+
+    /**
+     * 产物卡动作：{@code preview} 就地阅读、{@code reveal} 定位所在文件夹、其余按 {@code open}
+     * 交系统默认程序。路径先归一并校验在工作区内，越界只记日志不打开。
+     */
+    @Override
+    public void chatArtifact(String path, String action) {
+        java.nio.file.Path file = localArtifactTarget(path);
+        if (file == null) {
+            log.warn("拒绝打开工作区外的产物路径: {}", path);
+            return;
+        }
+        Platform.runLater(() -> {
+            switch (action == null ? "open" : action) {
+                case "preview" -> previewArtifact(file);
+                case "reveal" -> revealInFolder(file.toString());
+                default -> openLocalFile(file);
+            }
+        });
+    }
+
+    /**
+     * 产物预览去处：网页类（{@code ArtifactPreviewWindow.PREVIEW_LANGS} 白名单）进独立预览窗口——报表按整页排版，
+     * 右栏窄列挤不下，且窗口自带「在浏览器打开」便于调试；其余类型仍在右侧栏就地阅读，
+     * 无右栏时回落系统默认程序。
+     */
+    private void previewArtifact(java.nio.file.Path file) {
+        if (com.gettyio.gim.agent.ui.chat.workspace.ArtifactPreviewWindow
+                .showFile(ownerWindow(), file)) {
+            return;
+        }
+        if (workspacePanel != null) {
+            workspacePanel.openFile(file);
+        } else {
+            openLocalFile(file);
+        }
+    }
+
+    /**
+     * 把 {@code file:} URI、工作区相对路径与本机绝对路径归一为工作区内的真实文件；
+     * 非本地写法（http/mailto 等）、越出工作区根或文件不存在时返回 {@code null}。
+     */
+    private java.nio.file.Path localArtifactTarget(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String s = raw.trim();
+        java.nio.file.Path workspaceRoot = gimPaths.workspaceDir().toAbsolutePath().normalize();
+        java.nio.file.Path candidate;
+        try {
+            if (s.regionMatches(true, 0, "file:", 0, 5)) {
+                candidate = java.nio.file.Paths.get(java.net.URI.create(s.replace(" ", "%20")));
+            } else if (java.nio.file.Paths.get(s).isAbsolute()) {
+                candidate = java.nio.file.Paths.get(s);
+            } else {
+                candidate = workspaceRoot.resolve(s);
+            }
+        } catch (Exception e) {
+            return null;
+        }
+        java.nio.file.Path abs = candidate.toAbsolutePath().normalize();
+        if (!abs.startsWith(workspaceRoot) || !java.nio.file.Files.isRegularFile(abs)) {
+            return null;
+        }
+        return abs;
+    }
+
+    /** 交系统默认程序打开工作区内的产物文件；失败仅记日志（文件类型未关联是常态）。 */
+    private void openLocalFile(java.nio.file.Path file) {
+        try {
+            if (java.awt.Desktop.isDesktopSupported()
+                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
+                java.awt.Desktop.getDesktop().open(file.toFile());
+            }
+        } catch (Exception e) {
+            log.warn("打开产物文件失败: {}", file, e);
+        }
     }
 
     @Override

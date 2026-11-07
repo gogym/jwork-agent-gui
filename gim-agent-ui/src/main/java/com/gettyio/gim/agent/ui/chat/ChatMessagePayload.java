@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.chat.ChatSegmentCodec;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
+import com.gettyio.gim.agent.core.chat.SessionArtifactDelivery;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.core.chat.ToolCallRecordCodec;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatFile;
@@ -33,6 +34,7 @@ import com.gettyio.gim.agent.ui.util.UiFormat;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
@@ -152,15 +154,30 @@ public final class ChatMessagePayload {
         return assistant(id, content, toolCallsJson, thinking, createdAt, interrupted, null);
     }
 
-    /** 同上，带时序分段（来自 metadata.segments，无则退化为旧版扁平渲染）。 */
+    /**
+     * 同上，带时序分段（来自 metadata.segments，无则退化为旧版扁平渲染）。
+     */
     public WebChatMessage assistant(long id, String content, String toolCallsJson, String thinking,
                                     LocalDateTime createdAt, boolean interrupted,
                                     List<ChatSegmentCodec.ChatSegment> segments) {
+        return assistant(id, content, toolCallsJson, thinking, createdAt, interrupted, segments, null);
+    }
+
+    /**
+     * 同上，并给出所属会话（用于反查 {@code deliver_artifact} 交付到本机的产物卡）。
+     *
+     * @param sessionId 会话 ID；为空则不出产物卡（新会话尚未落库的临时气泡）
+     */
+    public WebChatMessage assistant(long id, String content, String toolCallsJson, String thinking,
+                                    LocalDateTime createdAt, boolean interrupted,
+                                    List<ChatSegmentCodec.ChatSegment> segments, String sessionId) {
         String original = content == null ? "" : content;
+        List<ToolCallRecordCodec.ToolCallRecord> records = ToolCallRecordCodec.decode(toolCallsJson);
         List<WebChatTool> tools = new ArrayList<>();
-        for (ToolCallRecordCodec.ToolCallRecord r : ToolCallRecordCodec.decode(toolCallsJson)) {
+        for (ToolCallRecordCodec.ToolCallRecord r : records) {
             tools.add(new WebChatTool(r.name(), r.input(), r.output(), r.ok(), r.durationMillis()));
         }
+        List<WebChatFile> artifacts = artifactRows(records, sessionId);
         String time = createdAt == null ? null : TIME.format(createdAt);
         String thinkingText = (thinking == null || thinking.isBlank()) ? null : thinking;
         List<WebChatSegment> segs = buildSegments(segments, interrupted ? "\n" + I18n.t("chat.interrupted") : null);
@@ -172,7 +189,7 @@ public final class ChatMessagePayload {
             }
             body = inlineLocalImages(body);
             String rawContent = original.equals(body) ? null : original;
-            return new WebChatMessage(id, "assistant", body, List.of(), List.of(), tools, thinkingText, time, rawContent);
+            return new WebChatMessage(id, "assistant", body, List.of(), artifacts, tools, thinkingText, time, rawContent);
         }
         String inlined = String.join("", segs.stream()
                 .filter(s -> "text".equals(s.type()) && s.text() != null)
@@ -180,9 +197,78 @@ public final class ChatMessagePayload {
                 .toList());
         // 任一正文段内联了本地图片（或带中断标记）时附上原文供复制
         String rawContent = !inlined.equals(original) || interrupted ? original : null;
-        return new WebChatMessage(id, "assistant", original, List.of(), List.of(), tools, thinkingText, time,
+        return new WebChatMessage(id, "assistant", original, List.of(), artifacts, tools, thinkingText, time,
                 rawContent, segs);
     }
+
+    // ---------- 产物卡 ----------
+
+    /** 框架内置交付工具名：其调用记录即「已交到本机」的凭据，UI 据此反查文件出卡片。 */
+    static final String DELIVER_TOOL = "deliver_artifact";
+
+    /** 入参里提取 fileName / filePath（截断的 JSON 也能拿到先出现的字段）。 */
+    private static final Pattern DELIVER_NAME = Pattern.compile("\"fileName\"\\s*:\\s*\"([^\"]+)\"");
+    private static final Pattern DELIVER_PATH = Pattern.compile("\"filePath\"\\s*:\\s*\"([^\"]+)\"");
+
+    /**
+     * 从工具调用记录还原产物卡：只认成功的 {@code deliver_artifact}，且文件确实在
+     * {@code generated/sessions/<会话ID>/} 下落了盘——交付记录说的是历史，文件可能已被清理。
+     */
+    List<WebChatFile> artifactRows(List<ToolCallRecordCodec.ToolCallRecord> records, String sessionId) {
+        List<WebChatFile> out = new ArrayList<>();
+        if (records.isEmpty() || sessionId == null || sessionId.isBlank()) {
+            return out;
+        }
+        Path dir = SessionArtifactDelivery.dirOf(gimPaths.deliveriesDir(), sessionId);
+        List<String> seen = new ArrayList<>();
+        for (ToolCallRecordCodec.ToolCallRecord r : records) {
+            if (!DELIVER_TOOL.equals(r.name()) || !r.ok()) {
+                continue;
+            }
+            String fileName = deliverName(r.input());
+            if (fileName == null) {
+                continue;
+            }
+            Path file = dir.resolve(fileName).normalize();
+            if (!file.startsWith(dir) || !Files.isRegularFile(file)) {
+                continue;
+            }
+            String key = file.toString();
+            if (seen.contains(key)) {
+                continue;
+            }
+            seen.add(key);
+            long size;
+            try {
+                size = Files.size(file);
+            } catch (IOException e) {
+                continue;
+            }
+            out.add(new WebChatFile(file.getFileName().toString(), UiFormat.humanSize(size), key));
+        }
+        return out;
+    }
+
+    /** 交付名：{@code fileName} 优先，缺省取 {@code filePath} 末段；两者都解析不到返回 null（不出卡）。 */
+    private static String deliverName(String input) {
+        if (input == null || input.isBlank()) {
+            return null;
+        }
+        Matcher name = DELIVER_NAME.matcher(input);
+        if (name.find()) {
+            return basename(name.group(1));
+        }
+        Matcher path = DELIVER_PATH.matcher(input);
+        return path.find() ? basename(path.group(1)) : null;
+    }
+
+    private static String basename(String raw) {
+        String s = raw.replace('\\', '/');
+        int slash = s.lastIndexOf('/');
+        String out = slash >= 0 ? s.substring(slash + 1) : s;
+        return out.isBlank() ? null : out;
+    }
+
 
     /**
      * 把时序分段映射为 JS 载荷：正文段做本地图片内联；中断标记落到最后一个正文段尾。

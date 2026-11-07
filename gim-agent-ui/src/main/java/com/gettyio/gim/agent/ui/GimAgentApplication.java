@@ -139,11 +139,15 @@ public class GimAgentApplication extends Application {
         });
     }
 
-    /** 认证通过后的启动装配：更新检查 + 全局热键（主窗已显示、主界面此前已就绪）。 */
+    /** 认证通过后的启动装配：更新检查 + 人格模板升级提示 + 全局热键（主窗已显示、主界面此前已就绪）。 */
     private void setupAfterAuthenticated(Stage stage, FXMLLoader loader, LocalAuthService localAuth,
                                          AppLifecycle lifecycle) {
         // 更新检查：若开关开启且当日未查过，后台静默比对服务器最新版（发现新版：强更弹模态，否则发托盘气泡）
         context.updateChecker().maybeCheckOnStartup(stage);
+
+        // 人格模板升级：AGENTS.md 只在缺失时播种、从不覆盖，新版总则（交付/核对/覆盖写）到不了老工作区；
+        // 文件仍是旧版内置原文时提示一次一键升级，用户改写过或已表过态就不再打扰
+        context.personaUpgrade().maybePrompt(stage);
 
         // 全局热键（仅 Windows）：Ctrl+Alt+Q 唤起快速问答小窗、Ctrl+Alt+A 截屏提问注入主窗输入框、
         // Ctrl+Alt+D 划词助手（抓取选中文本后浮出操作条）

@@ -132,15 +132,30 @@ public class ExecutableAllowlistPolicy implements ToolGuard {
 
     /** 拆解命令串，把各分段首个不在白名单的可执行名收集起来。 */
     private void collectOffending(String command, Set<String> allowed, Set<String> out) {
-        if (command == null || command.isBlank()) {
-            return;
-        }
-        for (String seg : SEGMENT_SPLIT.split(command)) {
-            String exe = firstExecutable(seg);
-            if (exe != null && !allowed.contains(exe)) {
+        for (String exe : executablesOf(command)) {
+            if (!allowed.contains(exe)) {
                 out.add(exe);
             }
         }
+    }
+
+    /**
+     * 命令串里各分段首个可执行名（归一化小写基名，去重保序）。
+     * <p>白名单判定与「总是允许同类命令」的规则键共用这一份解析，两处口径必须一致，
+     * 否则会出现「记住了 python 却仍每次询问」或反之。</p>
+     */
+    public static Set<String> executablesOf(String command) {
+        Set<String> out = new LinkedHashSet<>();
+        if (command == null || command.isBlank()) {
+            return out;
+        }
+        for (String seg : SEGMENT_SPLIT.split(command)) {
+            String exe = firstExecutable(seg);
+            if (exe != null) {
+                out.add(exe);
+            }
+        }
+        return out;
     }
 
     /**

@@ -223,9 +223,15 @@ public final class CompareRunner {
                                     if (e.getType() == StreamEventType.TEXT_DELTA && e.getText() != null) {
                                         raws.get(idx).append(e.getText());
                                         chatView.compareDelta(idx, e.getText());
-                                    } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null) {
+                                    } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null
+                                            && e.getToolInput() == null) {
+                                        // 带真实入参的补发事件（第二次 TOOL_START）跳过：对比列窄，一行提示够了
                                         raws.get(idx).append('\n').append(I18n.t("chat.toolCall", e.getToolName()));
                                         chatView.compareNote(idx, "\n" + I18n.t("chat.toolCall", e.getToolName()));
+                                    } else if (e.getType() == StreamEventType.NOTICE && e.getText() != null) {
+                                        String notice = com.gettyio.gim.agent.ui.util.UiFormat.notice(e);
+                                        raws.get(idx).append('\n').append(notice);
+                                        chatView.compareNote(idx, "\n" + notice);
                                     } else if (e.getType() == StreamEventType.USAGE) {
                                         if (e.getUsage() != null && !e.getUsage().isEmpty()) {
                                             usages.set(idx, e.getUsage());

@@ -199,8 +199,26 @@ public class AgentAdminService {
         return options;
     }
 
+    /**
+     * 勾选器里的技能初选：从没配置过（新建、或老库里 skills_json 为空）默认勾上全部可用技能，
+     * 与运行体「未声明即全部可见」同口径；只有用户显式取消勾选才会落成 {@code []}。
+     */
     public List<String> selectedSkillCodes(AgentDefinition form) {
-        return form == null ? List.of() : CapabilityCodec.readCodes(form.getSkillsJson());
+        if (form != null && !isUnconfigured(form.getSkillsJson())) {
+            return CapabilityCodec.readCodes(form.getSkillsJson());
+        }
+        List<String> codes = new ArrayList<>();
+        for (CapabilityOption o : skillOptions()) {
+            if (o.available()) {
+                codes.add(o.code());
+            }
+        }
+        return codes;
+    }
+
+    /** 能力清单是否「从未声明」：null/空白为未声明；{@code []} 是用户显式清空，两者语义不同。 */
+    static boolean isUnconfigured(String capabilityJson) {
+        return capabilityJson == null || capabilityJson.isBlank();
     }
 
     public List<String> selectedMcpCodes(AgentDefinition form) {

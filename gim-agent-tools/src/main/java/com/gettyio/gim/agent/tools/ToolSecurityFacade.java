@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.tools;
 
+import com.gettyio.gim.agent.core.chat.ConfirmOutcome;
 import com.gettyio.gim.agent.core.chat.ToolConfirmRequest;
 import com.gettyio.gim.agent.domain.enums.PermissionDecision;
 import com.gettyio.gim.agent.tools.guard.GuardChain;
@@ -45,44 +46,54 @@ public class ToolSecurityFacade {
     }
 
     /**
-     * 执行前置检查：ALLOW 直接放行，DENY 拒绝，ASK 走人工确认。
-     *
-     * @return 最终是否放行
+     * 执行前置检查：ALLOW 直接放行，DENY 带理由拒绝，ASK 走人工确认。
+     * <p>拒绝理由不能丢——它是模型唯一能看到的「为什么不行」。</p>
      */
-    public CompletableFuture<Boolean> precheck(String sessionId, String toolName, String toolInput) {
-        return precheck(sessionId, toolName, toolInput, false);
+    public CompletableFuture<ConfirmOutcome> check(String sessionId, String toolName, String toolInput) {
+        return check(sessionId, toolName, toolInput, false);
     }
 
     /**
-     * 执行前置检查（含自动通过档）：DENY 照旧拒绝；ASK 时若 {@code autoApprove}
+     * 执行前置检查（含自动通过档）：DENY 照旧带理由拒绝；ASK 时若 {@code autoApprove}
      * 则不弹窗直接放行（审批档位「自动」，黑名单等硬拦截仍然生效）。
      */
-    public CompletableFuture<Boolean> precheck(String sessionId, String toolName, String toolInput,
-                                               boolean autoApprove) {
+    public CompletableFuture<ConfirmOutcome> check(String sessionId, String toolName, String toolInput,
+                                                  boolean autoApprove) {
         GuardContext ctx = new GuardContext(sessionId, toolName, toolInput);
         GuardResult result = guardChain.evaluate(ctx);
 
         if (result.decision() == GuardDecision.ALLOW) {
-            return CompletableFuture.completedFuture(true);
+            return CompletableFuture.completedFuture(ConfirmOutcome.allow());
         }
         if (result.decision() == GuardDecision.DENY) {
-            return CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(ConfirmOutcome.deny(result.reason()));
         }
         // ASK
         if (autoApprove) {
-            return CompletableFuture.completedFuture(true);
+            return CompletableFuture.completedFuture(ConfirmOutcome.allow());
         }
         if (confirmHandler == null) {
             // 无确认通道时，高危默认拒绝
-            return CompletableFuture.completedFuture(false);
+            return CompletableFuture.completedFuture(
+                    ConfirmOutcome.deny("界面未提供确认通道，高风险操作默认拒绝"));
         }
         ToolConfirmRequest request = new ToolConfirmRequest(
                 UUID.randomUUID().toString(), sessionId, toolName, toolInput, result.reason());
         return confirmHandler.requestConfirm(request).thenApply(decision -> {
-            if (decision == PermissionDecision.ALWAYS_ALLOW) {
+            if (decision == PermissionDecision.ALWAYS_ALLOW || decision == PermissionDecision.SESSION_ALLOW) {
+                // 「本会话允许」只进内存，「总是允许」额外落库——两者都当次放行
                 guardChain.recordDecision(ctx, decision);
+                return ConfirmOutcome.allow();
             }
-            return decision == PermissionDecision.ALLOW || decision == PermissionDecision.ALWAYS_ALLOW;
+            return decision == PermissionDecision.ALLOW
+                    ? ConfirmOutcome.allow()
+                    : ConfirmOutcome.deny(result.reason() == null ? null
+                            : "用户拒绝了该操作（风险提示：" + result.reason() + "）");
         });
+    }
+
+    /** 会话销毁：丢弃其「本会话允许」记忆（持久规则由设置页撤销）。 */
+    public void clearSession(String sessionId) {
+        guardChain.clearSession(sessionId);
     }
 }

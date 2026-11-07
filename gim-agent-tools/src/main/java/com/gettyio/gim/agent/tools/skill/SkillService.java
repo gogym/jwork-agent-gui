@@ -33,6 +33,7 @@ import java.nio.file.StandardCopyOption;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipInputStream;
@@ -52,8 +53,17 @@ public class SkillService {
 
     private static final Logger log = LoggerFactory.getLogger(SkillService.class);
 
-    /** 随应用分发的内置示例技能（classpath: /skills/<code>/SKILL.md） */
-    private static final List<String> BUILTIN_SKILLS = List.of("translate", "weekly-report", "office-documents", "software-automation");
+    /**
+     * 随应用分发的内置技能及其文件清单（classpath: {@code /skills/<code>/<相对路径>}）。
+     * <p>技能除 SKILL.md 外还能带脚本资产（如 office-documents 的 xlsx 速查/成表脚本），
+     * 所以这里逐个文件列，而不是只认 SKILL.md——JAR 内的资源目录没法可靠遍历。</p>
+     */
+    private static final Map<String, List<String>> BUILTIN_SKILLS = Map.ofEntries(
+            Map.entry("translate", List.of(SkillManifest.ENTRY_FILE)),
+            Map.entry("weekly-report", List.of(SkillManifest.ENTRY_FILE)),
+            Map.entry("office-documents", List.of(SkillManifest.ENTRY_FILE,
+                    "scripts/xlsx_peek.py", "scripts/xlsx_report.py")),
+            Map.entry("software-automation", List.of(SkillManifest.ENTRY_FILE)));
 
     private final GimPaths paths;
     private final GimDatabase db;
@@ -226,29 +236,57 @@ public class SkillService {
         return dot > 0 ? fileName.substring(0, dot) : fileName;
     }
 
-    /** 启动播种内置示例技能：目录已存在（含禁用态）则跳过，不覆盖用户修改 */
+    /**
+     * 启动播种内置技能：按清单逐文件补齐——目标已存在就绝不覆盖（用户可能改过 SKILL.md），
+     * 缺失的才从 classpath 落盘。这样新版随技能附带的脚本资产能进老工作区，用户改过的技能也不会被抹掉。
+     * <p>禁用态（目录在 skills-disabled/ 下）整体跳过；库里缺元数据行才补登记。</p>
+     */
     public void seedBuiltinSkills() {
-        for (String code : BUILTIN_SKILLS) {
+        BUILTIN_SKILLS.forEach((code, files) -> {
+            if (Files.exists(disabledRoot().resolve(code))) {
+                return;
+            }
             Path target = skillsRoot().resolve(code);
-            if (Files.exists(target) || Files.exists(disabledRoot().resolve(code))) {
-                continue;
+            boolean wrote = false;
+            for (String relative : files) {
+                wrote |= seedBuiltinFile(code, target, relative);
             }
-            // 必须是正斜杠且以 / 开头的绝对资源路径；用 Path.of 在 Windows 上会生成 \skills\... 前缀，
-            // getResourceAsStream 会把它当包内相对路径解析，导致播种在 Windows 上静默失败
-            String resource = "/skills/" + code + "/" + SkillManifest.ENTRY_FILE;
-            try (InputStream in = getClass().getResourceAsStream(resource)) {
-                if (in == null) {
-                    log.warn("内置技能资源缺失: {}", resource);
-                    continue;
+            Path entry = target.resolve(SkillManifest.ENTRY_FILE);
+            if (Files.isRegularFile(entry) && db.skillDao().findByCode(code).isEmpty()) {
+                try {
+                    upsert(code, SkillManifest.parse(entry), "BUILTIN", EnabledStatus.ENABLED);
+                    log.info("已登记内置技能: {}", code);
+                } catch (RuntimeException e) {
+                    // 单个技能清单读坏/解析失败不能拖垮其余技能与启动
+                    log.error("登记内置技能失败: {}", code, e);
                 }
-                Files.createDirectories(target);
-                Files.copy(in, target.resolve(SkillManifest.ENTRY_FILE), StandardCopyOption.REPLACE_EXISTING);
-                SkillManifest manifest = SkillManifest.parse(target.resolve(SkillManifest.ENTRY_FILE));
-                upsert(code, manifest, "BUILTIN", EnabledStatus.ENABLED);
-                log.info("已播种内置技能: {}", code);
-            } catch (IOException e) {
-                log.error("播种内置技能失败: {}", code, e);
+            } else if (wrote) {
+                log.info("内置技能资源补齐: {}", code);
             }
+        });
+    }
+
+    /** 单个内置技能文件落盘：已存在返回 false（不覆盖），缺失才复制；资源路径必须用正斜杠绝对形式。 */
+    private boolean seedBuiltinFile(String code, Path target, String relative) {
+        Path dest = target.resolve(relative);
+        if (Files.exists(dest)) {
+            return false;
+        }
+        // 必须是正斜杠且以 / 开头的绝对资源路径；用 Path.of 在 Windows 上会生成 \skills\... 前缀，
+        // getResourceAsStream 会把它当包内相对路径解析，导致播种在 Windows 上静默失败
+        String resource = "/skills/" + code + "/" + relative;
+        try (InputStream in = getClass().getResourceAsStream(resource)) {
+            if (in == null) {
+                log.warn("内置技能资源缺失: {}", resource);
+                return false;
+            }
+            Files.createDirectories(dest.getParent());
+            Files.copy(in, dest, StandardCopyOption.REPLACE_EXISTING);
+            log.info("生成内置技能文件: {}", dest);
+            return true;
+        } catch (IOException e) {
+            log.error("播种内置技能文件失败: {}", resource, e);
+            return false;
         }
     }
 

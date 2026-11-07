@@ -157,6 +157,6 @@ public final class ChatHistoryPager {
             return payload.user(id, content, meta.attachments());
         }
         return payload.assistant(id, content, c.getToolCalls(), meta.thinking(), c.getCreatedAt(),
-                meta.interrupted(), meta.segments());
+                meta.interrupted(), meta.segments(), c.getSessionId());
     }
 }

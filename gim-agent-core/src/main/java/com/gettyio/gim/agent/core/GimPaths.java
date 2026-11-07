@@ -124,6 +124,15 @@ public class GimPaths {
         return workspaceDir().resolve("generated");
     }
 
+    /**
+     * 交付产物根：{@code generated/sessions/}——智能体经 {@code deliver_artifact} 交出的最终文件
+     * 按会话收纳在其下的 {@code <sessionId>/} 子目录（口径由
+     * {@code SessionArtifactDelivery.dirOf} 给出，UI 产物卡同此反查）。
+     */
+    public Path deliveriesDir() {
+        return generatedDir().resolve("sessions");
+    }
+
     public Path agentsMd() {
         return workspaceDir().resolve("AGENTS.md");
     }

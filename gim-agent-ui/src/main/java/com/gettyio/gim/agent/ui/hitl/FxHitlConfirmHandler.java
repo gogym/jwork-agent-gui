@@ -86,10 +86,11 @@ public class FxHitlConfirmHandler implements HitlConfirmHandler {
                 I18n.t("hitl.title"),
                 I18n.t("hitl.header", request.getToolName()),
                 buildContent(request),
-                I18n.t("hitl.always"), I18n.t("hitl.allow"), I18n.t("hitl.deny"));
+                I18n.t("hitl.always"), I18n.t("hitl.session"), I18n.t("hitl.allow"), I18n.t("hitl.deny"));
         return switch (choice) {
             case 0 -> PermissionDecision.ALWAYS_ALLOW;
-            case 1 -> PermissionDecision.ALLOW;
+            case 1 -> PermissionDecision.SESSION_ALLOW;
+            case 2 -> PermissionDecision.ALLOW;
             default -> PermissionDecision.DENY;
         };
     }
@@ -134,14 +135,16 @@ public class FxHitlConfirmHandler implements HitlConfirmHandler {
         actions.setAlignment(Pos.CENTER_RIGHT);
         actions.getChildren().addAll(
                 diffButton(I18n.t("hitl.always"), shell.stage(), 0, picked),
+                diffButton(I18n.t("hitl.session"), shell.stage(), 3, picked),
                 diffButton(I18n.t("hitl.deny"), shell.stage(), 1, picked),
                 diffButton(I18n.t("hitl.allow"), shell.stage(), 2, picked));
         shell.body().getChildren().add(actions);
 
         shell.showAndWait();
-        // 按钮序：总是允许 / 拒绝 / 允许（默认项）；关闭或 ESC 落到拒绝
+        // 按钮序：总是允许 / 本会话允许 / 拒绝 / 允许（默认项）；关闭或 ESC 落到拒绝
         return switch (picked[0]) {
             case 0 -> PermissionDecision.ALWAYS_ALLOW;
+            case 3 -> PermissionDecision.SESSION_ALLOW;
             case 2 -> PermissionDecision.ALLOW;
             default -> PermissionDecision.DENY;
         };
@@ -165,7 +168,7 @@ public class FxHitlConfirmHandler implements HitlConfirmHandler {
                 && calls.stream().allMatch(c -> FILE_EDIT_TOOLS.contains(c.name()));
     }
 
-    /** 渲染单个文件调用：路径标题行 + edit_file 的删/增两块或 write_file 的新增一块。 */
+    /** 渲染单个文件调用：路径标题行 + edit_file 的删/增两块，或 write_file 的新增一块（覆盖写先亮一行提醒）。 */
     private static void appendFileDiff(TextFlow flow, ToolCallView call) {
         String path = call.text("path");
         Text head = mono((path == null || path.isBlank() ? call.name() : path) + "\n", DIFF_PATH);
@@ -175,6 +178,10 @@ public class FxHitlConfirmHandler implements HitlConfirmHandler {
             appendLines(flow, call.text("old_string"), "- ", DIFF_REMOVED);
             appendLines(flow, call.text("new_string"), "+ ", DIFF_ADDED);
         } else {
+            if (call.flag("overwrite")) {
+                // 覆盖写看不见被抹掉的旧内容，确认框里先亮一行提醒
+                appendLines(flow, I18n.t("hitl.overwriteNote"), "- ", DIFF_REMOVED);
+            }
             appendLines(flow, call.text("content"), "+ ", DIFF_ADDED);
         }
         flow.getChildren().add(mono("\n", Color.TRANSPARENT));

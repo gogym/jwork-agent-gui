@@ -48,6 +48,15 @@ public final class ToolCallsCodec {
             Object v = input == null ? null : input.get(key);
             return v instanceof String s ? s : null;
         }
+
+        /** 布尔型入参字段（兼容 Boolean 与 "true" 文本；缺失或非真值返回 false）。 */
+        public boolean flag(String key) {
+            Object v = input == null ? null : input.get(key);
+            if (v instanceof Boolean b) {
+                return b;
+            }
+            return v instanceof String s && "true".equalsIgnoreCase(s);
+        }
     }
 
     /** 编码为 JSON 文本；序列化失败时退化为 {@code name(...)} 拼接的纯文本描述。 */

@@ -51,6 +51,9 @@ public interface ChatViewEvents {
     /** 图片/文件行点击：打开所在目录。 */
     void chatImage(String path);
 
+    /** 产物卡动作：{@code action} ∈ preview / open / reveal；越出工作区的路径一律拒绝。 */
+    void chatArtifact(String path, String action);
+
     /** 代码块复制。 */
     void chatCopyCode(String text);
 

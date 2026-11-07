@@ -19,6 +19,7 @@
     var EYE_SVG = '<svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>';
 
     var LABELS = {};              // Java 经 setTheme 推入的本地化文案
+    var PREVIEW_LANGS = {};       // Java 经 setTheme 推入的可预览类型集（空=尚未推送，预览钮不出现）
     var flags = { lastAssistantId: 0, lastUserId: 0 };
     var followBottom = true;      // 是否自动跟随到底部
     var wasAtBottom = true;       // 最近一次滚动事件时是否已贴底（视口尺寸变化时据此补滚回底）
@@ -51,12 +52,16 @@
     }
 
     // 安全消毒：marked 解析 → DOMPurify 过滤
+    // ALLOWED_URI_REGEXP 在默认放行表上只多补一个 file:——产物链接（交付文件的绝对路径）此前会被
+    // 整条抹掉 href，点击静默无响应。路径是否真在本工作区内由 Java 侧 chatLink 再判一次，越界拒绝。
+    var ALLOWED_URI = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|file):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
+
     function mdToHtml(raw) {
         var text = norm(raw);
         try {
             var html = window.marked.parse(text,
                 { breaks: true, gfm: true });
-            return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target'] });
+            return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target'], ALLOWED_URI_REGEXP: ALLOWED_URI });
         } catch (e) {
             return window.DOMPurify.sanitize('<pre>' + esc(text) + '</pre>');
         }
@@ -115,7 +120,18 @@
     }
 
     function isPreviewable(lang) {
-        return lang === 'html' || lang === 'htm' || lang === 'svg' || lang === 'xml';
+        return PREVIEW_LANGS[String(lang || '').toLowerCase()] === 1;
+    }
+
+    /** 可预览类型清单由 Java 下发（LABELS.previewLangs）：前端不自带一份，免得两端清单各自漂移。 */
+    function previewLangs(list) {
+        var m = {};
+        if (list) {
+            for (var i = 0; i < list.length; i++) {
+                m[String(list[i]).toLowerCase()] = 1;
+            }
+        }
+        return m;
     }
 
     function iconBtn(svg, title, onclick) {
@@ -182,6 +198,44 @@
         return s;
     }
 
+    // 产物卡：助手消息里本轮经 deliver_artifact 交到本机的文件（名称/类型/大小 + 预览·打开·所在文件夹）。
+    // 与用户附件行区分：附件是「用户给模型的」，产物是「模型给用户的」，动作也不同，故单独一套 DOM。
+    function artifactCards(files) {
+        var box = el('div', 'artifact-cards');
+        box.appendChild(el('div', 'artifact-caption', LABELS.artifactTitle || 'Artifacts'));
+        for (var i = 0; i < files.length; i++) {
+            box.appendChild(artifactCard(files[i]));
+        }
+        return box;
+    }
+
+    function artifactCard(f) {
+        var card = el('div', 'artifact-card');
+        card.appendChild(iconEl(fileTypeIcon(f.name), 'artifact-ic'));
+        var text = el('div', 'artifact-text');
+        text.appendChild(el('div', 'artifact-name', esc(f.name)));
+        var meta = [fileTypeLabel(f.name), f.size];
+        text.appendChild(el('div', 'artifact-meta', meta.filter(Boolean).join(' · ')));
+        card.appendChild(text);
+        var acts = el('div', 'artifact-acts');
+        acts.appendChild(artifactBtn(LABELS.artifactPreview || 'Preview', 'preview', f.path));
+        acts.appendChild(artifactBtn(LABELS.artifactOpen || 'Open', 'open', f.path));
+        acts.appendChild(artifactBtn(LABELS.artifactReveal || 'Show in Folder', 'reveal', f.path));
+        card.appendChild(acts);
+        return card;
+    }
+
+    function artifactBtn(label, action, path) {
+        var b = el('button', 'artifact-act');
+        b.type = 'button';
+        b.textContent = label;
+        b.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            if (path && bridge()) { bridge().onArtifact(path, action); }
+        }, false);
+        return b;
+    }
+
     function imageThumbs(images) {
         if (!images || !images.length) { return null; }
         var box = el('div', 'bubble-images');
@@ -229,6 +283,14 @@
         return card;
     }
 
+    // 活动组卡标题：流式实时追加与历史重放共用，计数口径只此一处
+    function groupTitle(tools, failed) {
+        if (tools <= 0) { return LABELS.processed || 'Processed'; }
+        return failed > 0
+            ? (LABELS.toolFailed || 'Executed {0} tool call(s), {1} failed').replace('{0}', tools).replace('{1}', failed)
+            : (LABELS.toolCount || 'Executed {0} tool call(s)').replace('{0}', tools);
+    }
+
     // 活动组卡：相邻的思考与工具调用聚合为一组，组内按发生顺序交错显示（参考时序分组样式）
     // items 元素：{kind:'tool', tool:…} 或 {kind:'thinking', text:…}
     function buildActivityCard(items) {
@@ -240,12 +302,7 @@
         var card = el('div', 'tool-group');
         var head = el('div', 'tool-group-header');
         head.appendChild(iconEl(CHEV_SVG, 'tool-group-chevron'));
-        var title = tools > 0
-            ? (failed > 0
-                ? (LABELS.toolFailed || 'Executed {0} tool call(s), {1} failed').replace('{0}', tools).replace('{1}', failed)
-                : (LABELS.toolCount || 'Executed {0} tool call(s)').replace('{0}', tools))
-            : (LABELS.processed || 'Processed');
-        head.appendChild(el('span', 'tool-group-title', title));
+        head.appendChild(el('span', 'tool-group-title', groupTitle(tools, failed)));
         var body = el('div', 'tool-group-body');
         for (var j = 0; j < items.length; j++) {
             body.appendChild(items[j].kind === 'tool' ? toolRow(items[j].tool) : thinkingRow(items[j].text));
@@ -295,7 +352,79 @@
         return item;
     }
 
+    // ---------- 任务清单卡（todo_write） ----------
+    // 框架的 todo_write 是「整表替换」语义：每次调用都带完整清单，最后一次就是当前状态。
+    // 因此同一轮里只维持一张卡：实时流就地刷新，历史回放取该条消息里最后一次调用。
+    var TODO_STATE = { pending: 1, in_progress: 1, completed: 1 };
+
+    /** 从 todo_write 的入参解析条目；解析不出（非 JSON / 空表）返回 null，调用方退回普通工具行。 */
+    function todoItems(tool) {
+        if (!tool || tool.name !== 'todo_write' || !tool.input || tool.input.charAt(0) !== '{') {
+            return null;
+        }
+        var o = JSON.parseSafe(tool.input);
+        var list = o ? o.todos : null;
+        if (!list || typeof list.length !== 'number') { return null; }
+        var items = [];
+        for (var i = 0; i < list.length; i++) {
+            var t = list[i];
+            var text = t ? (t.content || t.subject || t.text) : null;
+            if (!text || !String(text).trim()) { continue; }
+            var state = t && TODO_STATE[t.status] ? t.status : 'pending';
+            items.push({ text: String(text).trim(), state: state });
+        }
+        return items.length ? items : null;
+    }
+
+    function todoCard(items) {
+        var card = el('div', 'todo-card');
+        var head = el('div', 'todo-head');
+        head.appendChild(iconEl(CHECK_SVG, 'todo-icon'));
+        head.appendChild(el('span', 'todo-title', LABELS.todoTitle || 'Tasks'));
+        head.appendChild(el('span', 'todo-progress', ''));
+        card.appendChild(head);
+        card.appendChild(el('div', 'todo-body'));
+        renderTodo(card, items);
+        return card;
+    }
+
+    /** 重画清单：整表替换后条目会增减，进度数也要跟着变。 */
+    function renderTodo(card, items) {
+        var body = card.querySelector('.todo-body');
+        body.innerHTML = '';
+        var done = 0;
+        for (var i = 0; i < items.length; i++) {
+            if (items[i].state === 'completed') { done++; }
+            var row = el('div', 'todo-item ' + items[i].state);
+            row.appendChild(el('span', 'todo-mark'));
+            row.appendChild(el('span', 'todo-text', items[i].text));
+            body.appendChild(row);
+        }
+        card.querySelector('.todo-progress').textContent =
+            (LABELS.todoProgress || '{0}/{1}').replace('{0}', done).replace('{1}', items.length);
+    }
+
+    /** 一条助手消息里清单的最终态（segments 优先，退回扁平 tools 列表）；没有 todo_write 返回 null。 */
+    function lastTodo(segments, tools) {
+        var found = null;
+        var scan = function (list) {
+            for (var i = 0; i < list.length; i++) {
+                var items = todoItems(list[i]);
+                if (items) { found = items; }
+            }
+        };
+        if (segments && segments.length) {
+            for (var s = 0; s < segments.length; s++) {
+                if (segments[s].type === 'tools' && segments[s].tools) { scan(segments[s].tools); }
+            }
+        } else if (tools && tools.length) {
+            scan(tools);
+        }
+        return found;
+    }
+
     var DELEGATE = { agent_spawn: 1, agent_send: 1 };
+
     function toolName(r) {
         var name = r.name || 'tool';
         if (DELEGATE[name] && r.input) {
@@ -393,6 +522,15 @@
                 if (group && group.length) { hostBox.appendChild(buildActivityCard(group)); }
                 group = null;
             };
+            // 清单只画一张：整表替换语义下中途的每次 todo_write 都是同一张单的旧状态
+            var finalTodo = lastTodo(m.segments, m.tools);
+            var todoShown = false;
+            var showTodo = function () {
+                if (todoShown || !finalTodo) { return; }
+                todoShown = true;
+                flushGroup();
+                hostBox.appendChild(todoCard(finalTodo));
+            };
             if (m.segments && m.segments.length) {
                 // 时序分段：思考/工具/正文按发生顺序交错渲染；组卡与思考行默认收起，点击展开
                 for (var si = 0; si < m.segments.length; si++) {
@@ -408,7 +546,10 @@
                         group.push({ kind: 'thinking', text: seg.text });
                     } else if (seg.type === 'tools' && seg.tools && seg.tools.length) {
                         if (!group) { group = []; }
-                        for (var ti = 0; ti < seg.tools.length; ti++) { group.push({ kind: 'tool', tool: seg.tools[ti] }); }
+                        for (var ti = 0; ti < seg.tools.length; ti++) {
+                            if (todoItems(seg.tools[ti])) { showTodo(); continue; }
+                            group.push({ kind: 'tool', tool: seg.tools[ti] });
+                        }
                     }
                 }
                 flushGroup();
@@ -416,9 +557,13 @@
                 if (m.thinking) { group = [{ kind: 'thinking', text: m.thinking }]; }
                 if (m.tools && m.tools.length) {
                     if (!group) { group = []; }
-                    for (var li = 0; li < m.tools.length; li++) { group.push({ kind: 'tool', tool: m.tools[li] }); }
+                    for (var li = 0; li < m.tools.length; li++) {
+                        if (todoItems(m.tools[li])) { continue; }
+                        group.push({ kind: 'tool', tool: m.tools[li] });
+                    }
                 }
                 flushGroup();
+                if (finalTodo) { hostBox.appendChild(todoCard(finalTodo)); }
                 var fb = el('div', 'bubble-assistant');
                 fb.appendChild(wrapContent(m.content));
                 hostBox.appendChild(fb);
@@ -430,6 +575,9 @@
                 body = el('div', 'bubble-assistant');
                 body.appendChild(wrapContent(''));
                 hostBox.appendChild(body);
+            }
+            if (m.files && m.files.length) {
+                body.appendChild(artifactCards(m.files));
             }
             var footer = actionBar('assistant', m.id, m.rawContent || m.content, true);
             footer.appendChild(el('span', 'msg-ai-label', LABELS.aiGenerated || ''));
@@ -463,7 +611,10 @@
             h.setAttribute('data-theme', mode);
             h.setAttribute('data-font', font);
             h.setAttribute('lang', lang);
-            if (labels) { LABELS = labels; }
+            if (labels) {
+                LABELS = labels;
+                PREVIEW_LANGS = previewLangs(labels.previewLangs);
+            }
         },
 
         renderHistory: function (msgs) {
@@ -553,7 +704,10 @@
             hostBox.appendChild(body);
             row.appendChild(hostBox);
             list().appendChild(row);
-            streaming[id] = { raw: '', think: '', row: row, contentBox: contentBox, thinkingBox: thinking, thinkCard: null };
+            streaming[id] = {
+                raw: '', think: '', row: row, contentBox: contentBox, thinkingBox: thinking,
+                thinkCard: null, toolCard: null, todoCard: null
+            };
             followBottom = true;
             scrollToBottom(false);
             updateEmpty();
@@ -583,16 +737,46 @@
             if (followBottom) { scrollToBottom(false); }
         },
 
-        streamTool: function (id, note) {
-            // 工具/确认提示以明文行追加到正文（与旧 applyBatch 一致，Java 侧已本地化）
-            api.streamDelta(id, note);
+        streamToolCard: function (id, tool) {
+            var s = streaming[id];
+            if (!s || !tool || !tool.name) { return; }
+            if (tool.name === 'todo_write') {
+                var items = todoItems(tool);
+                if (items) {
+                    // 清单卡就是这次调用的呈现，不再重复塞一条工具行；后续调用刷新同一张卡
+                    if (!s.todoCard) {
+                        s.todoCard = todoCard(items);
+                        s.contentBox.insertBefore(s.todoCard, s.live || null);
+                    } else {
+                        renderTodo(s.todoCard, items);
+                    }
+                    if (followBottom) { scrollToBottom(false); }
+                    return;
+                }
+            }
+            if (!s.toolCard) {
+                s.toolCard = buildActivityCard([]);
+                // 排在逐字正文之前：思考卡 → 工具轨迹 → 正文，与收尾重放的层次一致
+                s.contentBox.insertBefore(s.toolCard, s.live || null);
+            }
+            var body = s.toolCard.querySelector('.tool-group-body');
+            body.appendChild(toolRow(tool));
+            var failed = s.toolCard.querySelectorAll('.tool-group-icon.err').length;
+            s.toolCard.querySelector('.tool-group-title').textContent =
+                groupTitle(body.querySelectorAll('.tool-group-item').length, failed);
+            if (followBottom) { scrollToBottom(false); }
         },
 
         streamEnd: function (id) {
             var s = streaming[id];
             if (!s) { return; }
+            // 实时工具轨迹卡与任务清单就地保留：正文与思考卡按定格文本重排，不该在收尾一瞬间把它们抹掉
+            var trace = s.toolCard;
+            var todo = s.todoCard;
             s.contentBox.innerHTML = '';
             if (s.think) { s.contentBox.appendChild(buildThinkingCard(s.think, false)); }
+            if (trace) { s.contentBox.appendChild(trace); }
+            if (todo) { s.contentBox.appendChild(todo); }
             if (s.raw) { s.contentBox.appendChild(mdToElem(s.raw)); }
             else if (!s.think) { s.contentBox.appendChild(el('div', 'compare-col-text', '')); }
             delete streaming[id];

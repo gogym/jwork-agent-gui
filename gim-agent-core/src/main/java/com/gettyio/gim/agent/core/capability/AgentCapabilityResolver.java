@@ -41,8 +41,9 @@ import java.util.Set;
  *   <li><b>MCP</b> —— {@code mcp_servers_json} 是服务编码白名单，翻译成 {@link ToolsConfig} 的
  *       {@code mcpServers}，装配时由 AgentScope 真正建连并把工具注册进 Toolkit。</li>
  * </ul>
- * <p><b>严格白名单</b>：清单为空（NULL 或 {@code []}）即该智能体没有技能、不连接任何 MCP，
- * 从不隐式继承全局能力；默认智能体开箱可用的那批技能，是在播种时写成显式声明的。</p>
+ * <p><b>技能三态</b>：{@code skills_json} 为 null/空白 = 从未声明，技能仓库里的都可见；
+ * 为 {@code []} = 用户显式清空，一个技能都不给；有编码 = 严格按白名单。
+ * MCP 仍是严格白名单：清单为空就不连接任何服务。</p>
  * <p>本类同时把 {@code toolsConfig} 作为 workspace {@code tools.json} 的<b>覆盖项</b>下发，
  * 因此数据库声明优先于手工放置的 tools.json —— 这是「能力以智能体定义为准」的必然代价，
  * 也避免同一份文件对多个智能体产生不同效果。</p>
@@ -69,7 +70,10 @@ public class AgentCapabilityResolver {
      * @param def 智能体定义；字段为 null 视为「无能力」
      */
     public void applyTo(HarnessAgentGateway gateway, AgentDefinition def) {
-        Set<String> skillNames = skillNames(def.getSkillsJson());
+        String skillsJson = def.getSkillsJson();
+        // 从未声明（null/空白）下发 null=仓库全部技能可见；显式 [] 才是「用户清空的严格白名单」
+        Set<String> skillNames = skillsJson == null || skillsJson.isBlank()
+                ? null : skillNames(skillsJson);
         Map<String, io.agentscope.harness.agent.tools.McpServerConfig> servers =
                 mcpServers(def.getMcpServersJson());
 
@@ -80,7 +84,8 @@ public class AgentCapabilityResolver {
         gateway.setToolsConfig(toolsConfig, this::recordMcpStatus);
 
         log.info("智能体能力: skills={} (声明 {}), mcp={}",
-                skillNames, CapabilityCodec.readCodes(def.getSkillsJson()), servers.keySet());
+                skillNames == null ? "全部（未声明）" : skillNames,
+                CapabilityCodec.readCodes(skillsJson), servers.keySet());
     }
 
     /**

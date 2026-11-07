@@ -211,6 +211,7 @@ public final class JcefResources {
                         onTrimmed: function (id) { send('onTrimmed', [id]); },
                         onLink: function (url) { send('onLink', [url]); },
                         onImage: function (path) { send('onImage', [path]); },
+                        onArtifact: function (path, action) { send('onArtifact', [path, action]); },
                         onCopyCode: function (text) { send('onCopyCode', [text]); },
                         onPreviewCode: function (code, lang) { send('onPreviewCode', [code, lang]); },
                         onEmpty: function (empty) { send('onEmpty', [empty]); },

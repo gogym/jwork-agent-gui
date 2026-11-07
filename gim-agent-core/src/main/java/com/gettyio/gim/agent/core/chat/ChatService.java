@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.core.doc.TabularInspector;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
@@ -42,6 +43,7 @@ import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.Consumer;
 
 /**
  * 对话服务：在流式网关两侧补齐 SQLite 落盘（会话 + 消息），实现重启不丢历史。
@@ -63,10 +65,31 @@ public class ChatService {
     /** 单个文档附件的字节上限（50MB）：超过不落盘不抽取。 */
     private static final long MAX_DOC_BYTES = 50L * 1024 * 1024;
 
+    /** 不展开正文的字节线（20MB）：超过只给路径，让模型按需用工具/脚本取数。 */
+    private static final long BODY_DUMP_MAX_BYTES = 20L * 1024 * 1024;
+
+    /** 摘要模式下非表格文档的正文摘录长度（字符）。 */
+    private static final int SUMMARY_HEAD_CHARS = 3_000;
+
+    /** 附件注入模式设置键：{@code summary}（默认）/ {@code full}（历史行为，全文注入）。 */
+    public static final String SETTING_ATTACHMENT_MODE = "chat.attachment.mode";
+
+    /** 摘要注入：结构 + 路径 + 取数指引。 */
+    public static final String ATTACHMENT_MODE_SUMMARY = "summary";
+
+    /** 全文注入：抽到的正文整份进上下文（小文档、需要逐字对照时用）。 */
+    public static final String ATTACHMENT_MODE_FULL = "full";
+
     private final AgentGateway gateway;
     private final GimDatabase db;
     private final GimPaths gimPaths;
     private final EffectiveModelResolver modelResolver;
+
+    /**
+     * 会话销毁时的附带清理（组合根注入）：核心模块不反向依赖工具层，
+     * 会话级授权记忆由这里回调清除。
+     */
+    private volatile Consumer<String> sessionCleanup;
 
     public ChatService(AgentGateway gateway, GimDatabase db, GimPaths gimPaths,
                        EffectiveModelResolver modelResolver) {
@@ -74,6 +97,11 @@ public class ChatService {
         this.db = db;
         this.gimPaths = gimPaths;
         this.modelResolver = modelResolver;
+    }
+
+    /** 注入会话销毁附带清理钩子（传 null 表示不需要）。 */
+    public void setSessionCleanup(Consumer<String> sessionCleanup) {
+        this.sessionCleanup = sessionCleanup;
     }
 
     /**
@@ -365,13 +393,19 @@ public class ChatService {
         }
     }
 
-    /** 落盘文档原件到 {@code attachments/<sessionId>/} 并抽取正文，返回引用清单与模型输入块。 */
+    /**
+     * 落盘文档原件到 {@code attachments/<sessionId>/} 并生成注入块，返回引用清单与模型输入块。
+     * <p>存储名保留原件名（加序号前缀防重）：模型要靠文件名辨认「文件1 / 文件2」，
+     * 全 UUID 名会让两个附件在它眼里长成同一个样子，也无从按路径取数。</p>
+     */
     private DocPrep prepareDocs(String sessionId, List<FileAttachment> files) {
         List<StoredAttachment> stored = new ArrayList<>();
         if (files == null || files.isEmpty()) {
             return new DocPrep(stored, "");
         }
         StringBuilder block = new StringBuilder();
+        Path dir = gimPaths.attachmentsDir().resolve(sessionId);
+        int index = 0;
         for (FileAttachment f : files) {
             if (f == null || f.base64Data() == null || f.base64Data().isBlank()) {
                 continue;
@@ -387,24 +421,129 @@ public class ChatService {
                 log.warn("文档附件 Base64 解码失败，跳过: {}", f.fileName());
                 continue;
             }
+            index++;
             String relPath = null;
+            Path target = null;
             try {
-                String fileName = UUID.randomUUID() + docExtension(f);
-                Path dir = gimPaths.attachmentsDir().resolve(sessionId);
                 Files.createDirectories(dir);
-                Files.write(dir.resolve(fileName), bytes);
-                relPath = sessionId + "/" + fileName;
+                target = uniqueTarget(dir, storeName(index, f));
+                Files.write(target, bytes);
+                relPath = sessionId + "/" + target.getFileName();
             } catch (IOException | RuntimeException e) {
                 log.warn("文档附件落盘失败: {}", f.fileName(), e);
+                target = null;
             }
             stored.add(new StoredAttachment(f.fileName(), f.mediaType(), relPath,
                     StoredAttachment.KIND_FILE, f.sizeBytes()));
-            String text = FileTextExtractor.extract(f.fileName(), f.mediaType(), bytes);
-            block.append("【附件文档：").append(f.fileName()).append("】\n");
-            block.append(text == null || text.isBlank() ? "（未能抽取文本）" : text).append("\n\n");
+            block.append(attachmentBlock(f, target, bytes)).append("\n\n");
         }
         String trimmed = block.toString().trim();
         return new DocPrep(stored, trimmed);
+    }
+
+    /**
+     * 单个附件的注入块：路径 + 结构摘要（表格）或正文（小文档/全文模式）。
+     * <p>默认只给「看得见的形状」，把取数交给 {@code inspect_file} 与脚本——几十万行的导出表
+     * 整份塞进上下文，后面每一步都在为这段一次性文本付窗口与注意力。</p>
+     */
+    private String attachmentBlock(FileAttachment f, Path target, byte[] bytes) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【附件】").append(f.fileName()).append("（").append(readableBytes(f.sizeBytes())).append("）\n");
+        if (target == null) {
+            sb.append("（原件落盘失败，仅以下内容可用）\n");
+            appendBody(sb, f, bytes, SUMMARY_HEAD_CHARS);
+            return sb.toString();
+        }
+        sb.append("本机路径：").append(target.toAbsolutePath()).append('\n');
+        boolean tabular = TabularInspector.isTabular(f.fileName());
+        if (tabular) {
+            String overview = TabularInspector.overview(target.toAbsolutePath(), TabularInspector.SAMPLE_ROWS);
+            if (overview != null && !overview.isBlank()) {
+                sb.append(overview);
+            } else {
+                sb.append("（未能读取表格结构，可能是加密或损坏）\n");
+            }
+            if (fullTextMode()) {
+                appendBody(sb, f, bytes, Integer.MAX_VALUE);
+            } else {
+                sb.append("分片取数：inspect_file(path=上述路径, sheet=工作表名或序号, offset=起始行(0基), rows=行数)；")
+                        .append("全量统计或产出文件请用 execute 跑 Python(pandas/openpyxl) 读取该路径。\n");
+            }
+            return sb.toString();
+        }
+        if (f.sizeBytes() > BODY_DUMP_MAX_BYTES) {
+            sb.append("文件较大，未展开正文；请用 read_file 分段读取上述路径，或用 execute 跑脚本处理。\n");
+            return sb.toString();
+        }
+        appendBody(sb, f, bytes, fullTextMode() ? Integer.MAX_VALUE : SUMMARY_HEAD_CHARS);
+        return sb.toString();
+    }
+
+    /** 附件是否走全文注入：实时读 AppSetting，改设置不重启即生效；非法值按摘要处理。 */
+    private boolean fullTextMode() {
+        return db.settingDao().getValue(SETTING_ATTACHMENT_MODE)
+                .map(v -> ATTACHMENT_MODE_FULL.equalsIgnoreCase(v.trim()))
+                .orElse(false);
+    }
+
+    /** 追加抽取正文：短文档整份给，长文档只给头部并说明怎么读全文。 */
+    private static void appendBody(StringBuilder sb, FileAttachment f, byte[] bytes, int limitChars) {
+        if (limitChars <= 0) {
+            return;
+        }
+        String text = FileTextExtractor.extract(f.fileName(), f.mediaType(), bytes);
+        if (text == null || text.isBlank()) {
+            sb.append("（未能抽取文本）\n");
+            return;
+        }
+        if (text.length() <= limitChars) {
+            sb.append(text).append('\n');
+            return;
+        }
+        sb.append(text, 0, limitChars).append('\n');
+        sb.append("…（正文共 ").append(text.length()).append(" 字符，未全部展开；整份内容请用 read_file 读取上述路径）\n");
+    }
+
+    /** 存储文件名：{@code <序号>-<净化后的原名><扩展名>}，保留原名可辨识（附件常被称作「文件1」「文件2」）。 */
+    private static String storeName(int index, FileAttachment f) {
+        String name = f.fileName() == null ? "" : f.fileName().trim();
+        int slash = Math.max(name.lastIndexOf('/'), name.lastIndexOf('\\'));
+        if (slash >= 0) {
+            name = name.substring(slash + 1);
+        }
+        int dot = name.lastIndexOf('.');
+        String base = dot > 0 ? name.substring(0, dot) : name;
+        String safe = base.replaceAll("[\\\\/:*?\"<>|\\p{Cntrl}]", "_").strip();
+        if (safe.length() > 60) {
+            safe = safe.substring(0, 60);
+        }
+        if (safe.isBlank()) {
+            safe = "file";
+        }
+        return index + "-" + safe + docExtension(f);
+    }
+
+    /** 同名不覆盖：已存在则在原名后追加短随机后缀（多轮对话里同名附件各自独立）。 */
+    private static Path uniqueTarget(Path dir, String fileName) {
+        Path target = dir.resolve(fileName);
+        if (!Files.exists(target)) {
+            return target;
+        }
+        int dot = fileName.lastIndexOf('.');
+        String base = dot > 0 ? fileName.substring(0, dot) : fileName;
+        String ext = dot > 0 ? fileName.substring(dot) : "";
+        return dir.resolve(base + "-" + UUID.randomUUID().toString().substring(0, 8) + ext);
+    }
+
+    /** 字节数的可读形式（附件块里给模型看规模用）。 */
+    private static String readableBytes(long bytes) {
+        if (bytes < 1024) {
+            return bytes + "B";
+        }
+        if (bytes < 1024 * 1024) {
+            return Math.round(bytes / 1024.0) + "KB";
+        }
+        return String.format(java.util.Locale.ROOT, "%.1fMB", bytes / (1024.0 * 1024));
     }
 
     /** 文档原件落盘用的扩展名：优先取文件名后缀，兜底 .bin。 */
@@ -573,6 +712,10 @@ public class ChatService {
         db.conversationDao().deleteBySession(sessionId);
         db.sessionDao().deleteBySessionId(sessionId);
         deleteAttachments(sessionId);
+        Consumer<String> cleanup = this.sessionCleanup;
+        if (cleanup != null) {
+            cleanup.accept(sessionId);
+        }
         log.info("删除会话: {}", sessionId);
     }
 

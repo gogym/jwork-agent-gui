@@ -67,8 +67,9 @@ public class SandboxShellTool {
                     + " exists (e.g., read_file, write_file), you MUST use it instead of shell"
                     + " commands.";
 
-    /** 工具级默认超时（秒），与框架内置实现一致。 */
-    private static final int DEFAULT_TIMEOUT_SECONDS = 30;
+    /** 工具级默认超时（秒）：框架内置是 30，这里放宽到 120——pandas/openpyxl 出报表的脚本常跑过半分钟，
+     *  超时报错后模型只会改个写法再跑一遍，白烧一轮。显式传 {@code timeout} 仍以模型给的为准。 */
+    private static final int DEFAULT_TIMEOUT_SECONDS = 120;
 
     /** 输出截断上限（字符），与本地档默认（LocalFilesystemSpec.maxOutputBytes=100_000）对齐。 */
     private static final int MAX_OUTPUT_CHARS = 100_000;
@@ -140,7 +141,7 @@ public class SandboxShellTool {
                     String workingDirectory,
             @ToolParam(
                             name = "timeout",
-                            description = "Timeout in seconds (default: 30)",
+                            description = "Timeout in seconds (default: 120)",
                             required = false)
                     Integer timeout) {
         if (command == null || command.isBlank()) {
@@ -153,15 +154,16 @@ public class SandboxShellTool {
             return "Error: working_directory must be a relative path within the workspace"
                     + " (absolute paths, '~', and '..' are not allowed).";
         }
-        if (!dockerModeEnabled()) {
-            return localDelegate.execute(runtimeContext, command, workingDirectory, timeout);
-        }
         int timeoutSeconds = timeout != null && timeout > 0 ? timeout : DEFAULT_TIMEOUT_SECONDS;
+        if (!dockerModeEnabled()) {
+            // 本地档也按放宽后的默认值下发（框架内置默认 30 秒，脚本类任务不够用）
+            return localDelegate.execute(runtimeContext, command, workingDirectory, timeoutSeconds);
+        }
         try {
             if (!probe.available()) {
                 // 已开启隔离但环境不可用：按既有本地能力继续，并每会话提示一次回退
                 return fallbackNotice(runtimeContext)
-                        + localDelegate.execute(runtimeContext, command, workingDirectory, timeout);
+                        + localDelegate.execute(runtimeContext, command, workingDirectory, timeoutSeconds);
             }
             SandboxExecutor.ExecResult result = execInSandbox(command, wd, timeoutSeconds);
             if (!result.sandboxed()) {
@@ -175,7 +177,7 @@ public class SandboxShellTool {
             }
             log.warn("Docker 沙箱执行失败，回退本地执行: {}", e.getMessage(), e);
             return fallbackNotice(runtimeContext)
-                    + localDelegate.execute(runtimeContext, command, workingDirectory, timeout);
+                    + localDelegate.execute(runtimeContext, command, workingDirectory, timeoutSeconds);
         }
     }
 

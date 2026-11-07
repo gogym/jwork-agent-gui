@@ -16,15 +16,19 @@
 
 package com.gettyio.gim.agent.ui.chat;
 
+import com.fasterxml.jackson.databind.JsonNode;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
+import com.gettyio.gim.agent.ui.chat.payload.ChatUiLabels;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
+import com.gettyio.gim.agent.ui.chat.workspace.ArtifactPreviewWindow;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -127,5 +131,19 @@ class ChatMessagePayloadTest {
         WebChatMessage plain = p.assistant(8L, "纯文本回答", null, null, null, false);
         assertNull(plain.rawContent());
         assertEquals("纯文本回答", plain.content());
+    }
+
+    @Test
+    @DisplayName("setTheme 载荷：可预览类型清单以 previewLangs 数组送达前端，内容与 Java 白名单同源")
+    void previewLangsTravelsWithLabels() throws Exception {
+        String js = ChatMessagePayload.jsValue(ChatUiLabels.fromI18n());
+        // 前端只认 labels.previewLangs 这一个形状：字段缺失或不是数组，代码块预览钮会整体消失
+        JsonNode arr = new com.fasterxml.jackson.databind.ObjectMapper().readTree(js).get("previewLangs");
+        assertTrue(arr.isArray(), js);
+        List<String> pushed = new ArrayList<>();
+        arr.forEach(n -> pushed.add(n.asText()));
+        assertEquals(ArtifactPreviewWindow.PREVIEW_LANGS, pushed);
+        // 与谓词一致：清单里的每一项都必须真能预览
+        pushed.forEach(lang -> assertTrue(ArtifactPreviewWindow.isPreviewable(lang), lang));
     }
 }

@@ -18,6 +18,9 @@ package com.gettyio.gim.agent.ui.chat.workspace;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -47,6 +50,29 @@ class ArtifactPreviewWindowTest {
         assertFalse(ArtifactPreviewWindow.isPreviewable("java"));
         assertFalse(ArtifactPreviewWindow.isPreviewable("python"));
         assertFalse(ArtifactPreviewWindow.isPreviewable("xml"));
+    }
+
+    /** 白名单即唯一事实源：语言与扩展名共用一份，前端预览钮也从这里取。 */
+    @Test
+    void previewLangsIsTheSingleSource() {
+        assertEquals(List.of("html", "htm", "xhtml", "svg"), ArtifactPreviewWindow.PREVIEW_LANGS);
+        for (String lang : ArtifactPreviewWindow.PREVIEW_LANGS) {
+            assertTrue(ArtifactPreviewWindow.isPreviewable(lang), lang);
+            assertTrue(ArtifactPreviewWindow.isPreviewableFile("out." + lang), lang);
+        }
+    }
+
+    @Test
+    void filePredicateIgnoresCasePathAndDotFiles() {
+        assertTrue(ArtifactPreviewWindow.isPreviewableFile("D:/report/月度汇总.HTML"));
+        assertTrue(ArtifactPreviewWindow.isPreviewableFile("D:/report/图表.svg"));
+        assertFalse(ArtifactPreviewWindow.isPreviewableFile("报表.xlsx"));
+        assertFalse(ArtifactPreviewWindow.isPreviewableFile("notes.md"));
+        // 点开头是文件名而非扩展名；点收尾没有扩展名
+        assertFalse(ArtifactPreviewWindow.isPreviewableFile(".html"));
+        assertFalse(ArtifactPreviewWindow.isPreviewableFile("html."));
+        assertFalse(ArtifactPreviewWindow.isPreviewableFile("html"));
+        assertFalse(ArtifactPreviewWindow.isPreviewableFile(null));
     }
 
     @Test

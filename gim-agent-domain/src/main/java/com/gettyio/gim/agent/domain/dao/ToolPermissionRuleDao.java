@@ -75,6 +75,12 @@ public class ToolPermissionRuleDao {
         return runner.query("SELECT " + COLUMNS + " FROM tool_permission_rules ORDER BY id", ToolPermissionRuleDao::map);
     }
 
+    /** 某工具的全部规则（含命令/目录级）：拦截链据此判断本次调用是否已被「总是允许」覆盖。 */
+    public List<ToolPermissionRule> findByTool(String toolName) {
+        return runner.query("SELECT " + COLUMNS + " FROM tool_permission_rules WHERE tool_name=? ORDER BY id",
+                ToolPermissionRuleDao::map, toolName);
+    }
+
     public int delete(Long id) {
         return runner.update("DELETE FROM tool_permission_rules WHERE id=?", id);
     }

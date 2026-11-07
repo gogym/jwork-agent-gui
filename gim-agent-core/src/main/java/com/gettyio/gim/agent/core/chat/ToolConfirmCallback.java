@@ -20,8 +20,8 @@ import java.util.concurrent.CompletableFuture;
 
 /**
  * 工具执行确认回调：当 AgentScope 权限引擎对某个工具调用要求用户确认（HITL）时，
- * 网关调用本回调获取"是否放行"的异步决策。
- * <p>定义在 core，由 tools 层的 {@code ToolSecurityFacade#precheck} 适配实现，
+ * 网关调用本回调获取放行裁决（含拒绝理由）。
+ * <p>定义在 core，由 tools 层的 {@code ToolSecurityFacade#check} 适配实现，
  * 保持 core 不反向依赖 tools。</p>
  *
  * @author gogym
@@ -34,7 +34,7 @@ public interface ToolConfirmCallback {
      * @param toolName     待确认的工具名
      * @param toolInput    工具入参的结构化 JSON（{@link ToolCallsCodec#encode}）
      * @param autoApprove  自动通过档：拦截链照常评估（黑名单仍 DENY），但 ASK 不弹窗直接放行
-     * @return 异步决策：true 放行，false 拒绝
+     * @return 异步裁决：放行，或带理由的拒绝（理由回喂给模型）
      */
-    CompletableFuture<Boolean> confirm(String sessionId, String toolName, String toolInput, boolean autoApprove);
+    CompletableFuture<ConfirmOutcome> confirm(String sessionId, String toolName, String toolInput, boolean autoApprove);
 }

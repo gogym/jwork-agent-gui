@@ -61,13 +61,20 @@ class ToolCodecsTest {
     }
 
     @Test
-    @DisplayName("ToolCallsCodec.decode 解析 name/input，取字符串入参字段")
+    @DisplayName("ToolCallsCodec.decode 解析 name/input，取字符串与布尔入参字段")
     void toolCallsDecode() {
-        String json = "[{\"name\":\"execute\",\"input\":{\"command\":\"ls\"}}]";
+        String json = "[{\"name\":\"execute\",\"input\":{\"command\":\"ls\"}},"
+                + "{\"name\":\"write_file\",\"input\":{\"path\":\"a.py\",\"overwrite\":true,\"force\":\"false\"}}]";
         List<ToolCallsCodec.ToolCallView> views = ToolCallsCodec.decode(json);
-        assertEquals(1, views.size());
+        assertEquals(2, views.size());
         assertEquals("execute", views.get(0).name());
         assertEquals("ls", views.get(0).text("command"));
+        ToolCallsCodec.ToolCallView w = views.get(1);
+        assertEquals("a.py", w.text("path"));
+        assertTrue(w.flag("overwrite"));
+        assertFalse(w.flag("force"), "布尔字段只认 true，字符串 \"false\" 不算");
+        assertFalse(w.flag("path"), "非布尔字段视为 false");
+        assertFalse(w.flag("missing"));
     }
 
     @Test

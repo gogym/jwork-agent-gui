@@ -16,12 +16,14 @@
 
 package com.gettyio.gim.agent.ui.window.settings;
 
+import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.core.chat.HarnessAgentGateway;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.TextField;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 
 import java.util.List;
@@ -72,7 +74,92 @@ final class ChatUsageSettingsPanel {
         });
         return SettingsLayout.groupCard(I18n.t("settings.context.group"), List.of(
                 SettingsLayout.settingRow(I18n.t("settings.context.limit"),
-                        I18n.t("settings.context.limit.desc"), combo)));
+                        I18n.t("settings.context.limit.desc"), combo),
+                stepLimitRow(),
+                attachmentRow()));
+    }
+
+    /**
+     * 附件注入方式行：摘要（默认）/ 全文。摘要只给「规模 + 表头样例 + 本机路径」，
+     * 取数交给 {@code inspect_file} 与脚本——整表注入既撑爆窗口，也让后续每一步
+     * 都在为这段一次性文本付注意力；全文档模式保留给需要逐字对照的场景。
+     */
+    private HBox attachmentRow() {
+        ComboBox<String> combo = SettingsLayout.pillCombo(new String[]{
+                I18n.t("settings.attachment.summary"), I18n.t("settings.attachment.full")});
+        combo.getSelectionModel().select(currentAttachmentFullText() ? 1 : 0);
+        combo.setOnAction(e -> saveAttachmentMode(combo.getSelectionModel().getSelectedIndex()));
+        return SettingsLayout.settingRow(I18n.t("settings.attachment.label"),
+                I18n.t("settings.attachment.desc"), combo);
+    }
+
+    private boolean currentAttachmentFullText() {
+        return ChatService.ATTACHMENT_MODE_FULL.equalsIgnoreCase(database.settingDao()
+                .getValue(ChatService.SETTING_ATTACHMENT_MODE).orElse("").trim());
+    }
+
+    /** 保存附件注入方式：下一轮对话即时生效（ChatService 每轮实时读取该键）。 */
+    private void saveAttachmentMode(int index) {
+        String mode = index == 1 ? ChatService.ATTACHMENT_MODE_FULL : ChatService.ATTACHMENT_MODE_SUMMARY;
+        database.settingDao().upsert(ChatService.SETTING_ATTACHMENT_MODE, mode,
+                "附件注入方式：summary 结构摘要+路径 / full 全文正文");
+    }
+
+    /**
+     * 单轮步数上限输入框。写入 AppSetting {@code agent.maxIters}——框架内置默认 10 步，
+     * 数据分析一类「探查→计算→产出文件」的任务会在半路被强制收尾，故必须可调。
+     * 保存后失效全部运行体，下一轮对话按新上限重新装配即时生效。
+     */
+    private HBox stepLimitRow() {
+        TextField field = new TextField();
+        field.setText(String.valueOf(currentMaxIters()));
+        field.setPromptText(I18n.t("settings.steps.prompt"));
+        field.setMaxWidth(120);
+        Runnable save = () -> saveMaxIters(field);
+        field.setOnAction(e -> save.run());
+        field.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                save.run();
+            }
+        });
+        return SettingsLayout.settingRow(I18n.t("settings.steps.label"),
+                I18n.t("settings.steps.desc"), field);
+    }
+
+    /** 步数档位允许区间，与网关 {@link HarnessAgentGateway#MIN_MAX_ITERS}–{@link HarnessAgentGateway#MAX_MAX_ITERS} 同源。 */
+    private static final int MIN_STEP_LIMIT = HarnessAgentGateway.MIN_MAX_ITERS;
+    private static final int MAX_STEP_LIMIT = HarnessAgentGateway.MAX_MAX_ITERS;
+
+    /** 读取当前步数上限：未配置或非法回退到统一默认值。 */
+    private int currentMaxIters() {
+        return database.settingDao().getValue(HarnessAgentGateway.SETTING_MAX_ITERS)
+                .map(raw -> {
+                    try {
+                        int v = Integer.parseInt(raw.trim());
+                        return v > 0 ? v : HarnessAgentGateway.DEFAULT_MAX_ITERS;
+                    } catch (NumberFormatException ex) {
+                        return HarnessAgentGateway.DEFAULT_MAX_ITERS;
+                    }
+                })
+                .orElse(HarnessAgentGateway.DEFAULT_MAX_ITERS);
+    }
+
+    /** 校验并保存步数上限：区间外或非法则回滚并提示。 */
+    private void saveMaxIters(TextField field) {
+        int value;
+        try {
+            value = Integer.parseInt(field.getText() == null ? "" : field.getText().trim());
+            if (value < MIN_STEP_LIMIT || value > MAX_STEP_LIMIT) {
+                throw new NumberFormatException();
+            }
+        } catch (NumberFormatException e) {
+            field.setText(String.valueOf(currentMaxIters()));
+            host.notify("settings.steps", I18n.t("settings.steps.invalid", MIN_STEP_LIMIT, MAX_STEP_LIMIT));
+            return;
+        }
+        database.settingDao().upsert(HarnessAgentGateway.SETTING_MAX_ITERS, String.valueOf(value),
+                "单轮 ReAct 步数上限（触顶后自动续跑）");
+        agentGateway.invalidateAll();
     }
 
     /** 常用上下文窗口上限档位（token）；标签按 {@link #formatTokenUnit} 生成（32K/128K/…/1M）。 */

@@ -22,6 +22,7 @@ import com.gettyio.gim.agent.ui.chat.payload.ChatUiLabels;
 import com.gettyio.gim.agent.ui.chat.payload.CompareColumn;
 import com.gettyio.gim.agent.ui.chat.payload.CompareFoot;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
+import com.gettyio.gim.agent.ui.chat.payload.WebChatTool;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
@@ -134,6 +135,7 @@ public final class ChatWebView {
                 case "onTrimmed" -> bridge.onTrimmed(lng(a, 0));
                 case "onLink" -> bridge.onLink(str(a, 0));
                 case "onImage" -> bridge.onImage(str(a, 0));
+                case "onArtifact" -> bridge.onArtifact(str(a, 0), str(a, 1));
                 case "onCopyCode" -> bridge.onCopyCode(str(a, 0));
                 case "onPreviewCode" -> bridge.onPreviewCode(str(a, 0), str(a, 1));
                 case "onDismissMenu" -> bridge.onDismissMenu();
@@ -218,9 +220,9 @@ public final class ChatWebView {
         run("ChatAPI.streamThinking(" + id + "," + ChatMessagePayload.jsString(text) + ");");
     }
 
-    /** 工具/确认提示行（Java 侧已本地化，以明文追加）。 */
-    public void streamTool(long id, String note) {
-        run("ChatAPI.streamTool(" + id + "," + ChatMessagePayload.jsString(note) + ");");
+    /** 流式期间的已完成工具卡：与历史重放共用 {@link WebChatTool} 视图，工具轨迹当场可见而不必等收尾。 */
+    public void streamToolCard(long id, WebChatTool tool) {
+        run("ChatAPI.streamToolCard(" + id + "," + ChatMessagePayload.jsValue(tool) + ");");
     }
 
     /** 流式收尾：以 Markdown 定格临时气泡（随后控制器整页重放补齐真实主键）。 */

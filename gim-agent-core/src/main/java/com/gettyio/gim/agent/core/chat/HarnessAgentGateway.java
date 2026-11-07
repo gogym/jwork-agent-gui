@@ -19,7 +19,9 @@ package com.gettyio.gim.agent.core.chat;
 import com.gettyio.gim.agent.core.memory.MemoryWriteTool;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
+import io.agentscope.core.event.AgentStartEvent;
 import io.agentscope.core.event.ConfirmResult;
+import io.agentscope.core.event.ExceedMaxItersEvent;
 import io.agentscope.core.event.ModelCallEndEvent;
 import io.agentscope.core.event.RequireUserConfirmEvent;
 import io.agentscope.core.event.ToolCallDeltaEvent;
@@ -71,6 +73,7 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
@@ -100,13 +103,20 @@ public class HarnessAgentGateway implements AutoCloseable {
     private static final Duration MCP_RELEASE_TIMEOUT = Duration.ofSeconds(5);
 
     /** 工具入参/输出写入事件与落盘前的截断上限（字符），避免超长结果撑爆一列 */
-    private static final int TOOL_TEXT_MAX = 2000;
+    private static final int TOOL_TEXT_MAX = 8000;
 
     /** 框架内置 Shell 工具名：自定义 Shell 工具以同名注册即替换（ToolRegistry 同名覆盖）。 */
     private static final String SHELL_TOOL_NAME = "execute";
 
     /** 主模型调用失败后的框架级重试次数（配合备用模型 failover） */
     private static final int FRAMEWORK_MAX_RETRIES = 2;
+
+    /** 单轮步数触顶后的自动续跑次数上限：每次续跑重新给满步数预算，超出则提示用户手动继续。 */
+    private static final int MAX_ITER_CONTINUES = 3;
+
+    /** 步数触顶后续跑指令：以 USER 消息补发，令模型接着做剩余步骤而不是重新起手。 */
+    private static final String ITER_CONTINUE_PROMPT =
+            "（系统提示：本轮步数上限已重置，请从当前进度继续完成上一任务，勿重复已完成的步骤。）";
 
     /**
      * 框架内置的压缩默认配置（只读参照其默认阈值参数：reserved / keepTokens* ）。
@@ -122,6 +132,18 @@ public class HarnessAgentGateway implements AutoCloseable {
      * 超出时框架自动压缩。显示占用条与运行体压缩阈值统一以此为准，避免两套默认值不一致。
      */
     public static final int DEFAULT_MAX_CONTEXT_TOKENS = 128_000;
+
+    /** ReAct 单轮步数上限的 AppSetting 键：框架默认 10 步，读表→统计→产出报告的长任务必然触顶。 */
+    public static final String SETTING_MAX_ITERS = "agent.maxIters";
+
+    /** 单轮步数上限默认值（AppSetting 键 {@link #SETTING_MAX_ITERS} 可调，钳制 {@value #MIN_MAX_ITERS}–{@value #MAX_MAX_ITERS}）。 */
+    public static final int DEFAULT_MAX_ITERS = 40;
+
+    /** 步数上限允许的最小值 */
+    public static final int MIN_MAX_ITERS = 5;
+
+    /** 步数上限允许的最大值 */
+    public static final int MAX_MAX_ITERS = 200;
 
     /** 长期记忆总开关的 AppSetting 键：{@code "false"} 即关闭记忆工具/沉淀与 MEMORY.md 注入（其余/缺省为开）。 */
     public static final String SETTING_MEMORY_ENABLED = "agent.memory.enabled";
@@ -159,6 +181,8 @@ public class HarnessAgentGateway implements AutoCloseable {
     private final List<Object> toolTargets = new CopyOnWriteArrayList<>();
     /** 上下文窗口 token 上限（装配时下发给 Harness）；由装配方按 AppSetting 覆盖，默认 {@link #DEFAULT_MAX_CONTEXT_TOKENS} */
     private volatile int maxContextTokens = DEFAULT_MAX_CONTEXT_TOKENS;
+    /** ReAct 单轮步数上限（装配时下发给 Harness）；由装配方按 AppSetting 覆盖，默认 {@link #DEFAULT_MAX_ITERS} */
+    private volatile int maxIters = DEFAULT_MAX_ITERS;
     /** 长期记忆配置（{@code null} 沿用 Harness 内置默认）：由装配方按应用设置下发 flush 节流等。 */
     private volatile MemoryConfig memoryConfig;
     /** 长期记忆开关（默认开）：关闭时不下发记忆工具与记忆钩子，MEMORY.md 也不再注入工作区上下文。 */
@@ -173,6 +197,12 @@ public class HarnessAgentGateway implements AutoCloseable {
 
     /** 自定义 Shell 工具工厂（可空）：装配后替换框架内置 execute 工具（如 Docker 沙箱装饰） */
     private volatile ShellToolFactory shellToolFactory;
+
+    /**
+     * 产物交付根目录（可空=不暴露 {@code deliver_artifact}）：模型产出的最终文件按会话落到
+     * {@code <此>/<sessionId>/<文件名>}，用户在聊天里的产物卡与工作区右栏都能直接打开。
+     */
+    private volatile Path artifactSessionsDir;
 
     private volatile HarnessAgent agent;
 
@@ -216,6 +246,21 @@ public class HarnessAgentGateway implements AutoCloseable {
         if (maxContextTokens > 0) {
             this.maxContextTokens = maxContextTokens;
         }
+    }
+
+    /**
+     * ReAct 单轮步数上限（装配前下发）：钳制到 {@value #MIN_MAX_ITERS}–{@value #MAX_MAX_ITERS}；
+     * 非正数表示不干预，保留默认。上限必须钳得住——否则一处误填就能让模型无限跑下去烧 token。
+     */
+    public void setMaxIters(int maxIters) {
+        if (maxIters > 0) {
+            this.maxIters = Math.min(MAX_MAX_ITERS, Math.max(MIN_MAX_ITERS, maxIters));
+        }
+    }
+
+    /** 当前生效的单轮步数上限（供设置页回显与用量提示）。 */
+    public int getMaxIters() {
+        return maxIters;
     }
 
     /** 指定技能目录（workspace/skills），Harness 将以 FileSystemSkillRepository 加载其中的 SKILL.md */
@@ -322,6 +367,14 @@ public class HarnessAgentGateway implements AutoCloseable {
         this.shellToolFactory = shellToolFactory;
     }
 
+    /**
+     * 注入产物交付根目录（须在首次装配或失效重建前设置）：非空即向模型暴露 {@code deliver_artifact}，
+     * 交付文件落 {@code <sessionsDir>/<sessionId>/}；传 null 表示不提供交付（旧行为）。
+     */
+    public void setArtifactSessionsDir(Path sessionsDir) {
+        this.artifactSessionsDir = sessionsDir;
+    }
+
     private HarnessAgent agent() {
         HarnessAgent local = this.agent;
         if (local == null) {
@@ -344,6 +397,9 @@ public class HarnessAgentGateway implements AutoCloseable {
                             // 待办清单：开启后框架向模型提供内置 todo 工具（其调用会以工具卡片形式回显）
                             .enableTaskList(true)
                             .maxContextTokens(this.maxContextTokens)
+                            // 单轮步数上限：框架默认 10 步，多步数据分析（探查→计算→产出文件）会在半路被强制收尾，
+                            // 故按应用设置下发；触顶后本运行体再自动续跑若干轮（见 stream 的续跑链）
+                            .maxIters(this.maxIters)
                             // 自动压缩：框架默认按「模型自报窗口 - 缓冲」动态推算阈值（模型未上报窗口时兜底 160k），
                             // 与本应用占用条的分母（设置页的上下文上限）并非同一口径，故显式下发按上限推算的配置
                             .compaction(autoCompaction)
@@ -363,7 +419,8 @@ public class HarnessAgentGateway implements AutoCloseable {
                     Path skills = this.skillsDir;
                     Set<String> allowedSkills = this.skillAllowlist;
                     if (allowedSkills != null && allowedSkills.isEmpty()) {
-                        // 严格白名单：该智能体未声明任何技能，连技能仓库都不必扫描
+                        // 用户将技能清成了严格空白名单：连技能仓库都不必扫描
+                        // （null 是「从未声明」，走下面的仓库+框架默认 SkillFilter.all()）
                         builder = builder.skillFilter(SkillFilter.none());
                     } else {
                         if (skills != null) {
@@ -414,6 +471,12 @@ public class HarnessAgentGateway implements AutoCloseable {
                         // 按数据库定义静态注册可委派子智能体；关闭动态扫描避免每步重扫工作区丢弃这些声明
                         builder = builder.subagents(subs).disableDynamicSubagents();
                     }
+                    Path deliverRoot = this.artifactSessionsDir;
+                    if (deliverRoot != null) {
+                        // 交付闭环：模型产出最终文件后调 deliver_artifact，落到本机可打开的会话目录，
+                        // 工具结果里的绝对路径同时供 UI 产物卡与工作区右栏反查
+                        builder = builder.artifactDeliveryTarget(new SessionArtifactDelivery(deliverRoot));
+                    }
                     local = builder.build();
                     ShellToolFactory shellFactory = this.shellToolFactory;
                     if (shellFactory != null && local.getToolkit().getTool(SHELL_TOOL_NAME) != null) {
@@ -431,6 +494,14 @@ public class HarnessAgentGateway implements AutoCloseable {
                             } catch (RuntimeException e) {
                                 log.warn("Shell 工具替换失败，沿用框架内置实现: agent={}", agentId, e);
                             }
+                        }
+                    }
+                    if (local.getToolkit().getTool(OverwritableWriteFileTool.NAME) != null) {
+                        // 同名注册即覆盖框架内置 write_file：补 overwrite 参数，免得模型为绕开「文件已存在」
+                        // 一路换名，工作区堆满 v2/final 中间版本、交付出去的还可能是旧那份
+                        AbstractFilesystem fs = local.getWorkspaceManager().getFilesystem();
+                        if (fs != null) {
+                            local.getToolkit().registerTool(new OverwritableWriteFileTool(fs));
                         }
                     }
                     for (Object target : toolTargets) {
@@ -600,18 +671,19 @@ public class HarnessAgentGateway implements AutoCloseable {
         this.autoApprove = request.isAutoApprove();
         // 规划轮：仅当请求标 planMode 且本智能体已装配计划模式时，进入/退出只读设计态
         boolean planTurn = request.isPlanMode() && this.planModeEnabled;
-        // 整条流（含 HITL 续跑的每一段）共享一个用量累加器；流结束时一次性下发累计用量
-        AtomicReference<TokenUsage> usageAcc = new AtomicReference<>(TokenUsage.ZERO);
-        // 整条流共享一张工具调用跟踪表（toolCallId → 入参/输出/起始时刻），收尾时合成 TOOL_END
-        Map<String, ToolTrack> toolTracks = new ConcurrentHashMap<>();
+        // 整条流（含 HITL 续跑、步数续跑的每一段）共享一份轮次状态
+        Turn turn = new Turn(ctx, sessionId);
         return Flux.defer(() -> {
                     HarnessAgent a = agent();
                     a.setPermissionMode(ctx, mode);
                     if (planTurn) {
                         a.enterPlanMode(ctx);
                     }
-                    return runEvents(input, ctx, sessionId, usageAcc, toolTracks);
+                    return runEvents(input, turn);
                 })
+                // 步数触顶续跑接在主轮之后：主轮事件流（含框架补发的收尾摘要）必须完全收口，
+                // 才能再起下一轮——否则会与之交错，且智能体不允许上一回复未结束时重入
+                .concatWith(Flux.defer(() -> continueAfterIterLimit(turn)))
                 .doFinally(sig -> {
                     if (planTurn) {
                         // 本轮结束时回到 BUILD（幂等）；若模型已自行 plan_exit 则无影响
@@ -623,13 +695,40 @@ public class HarnessAgentGateway implements AutoCloseable {
                     }
                 })
                 .concatWith(Flux.defer(() -> {
-                    TokenUsage total = usageAcc.get();
+                    TokenUsage total = turn.usageAcc.get();
                     return total == null || total.isEmpty()
                             ? Flux.empty() : Flux.just(StreamEvent.usage(sessionId, total));
                 }))
                 // 在途计数覆盖整条链（含用量收尾段）：生成结束前拒绝手动压缩，避免并发改写上下文
                 .doOnSubscribe(sig -> retainInflight(sessionId))
                 .doFinally(sig -> releaseInflight(sessionId));
+    }
+
+    /**
+     * 步数触顶后的自动续跑：主轮被 {@code maxIters} 截断时补发一条续跑指令再跑一轮，
+     * 直到任务自然收尾或续跑次数用尽。
+     * <p>用尽后只提示、由用户手动继续——不设上限地自我续跑等于无人踩油门，一旦模型绕圈就是纯烧 token。</p>
+     */
+    private Flux<StreamEvent> continueAfterIterLimit(Turn turn) {
+        return Flux.defer(() -> {
+            if (!turn.iterLimitHit.getAndSet(false)) {
+                return Flux.empty();
+            }
+            int nth = turn.iterContinues.incrementAndGet();
+            if (nth > MAX_ITER_CONTINUES) {
+                log.info("步数续跑次数用尽: session={}, maxIters={}", turn.sessionId, maxIters);
+                return Flux.just(StreamEvent.notice(turn.sessionId, "iterStop",
+                        maxIters + "," + MAX_ITER_CONTINUES));
+            }
+            log.info("步数触顶，自动续跑 {}/{}: session={}, maxIters={}",
+                    nth, MAX_ITER_CONTINUES, turn.sessionId, maxIters);
+            Msg resume = Msg.builder().role(MsgRole.USER).textContent(ITER_CONTINUE_PROMPT).build();
+            return Flux.concat(
+                    Flux.just(StreamEvent.notice(turn.sessionId, "iterContinue",
+                            maxIters + "," + nth + "," + MAX_ITER_CONTINUES)),
+                    runEvents(resume, turn),
+                    continueAfterIterLimit(turn));
+        });
     }
 
     /** 组装 USER 消息：文本块 + 若干图片块（Base64）；无文本时至少留一个空文本块以满足角色约束。 */
@@ -655,17 +754,24 @@ public class HarnessAgentGateway implements AutoCloseable {
     }
 
     /** 消费一次 Agent 轮次的事件流；遇到确认事件则解析决策并续跑，形成连续流 */
-    private Flux<StreamEvent> runEvents(Msg input, RuntimeContext ctx, String sessionId,
-                                        AtomicReference<TokenUsage> usageAcc, Map<String, ToolTrack> toolTracks) {
-        return Flux.defer(() -> agent().streamEvents(input, ctx))
-                .concatMap(event -> handle(event, ctx, sessionId, usageAcc, toolTracks));
+    private Flux<StreamEvent> runEvents(Msg input, Turn turn) {
+        return Flux.defer(() -> agent().streamEvents(input, turn.ctx))
+                .concatMap(event -> handle(event, turn));
     }
 
-    private Flux<StreamEvent> handle(AgentEvent event, RuntimeContext ctx, String sessionId,
-                                     AtomicReference<TokenUsage> usageAcc, Map<String, ToolTrack> toolTracks) {
+    private Flux<StreamEvent> handle(AgentEvent event, Turn turn) {
+        String sessionId = turn.sessionId;
+        Map<String, ToolTrack> toolTracks = turn.toolTracks;
         // 每次模型调用结束都累加其用量（含工具循环里的多轮），不下发给 UI
         if (event instanceof ModelCallEndEvent mce) {
-            accumulate(usageAcc, mce.getUsage());
+            accumulate(turn.usageAcc, mce.getUsage());
+            return Flux.empty();
+        }
+        // 步数触顶：框架随后补发一轮收尾摘要，本运行体在摘要流结束后自动续跑（见 continueAfterIterLimit）
+        if (event instanceof ExceedMaxItersEvent e) {
+            turn.iterLimitHit.set(true);
+            log.warn("单轮步数触顶: agent={}, session={}, iter={}/{}",
+                    agentId, sessionId, e.getCurrentIter(), e.getMaxIters());
             return Flux.empty();
         }
         // 工具生命周期：跟踪表按 toolCallId 聚合入参与输出，收尾合成一条 TOOL_END 下发（供落盘与折叠渲染）
@@ -681,7 +787,15 @@ public class HarnessAgentGateway implements AutoCloseable {
             return Flux.empty();
         }
         if (event instanceof ToolCallEndEvent e) {
-            return Flux.empty();
+            // 入参是随调用流式吐出的，Start 事件时刻还没有：此刻补发一次带真实入参的 TOOL_START，
+            // 让状态栏在工具真正执行的这段时间里说清它动的是哪个文件、跑的是哪条命令。
+            // 落盘只看 TOOL_END，重复的 TOOL_START 不进库；渲染侧按「有无入参」区分两次提示。
+            ToolTrack t = toolTracks.get(key(e.getToolCallId(), e.getToolCallName()));
+            String args = t == null ? null : truncate(t.args.toString());
+            if (args == null || args.isBlank()) {
+                return Flux.empty();
+            }
+            return Flux.just(StreamEvent.toolStart(sessionId, e.getToolCallName(), args));
         }
         if (event instanceof ToolResultStartEvent e) {
             toolTracks.computeIfAbsent(key(e.getToolCallId(), e.getToolCallName()),
@@ -704,6 +818,19 @@ public class HarnessAgentGateway implements AutoCloseable {
             boolean ok = e.getState() == null || e.getState() == ToolResultState.SUCCESS;
             return Flux.just(StreamEvent.toolEnd(sessionId, name, input, output, duration, ok));
         }
+        // 子代理（agent_spawn / agent_send）的事件被框架原样转进父流并打上 source 标记：
+        // 它的正文与思考不能并进主答案（两个智能体的话会混成一段），它的 AgentEnd 更不是本轮结束，
+        // 它的确认事件若拿去续跑会把「父代理没发出的工具结果」塞进父代理上下文。
+        // 工具生命周期事件放行在上面已处理完毕——子代理跑命令、改文件时，用户得看得见动静。
+        if (fromSubagent(event)) {
+            String source = event.getSource();
+            if (event instanceof AgentStartEvent start) {
+                return Flux.just(StreamEvent.notice(sessionId, "subagentStart", subagentName(start, source)));
+            }
+            log.debug("子代理事件不下发主轮: session={}, source={}, type={}",
+                    sessionId, source, event.getType());
+            return Flux.empty();
+        }
         if (event instanceof RequireUserConfirmEvent rc) {
             List<ToolUseBlock> calls = rc.getToolCalls() == null ? List.of() : rc.getToolCalls();
             String toolName = calls.isEmpty() ? "tool" : calls.get(0).getName();
@@ -712,14 +839,30 @@ public class HarnessAgentGateway implements AutoCloseable {
             StreamEvent ask = StreamEvent.confirmRequest(sessionId, toolName, toolInput);
 
             return confirmDecision(sessionId, toolName, toolInput)
-                    .map(allowed -> toResults(calls, allowed))
+                    .map(outcome -> toResults(calls, outcome))
                     .flatMapMany(results -> {
                         Msg resume = buildConfirmMsg(rc, results);
-                        return Flux.concat(Flux.just(ask), runEvents(resume, ctx, sessionId, usageAcc, toolTracks));
+                        return Flux.concat(Flux.just(ask), runEvents(resume, turn));
                     });
         }
         StreamEvent mapped = AgentEventMapper.toStreamEvent(sessionId, event);
         return mapped == null ? Flux.empty() : Flux.just(mapped);
+    }
+
+    /** 事件是否出自子代理：框架把子代理事件转进父流时逐个打上 source 路径，主轮自身的事件没有这个标记。 */
+    static boolean fromSubagent(AgentEvent event) {
+        String source = event.getSource();
+        return source != null && !source.isBlank();
+    }
+
+    /** 子代理名：优先事件自带的智能体名，缺失时取 source 路径（父会话/子智能体）的最后一段。 */
+    private static String subagentName(AgentStartEvent start, String source) {
+        String name = start.getName();
+        if (name != null && !name.isBlank()) {
+            return name.trim();
+        }
+        int slash = source.lastIndexOf('/');
+        return slash < 0 ? source : source.substring(slash + 1);
     }
 
     /** 工具调用的聚合键：优先 toolCallId，缺失时退回工具名（同名并发极少，够用）。 */
@@ -727,11 +870,42 @@ public class HarnessAgentGateway implements AutoCloseable {
         return toolCallId != null && !toolCallId.isBlank() ? toolCallId : String.valueOf(toolName);
     }
 
+    /**
+     * 工具文本截断：留头留尾、省略中间，并写明省略了多少。
+     * <p>只截前段的旧做法会把长输出的价值砍掉大半——命令失败时真正的报错在末尾，跑脚本时的
+     * 统计结果也常打在最后几行；头尾各留一段，用户不必展开日志就能看到结论。</p>
+     */
     private static String truncate(String s) {
-        if (s == null) {
-            return null;
+        if (s == null || s.length() <= TOOL_TEXT_MAX) {
+            return s;
         }
-        return s.length() <= TOOL_TEXT_MAX ? s : s.substring(0, TOOL_TEXT_MAX) + "…";
+        int head = TOOL_TEXT_MAX * 2 / 3;
+        int tail = TOOL_TEXT_MAX - head;
+        return s.substring(0, head)
+                + "\n\n…（中间省略 " + (s.length() - TOOL_TEXT_MAX) + " 字符）…\n\n"
+                + s.substring(s.length() - tail);
+    }
+
+    /**
+     * 一次用户轮次的共享状态：主流程与所有后续段（HITL 确认续跑、步数触顶续跑）共用同一份
+     * 上下文、用量累加器与工具跟踪表，收尾时才能给出整轮累计用量与完整工具轨迹。
+     */
+    private static final class Turn {
+        private final RuntimeContext ctx;
+        private final String sessionId;
+        /** 整条流共享的用量累加器；流结束时一次性下发累计用量 */
+        private final AtomicReference<TokenUsage> usageAcc = new AtomicReference<>(TokenUsage.ZERO);
+        /** 整条流共享的工具调用跟踪表（toolCallId → 入参/输出/起始时刻），收尾时合成 TOOL_END */
+        private final Map<String, ToolTrack> toolTracks = new ConcurrentHashMap<>();
+        /** 本段事件流是否被步数上限截断（每段跑完即清零，供续跑链判定） */
+        private final AtomicBoolean iterLimitHit = new AtomicBoolean();
+        /** 本轮已自动续跑次数 */
+        private final AtomicInteger iterContinues = new AtomicInteger();
+
+        private Turn(RuntimeContext ctx, String sessionId) {
+            this.ctx = ctx;
+            this.sessionId = sessionId;
+        }
     }
 
     /** 单次工具调用的流式聚合体：起始时刻用于算耗时，args/output 分别累积调用入参与结果文本。 */
@@ -757,26 +931,28 @@ public class HarnessAgentGateway implements AutoCloseable {
         acc.updateAndGet(cur -> cur.plus(delta));
     }
 
-    private Mono<Boolean> confirmDecision(String sessionId, String toolName, String toolInput) {
+    private Mono<ConfirmOutcome> confirmDecision(String sessionId, String toolName, String toolInput) {
         ToolConfirmCallback callback = this.confirmCallback;
         if (callback == null) {
             log.warn("无 HITL 通道，敏感工具被拒绝: tool={}", toolName);
-            return Mono.just(false);
+            return Mono.just(ConfirmOutcome.deny("当前没有人工确认通道，敏感工具被默认拒绝"));
         }
         boolean auto = this.autoApprove;
         return Mono.defer(() -> {
-            CompletableFuture<Boolean> future = callback.confirm(sessionId, toolName, toolInput, auto);
+            CompletableFuture<ConfirmOutcome> future = callback.confirm(sessionId, toolName, toolInput, auto);
             return Mono.fromFuture(future);
         }).onErrorResume(e -> {
             log.warn("工具确认流程异常，默认拒绝: tool={}", toolName, e);
-            return Mono.just(false);
-        }).defaultIfEmpty(false);
+            return Mono.just(ConfirmOutcome.deny("确认流程异常，本次操作被拒绝"));
+        }).defaultIfEmpty(ConfirmOutcome.deny("确认超时，本次操作被拒绝"));
     }
 
-    private static List<ConfirmResult> toResults(List<ToolUseBlock> calls, boolean allowed) {
+    private static List<ConfirmResult> toResults(List<ToolUseBlock> calls, ConfirmOutcome outcome) {
         List<ConfirmResult> results = new ArrayList<>(calls.size());
         for (ToolUseBlock call : calls) {
-            results.add(new ConfirmResult(allowed, call));
+            // 拒绝理由随裁决回喂：框架用它替换默认的 "Permission denied by user" 写进模型上下文
+            results.add(new ConfirmResult(outcome.allowed(), call, null,
+                    outcome.allowed() ? null : outcome.reason()));
         }
         return results;
     }

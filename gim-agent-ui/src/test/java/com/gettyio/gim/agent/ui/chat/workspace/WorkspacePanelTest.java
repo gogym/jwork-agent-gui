@@ -40,6 +40,9 @@ class WorkspacePanelTest {
         assertEquals(WorkspacePanel.RenderKind.MARKDOWN, WorkspacePanel.classify("NOTE.MARKDOWN"));
         assertEquals(WorkspacePanel.RenderKind.HTML, WorkspacePanel.classify("page.html"));
         assertEquals(WorkspacePanel.RenderKind.HTML, WorkspacePanel.classify("icon.SVG"));
+        // 网页类清单与预览窗口同源：xhtml 走 HTML 阅读器，xml 不属白名单故按纯文本读
+        assertEquals(WorkspacePanel.RenderKind.HTML, WorkspacePanel.classify("page.xhtml"));
+        assertEquals(WorkspacePanel.RenderKind.TEXT, WorkspacePanel.classify("feed.xml"));
         assertEquals(WorkspacePanel.RenderKind.IMAGE, WorkspacePanel.classify("shot.png"));
         assertEquals(WorkspacePanel.RenderKind.IMAGE, WorkspacePanel.classify("photo.JPEG"));
         assertEquals(WorkspacePanel.RenderKind.DOC, WorkspacePanel.classify("report.pdf"));

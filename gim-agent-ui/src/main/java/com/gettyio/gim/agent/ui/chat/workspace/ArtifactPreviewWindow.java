@@ -36,13 +36,16 @@ import java.awt.Desktop;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 
 /**
- * Artifacts 预览窗口：把聊天中 HTML / SVG 代码块用 JCEF(Chromium OSR) 在独立窗口渲染（单例复用）。
- * <p>非模态、可调整大小：重复预览时替换文档并前置，不打断聊天操作。工具栏提供「在浏览器打开」
- * （内容写临时文件交系统默认浏览器，便于用开发者工具调试）。由 {@link MarkdownRenderer}
- * 代码块卡片的预览按钮触发；HTML 系原样载入，SVG 包一层白底居中骨架。本类不含业务状态。</p>
+ * Artifacts 预览窗口：把 HTML / SVG 用 JCEF(Chromium OSR) 在独立窗口渲染（单例复用）。
+ * <p>两类入口：聊天里的代码块（{@link MarkdownRenderer} 的预览钮，内联内容按 data URL 装载）
+ * 与本轮交付的本机产物文件（{@link #showFile}，按 {@code file://} 装载，页面相对资源随之可用）。
+ * 非模态、可调整大小：重复预览时替换文档并前置，不打断聊天操作。工具栏「在浏览器打开」在文件态
+ * 直接交原文件、内联态写临时文件，便于用开发者工具调试。HTML 系原样载入，SVG 包一层白底居中骨架。
+ * 可预览类型清单只 {@link #PREVIEW_LANGS} 一份，前端预览钮经 {@code ChatUiLabels} 取同一份。本类不含业务状态。</p>
  *
  * @author gogym
  */
@@ -53,8 +56,18 @@ public final class ArtifactPreviewWindow {
     private static Stage stage;
     private static JcefOsrView view;
     private static Label titleLabel;
-    /** 当前预览文档（「在浏览器打开」用）；随每次 show 替换。 */
+    /** 当前预览文档（内联内容，「在浏览器打开」写临时文件用）；随每次 show 替换。 */
     private static String currentHtml = "";
+    /** 当前预览的本机文件；内联预览时为 {@code null}（两者互斥，切换入口必清另一侧）。 */
+    private static Path currentFile;
+
+    /**
+     * 可预览类型白名单：语言标识与文件扩展名同集合（小写）。
+     * <p>唯一事实源——{@link MarkdownRenderer} 的预览钮、{@link WorkspacePanel} 的阅读类型分派、
+     * 前端 {@code chat.js} 的代码块预览钮（经 {@code ChatUiLabels.previewLangs} 下发）都读它。
+     * 三处各写一份时，{@code xhtml} 在网页端没有按钮、{@code xml} 有按钮却装载不出视图。</p>
+     */
+    public static final List<String> PREVIEW_LANGS = List.of("html", "htm", "xhtml", "svg");
 
     /**
      * 产物预览目标钩子：默认走独立弹窗；主控制器启动时注入 {@link WorkspacePanel} 把产物导入右侧栏。
@@ -88,13 +101,25 @@ public final class ArtifactPreviewWindow {
     private ArtifactPreviewWindow() {
     }
 
-    /** 该语言是否提供预览入口：HTML 系与 SVG（大小写不敏感）。{@link MarkdownRenderer}（渲染包）及单测共用，故为 public。 */
+    /** 该语言是否提供预览入口（大小写、首尾空白不敏感）：清单见 {@link #PREVIEW_LANGS}。{@link MarkdownRenderer}（渲染包）及单测共用，故为 public。 */
     public static boolean isPreviewable(String language) {
-        if (language == null || language.isBlank()) {
-            return false;
+        return language != null && PREVIEW_LANGS.contains(language.trim().toLowerCase(Locale.ROOT));
+    }
+
+    /** 该文件按扩展名是否可预览（同 {@link #isPreviewable} 白名单）。{@link WorkspacePanel} 的阅读类型分派及单测共用，故为 public。 */
+    public static boolean isPreviewableFile(String fileName) {
+        return isPreviewable(extensionOf(fileName));
+    }
+
+    /** 末段扩展名（小写、不含点）；无扩展名、以点开头（{@code .gitignore}）或点收尾均返回空串。 */
+    private static String extensionOf(String fileName) {
+        if (fileName == null) {
+            return "";
         }
-        String lang = language.trim().toLowerCase(Locale.ROOT);
-        return lang.equals("html") || lang.equals("htm") || lang.equals("xhtml") || lang.equals("svg");
+        int dot = fileName.lastIndexOf('.');
+        return dot < 1 || dot == fileName.length() - 1
+                ? ""
+                : fileName.substring(dot + 1).toLowerCase(Locale.ROOT);
     }
 
     /** 组装可预览文档：HTML 系原样；SVG 包一层白底居中骨架。包私有便于单测。 */
@@ -118,6 +143,7 @@ public final class ArtifactPreviewWindow {
             return;
         }
         currentHtml = buildHtml(code, language);
+        currentFile = null;
         ensureWindow(owner);
         String lang = language == null ? "" : language.trim().toUpperCase(Locale.ROOT);
         titleLabel.setText(lang.isEmpty()
@@ -129,6 +155,30 @@ public final class ArtifactPreviewWindow {
         } else {
             stage.show();
         }
+    }
+
+    /**
+     * 打开（或复用）预览窗口展示本机产物文件；返回 {@code true} 表示类型可预览且已装载，
+     * {@code false} 表示该类型不进预览窗口，由调用方另择去处（右侧栏就地阅读、系统默认程序）。
+     * <p>走 {@code file://} 而非把内容读成字符串：报表常带同目录的 css/图片/数据文件，内联装载
+     * 会让这些相对引用全断，页面只剩空壳。标题显示文件名——交付物叫什么，用户认的是名字。</p>
+     */
+    public static boolean showFile(Window owner, Path file) {
+        String name = file == null || file.getFileName() == null ? "" : file.getFileName().toString();
+        if (!isPreviewableFile(name)) {
+            return false;
+        }
+        currentHtml = "";
+        currentFile = file;
+        ensureWindow(owner);
+        titleLabel.setText(name);
+        view.loadUrl(file.toUri().toString());
+        if (stage.isShowing()) {
+            stage.toFront();
+        } else {
+            stage.show();
+        }
+        return true;
     }
 
     /** 首次调用装配窗口骨架（单例复用）；此后仅替换内容。 */
@@ -170,15 +220,18 @@ public final class ArtifactPreviewWindow {
         stage.setScene(scene);
     }
 
-    /** 把当前文档写临时文件并交系统默认浏览器打开（便于用开发者工具调试）。 */
+    /** 交系统默认浏览器打开当前预览：文件态用原文件（相对资源随之可用），内联态写临时文件。 */
     private static void openInBrowser() {
-        if (currentHtml.isEmpty()) {
-            return;
-        }
         try {
-            Path file = Files.createTempFile("jwork-artifact-", ".html");
-            Files.writeString(file, currentHtml, StandardCharsets.UTF_8);
-            file.toFile().deleteOnExit();
+            Path file = currentFile;
+            if (file == null) {
+                if (currentHtml.isEmpty()) {
+                    return;
+                }
+                file = Files.createTempFile("jwork-artifact-", ".html");
+                Files.writeString(file, currentHtml, StandardCharsets.UTF_8);
+                file.toFile().deleteOnExit();
+            }
             Desktop.getDesktop().browse(file.toUri());
         } catch (Exception e) {
             log.warn("预览在浏览器打开失败", e);

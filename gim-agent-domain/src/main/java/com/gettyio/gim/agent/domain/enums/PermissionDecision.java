@@ -26,7 +26,10 @@ public enum PermissionDecision {
     /** 允许本次 */
     ALLOW,
 
-    /** 总是允许该工具（写库，后续不再询问） */
+    /** 本会话内允许同类操作（只进内存，不落库、不跨会话） */
+    SESSION_ALLOW,
+
+    /** 总是允许该类操作（按命令程序/目录归组落库，后续不再询问） */
     ALWAYS_ALLOW,
 
     /** 拒绝 */

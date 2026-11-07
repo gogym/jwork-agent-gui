@@ -53,8 +53,10 @@ import com.gettyio.gim.agent.scheduler.AgentTaskJobFactory;
 import com.gettyio.gim.agent.scheduler.TaskSchedulerService;
 import com.gettyio.gim.agent.scheduler.tool.ScheduleTools;
 import com.gettyio.gim.agent.tools.ToolSecurityFacade;
+import com.gettyio.gim.agent.tools.data.TableInspectTools;
 import com.gettyio.gim.agent.tools.guard.DangerousCommandPolicy;
 import com.gettyio.gim.agent.tools.guard.ExecutableAllowlistPolicy;
+import com.gettyio.gim.agent.tools.hitl.AskUserTool;
 import com.gettyio.gim.agent.tools.guard.GuardChain;
 import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
@@ -71,6 +73,7 @@ import com.gettyio.gim.agent.ui.desktop.KeepAwakeService;
 import com.gettyio.gim.agent.ui.desktop.QuickAskWindow;
 import com.gettyio.gim.agent.ui.desktop.SelectionAssistant;
 import com.gettyio.gim.agent.ui.export.ExportService;
+import com.gettyio.gim.agent.ui.hitl.FxAskUserHandler;
 import com.gettyio.gim.agent.ui.hitl.FxHitlConfirmHandler;
 import com.gettyio.gim.agent.ui.market.MarketService;
 import com.gettyio.gim.agent.ui.notify.SystemNotifier;
@@ -135,6 +138,8 @@ public final class AppContext implements AutoCloseable {
     private final GimDatabase db;
     private final SecretCipher cipher;
     private final WorkspaceProvisioner workspaceProvisioner;
+    /** 内置人格模板升级提示（启动装配后弹一次一键升级）。 */
+    private final PersonaTemplateUpgrade personaUpgrade;
 
     // ===================== 模型 =====================
 
@@ -151,6 +156,7 @@ public final class AppContext implements AutoCloseable {
     private final SkillService skillService;
     private final GuardChain guardChain;
     private final FxHitlConfirmHandler fxHitl;
+    private final FxAskUserHandler fxAskUser;
     private final ToolSecurityFacade toolSecurity;
 
     // ===================== 调度与执行 =====================
@@ -229,6 +235,7 @@ public final class AppContext implements AutoCloseable {
         this.cipher = SecretCipherFactory.create(paths.secretKeyFile());
         this.workspaceProvisioner = new WorkspaceProvisioner(paths);
         workspaceProvisioner.provision();
+        this.personaUpgrade = new PersonaTemplateUpgrade(workspaceProvisioner, db);
 
         // ---- 模型 ----
         this.modelFactory = new AgentScopeModelFactory();
@@ -247,6 +254,7 @@ public final class AppContext implements AutoCloseable {
         this.appShell = new AppShell();
         this.guardChain = buildGuardChain(paths, db, securityAdmin);
         this.fxHitl = new FxHitlConfirmHandler(appShell);
+        this.fxAskUser = new FxAskUserHandler(appShell);
         this.toolSecurity = new ToolSecurityFacade(guardChain, fxHitl);
 
         // ---- 调度：先建调度器（不带 JobFactory），执行器就绪后再注入并启动。
@@ -256,6 +264,7 @@ public final class AppContext implements AutoCloseable {
         this.embeddingIndexer = new EmbeddingIndexService(db, this::buildEmbeddingClient);
         this.gateway = buildGateway();
         this.chatService = new ChatService(gateway, db, paths, buildEffectiveModelResolver());
+        this.chatService.setSessionCleanup(toolSecurity::clearSession);
         this.trayNotifier = new TrayNotifier();
         trayNotifier.init();
         this.systemNotifier = new SystemNotifier(trayNotifier, appShell);
@@ -409,6 +418,10 @@ public final class AppContext implements AutoCloseable {
         return globalHotkeys;
     }
 
+    public PersonaTemplateUpgrade personaUpgrade() {
+        return personaUpgrade;
+    }
+
     // ===================== 停机 =====================
 
     /**
@@ -507,16 +520,22 @@ public final class AppContext implements AutoCloseable {
                 paths.workspaceDir(),
                 capabilities,
                 gw -> {
-                    // HITL：把工具安全门面的 precheck（含自动通过档）作为网关的确认回调
-                    gw.setConfirmCallback(toolSecurity::precheck);
+                    // HITL：把工具安全门面的 check（含自动通过档）作为网关的确认回调
+                    gw.setConfirmCallback(toolSecurity::check);
                     // Skills：挂载 workspace/skills 作为 Harness 技能仓库（可见范围仍由智能体白名单决定）
                     gw.setSkillsDir(skillService.skillsRoot());
                     // 上下文窗口上限：AppSetting 键 agent.context.maxTokens 可调，缺省沿用网关内置默认值
-                    readContextMaxTokens(db).ifPresent(gw::setMaxContextTokens);
+                    readPositiveInt(db, HarnessAgentGateway.SETTING_CONTEXT_MAX_TOKENS)
+                            .ifPresent(gw::setMaxContextTokens);
+                    // 单轮步数上限：AppSetting 键 agent.maxIters 可调（框架默认 10 步，长任务必触顶）
+                    readPositiveInt(db, HarnessAgentGateway.SETTING_MAX_ITERS).ifPresent(gw::setMaxIters);
                     // 长期记忆：开关 + flush 节流策略由 AppSetting 下发（缺省开启、每次调用后 flush）
                     applyMemorySettings(gw, db);
                     // 计划模式：总开关由 AppSetting 下发（缺省开启，注册 plan_* 工具与只读中间件）
                     gw.setPlanModeEnabled(readBool(db, "agent.planMode.enabled", true));
+                    // 产物交付：向模型暴露 deliver_artifact，落 workspace/generated/sessions/<会话ID>/，
+                    // 聊天页产物卡与工作区右栏按同一目录反查（沙箱内文件用户拿不到，靠这一步导出到本机）
+                    gw.setArtifactSessionsDir(paths.deliveriesDir());
                     // 自定义工具：自然语言设定定时任务——每个智能体一份实例，新建任务归属当前智能体
                     gw.registerToolTarget(new ScheduleTools(schedulerService, db.taskDao(), gw.getAgentId()));
                     // 联网工具：web_search / web_fetch——提供方与 Key/实例地址从加密的 settings 实时取用，改配不重启即生效
@@ -529,8 +548,12 @@ public final class AppContext implements AutoCloseable {
                     // 分类记忆工具：memory_write——按主题写入 memory/<分类>.md（可搜索、随沉淀合并进 MEMORY.md；
                     // 记忆关闭时网关侧与框架记忆工具同门禁跳过）
                     gw.registerToolTarget(new MemoryWriteTool(gw.getWorkspace()));
-                    // 图像生成工具：generate_image——配置实时取用，产物落 workspace/generated 后由模型以 Markdown 引用展示
+                    // 图像生成工具：generate_image——产物落 workspace/generated 后由模型以 Markdown 引用展示
                     gw.registerToolTarget(new ImageGenerationTools(imageGenerationClient, () -> paths.generatedDir()));
+                    // 表格探查工具：inspect_file——附件表格按区间切片查看，整表不进上下文
+                    gw.registerToolTarget(new TableInspectTools(() -> paths.workspaceDir()));
+                    // 澄清反问工具：ask_user——缺了就会跑偏的细节弹窗问一句，无人可问时回「自己判断」不挂轮次
+                    gw.registerToolTarget(new AskUserTool(fxAskUser));
                     // Docker 沙箱：自动通过档且设置开启时，Shell 走一次性容器执行；握手失败自动回退本地
                     gw.setShellToolFactory((localFs, ws, project, autoApprove) -> new SandboxShellTool(
                             localFs, ws, project, autoApprove,
@@ -626,9 +649,9 @@ public final class AppContext implements AutoCloseable {
         return roots;
     }
 
-    /** 从 AppSetting {@link HarnessAgentGateway#SETTING_CONTEXT_MAX_TOKENS} 读取上下文窗口上限；缺失或非法（非正整数）则返回空（用默认）。 */
-    private static Optional<Integer> readContextMaxTokens(GimDatabase db) {
-        return db.settingDao().getValue(HarnessAgentGateway.SETTING_CONTEXT_MAX_TOKENS).flatMap(raw -> {
+    /** 读一个正整数型 AppSetting；缺失或非法（非正整数）返回空，由调用方沿用内置默认值。 */
+    private static Optional<Integer> readPositiveInt(GimDatabase db, String key) {
+        return db.settingDao().getValue(key).flatMap(raw -> {
             try {
                 int v = Integer.parseInt(raw.trim());
                 return v > 0 ? Optional.of(v) : Optional.empty();

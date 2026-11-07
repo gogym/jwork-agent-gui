@@ -58,6 +58,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
+import java.util.Set;
 import java.nio.file.DirectoryStream;
 
 /**
@@ -216,11 +217,17 @@ public final class WorkspacePanel {
     /**
      * 就地刷新「当前会话」与「智能体工作区」入口：整体替换为未加载的新子树（下次展开重列目录），
      * 清掉一次性懒加载缓存的陈旧内容。面板展开、每轮流式收尾后由宿主调用；两者皆无时为空操作。
+     *
+     * @param sinceMillis 轮次起始时刻（{@code System.currentTimeMillis()}）；该时刻之后新建或改动的
+     *                    会话文件标记为「本轮新增」。交付出去的文件在聊天里有产物卡，没交付的落盘结果
+     *                    只能靠工作区树看见，故给它们一个可辨认的记号。传 0 表示不标记。
+     * @return 本轮新增/改动的文件数
      */
-    public void refreshCurrent() {
+    public int refreshCurrent(long sinceMillis) {
         if (tree.getRoot() == null) {
-            return;
+            return 0;
         }
+        this.fresh = sinceMillis > 0 ? collectFresh(sessionDir, sinceMillis) : Set.of();
         int index = 0;
         if (sessionDir != null) {
             sessionItem = dirItem(new FileNode(sessionDir, true, I18n.t("chat.workspace.currentSession")));
@@ -237,7 +244,43 @@ public final class WorkspacePanel {
                 agentItem.setExpanded(true);
             }
         }
+        return fresh.size();
     }
+
+    /** 无轮次基线的刷新（面板展开时）：只重建入口，不清「本轮新增」标记之外的状态。 */
+    public void refreshCurrent() {
+        refreshCurrent(0L);
+    }
+
+    /** 收集 {@code sinceMillis} 之后落笔的会话文件（深度有限、数量有上限，纯 UI 侧提示不做全库扫描）。 */
+    private static Set<Path> collectFresh(Path dir, long sinceMillis) {
+        if (dir == null || !Files.isDirectory(dir)) {
+            return Set.of();
+        }
+        List<Path> found = new ArrayList<>();
+        try (var walk = Files.walk(dir, FRESH_SCAN_DEPTH)) {
+            walk.filter(Files::isRegularFile).forEach(p -> {
+                try {
+                    if (Files.getLastModifiedTime(p).toMillis() >= sinceMillis) {
+                        found.add(p.toAbsolutePath().normalize());
+                    }
+                } catch (IOException | SecurityException ignored) {
+                    // 单个文件取不到时间不影响整体提示
+                }
+            });
+        } catch (IOException | SecurityException e) {
+            log.debug("扫描本轮新增文件失败: {}", dir, e);
+            return Set.of();
+        }
+        return Set.copyOf(found.size() > FRESH_MAX ? found.subList(0, FRESH_MAX) : found);
+    }
+
+    /** 「本轮新增」扫描深度与数量上限：会话目录通常一两层，再深的多是中间产物。 */
+    private static final int FRESH_SCAN_DEPTH = 3;
+    private static final int FRESH_MAX = 200;
+
+    /** 本轮新增/改动的文件集合（文件树据此加标记；切换会话或无基线时为空）。 */
+    private Set<Path> fresh = Set.of();
 
     /** 语言切换：各入口标签重取文案（子节点是文件名，与语言无关）。 */
     public void applyI18n() {
@@ -560,7 +603,7 @@ public final class WorkspacePanel {
         if (n.endsWith(".md") || n.endsWith(".markdown")) {
             return RenderKind.MARKDOWN;
         }
-        if (n.endsWith(".html") || n.endsWith(".htm") || n.endsWith(".xhtml") || n.endsWith(".svg")) {
+        if (ArtifactPreviewWindow.isPreviewableFile(fileName)) {
             return RenderKind.HTML;
         }
         if (n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".gif")
@@ -736,7 +779,16 @@ public final class WorkspacePanel {
             Label icon = new Label(item.directory() ? "\uE8B7" : "\uE7C3");
             icon.getStyleClass().add("workspace-tree-icon");
             setGraphic(icon);
-            setText(item.displayName());
+            setText(freshMark(item));
+        }
+
+        /** 本轮新增/改动的文件带上「本轮新增」尾巴：交付件在聊天里有产物卡，未交付的落盘只能靠文件树辨认。 */
+        private String freshMark(FileNode item) {
+            String name = item.displayName();
+            if (item.directory() || !fresh.contains(item.path().toAbsolutePath().normalize())) {
+                return name;
+            }
+            return name + " · " + I18n.t("chat.workspace.fresh");
         }
     }
 }

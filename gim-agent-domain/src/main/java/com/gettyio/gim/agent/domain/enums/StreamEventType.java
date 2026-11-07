@@ -41,6 +41,9 @@ public enum StreamEventType {
     /** 本轮 token 用量汇总（携带累计的输入/输出/缓存 token） */
     USAGE,
 
+    /** 运行体提示（步数触顶/自动续跑等）：只在流内展示，不并入助手正文落盘 */
+    NOTICE,
+
     /** 本轮对话完成 */
     COMPLETE,
 

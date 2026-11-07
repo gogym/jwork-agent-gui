@@ -16,6 +16,9 @@
 
 package com.gettyio.gim.agent.ui.util;
 
+import com.gettyio.gim.agent.core.chat.StreamEvent;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+
 import java.util.Locale;
 
 /**
@@ -48,5 +51,19 @@ public final class UiFormat {
             return String.format(Locale.ROOT, "%.1f MB", mb);
         }
         return String.format(Locale.ROOT, "%.1f GB", mb / 1024.0);
+    }
+
+    /**
+     * 运行体提示（{@code NOTICE} 事件）渲染：core 侧没有资源包，只能发「编码 + 逗号分隔参数」，
+     * 文案在此按 {@code chat.<编码>} 取译文填充；编码为空则原样显示参数。
+     */
+    public static String notice(StreamEvent event) {
+        String code = event.getToolName();
+        String payload = event.getText() == null ? "" : event.getText();
+        if (code == null || code.isBlank()) {
+            return payload;
+        }
+        Object[] args = payload.isEmpty() ? new Object[0] : payload.split(",");
+        return I18n.t("chat." + code, args);
     }
 }

@@ -17,13 +17,17 @@
 package com.gettyio.gim.agent.ui.chat.payload;
 
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.gettyio.gim.agent.ui.chat.workspace.ArtifactPreviewWindow;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+
+import java.util.List;
 
 /**
  * 聊天页前端文案包：{@code chat.js} 的 {@code setTheme(mode, font, lang, labels)} 契约视图。
  * <p>Java 侧 I18n 文案快照整体推给前端，切换语言时重推替换；组件名与前端
  * {@code LABELS.xxx} 键一一对应，属于对 {@code chat.js} 的稳定 ABI。各字段均为
- * 本地化文案（可能含 {@code {0}/{1}} 占位符，由前端替换实际计数）。</p>
+ * 本地化文案（可能含 {@code {0}/{1}} 占位符，由前端替换实际计数）；唯一例外是
+ * {@code previewLangs}，它是随文案一并下发的能力清单，见其字段说明。</p>
  *
  * @param copy        复制按钮
  * @param copied      复制成功提示
@@ -40,11 +44,21 @@ import com.gettyio.gim.agent.ui.i18n.I18n;
  * @param toolInput   工具详情「入参」标签
  * @param toolOutput  工具详情「输出」标签
  * @param delegate    子智能体委派显示模板（{@code {0}} 为目标智能体）
+ * @param artifactTitle     产物卡区标题（本轮交付的文件组）
+ * @param artifactPreview   产物卡「就地阅读」按钮
+ * @param artifactOpen      产物卡「系统程序打开」按钮
+ * @param artifactReveal    产物卡「定位所在文件夹」按钮
+ * @param todoTitle     任务清单卡标题
+ * @param todoProgress  任务清单进度模板（{@code {0}} 已完成、{@code {1}} 总数）
+ * @param previewLangs  可预览的语言/扩展名白名单（非文案，取自 {@link ArtifactPreviewWindow#PREVIEW_LANGS}）：
+ *                      前端代码块预览钮据此显隐，杜绝与 Java 侧各持一份清单而漂移
  *
  * @author gogym
  */
 @JsonPropertyOrder({"copy", "copied", "preview", "speak", "regenerate", "editResend", "aiGenerated",
-        "thinking", "thinkingDone", "toolCount", "toolFailed", "processed", "toolInput", "toolOutput", "delegate"})
+        "thinking", "thinkingDone", "toolCount", "toolFailed", "processed", "toolInput", "toolOutput", "delegate",
+        "artifactTitle", "artifactPreview", "artifactOpen", "artifactReveal", "todoTitle", "todoProgress",
+        "previewLangs"})
 public record ChatUiLabels(
         String copy,
         String copied,
@@ -60,7 +74,14 @@ public record ChatUiLabels(
         String processed,
         String toolInput,
         String toolOutput,
-        String delegate) {
+        String delegate,
+        String artifactTitle,
+        String artifactPreview,
+        String artifactOpen,
+        String artifactReveal,
+        String todoTitle,
+        String todoProgress,
+        List<String> previewLangs) {
 
     /** 从当前 I18n 语言包整包装配全部前端文案键（键清单只此一处，杜绝漏推漂移）。 */
     public static ChatUiLabels fromI18n() {
@@ -79,6 +100,13 @@ public record ChatUiLabels(
                 I18n.t("chat.tool.group.processed"),
                 I18n.t("chat.tool.params"),
                 I18n.t("chat.tool.output"),
-                I18n.t("chat.tool.subagent.delegate", "{0}"));
+                I18n.t("chat.tool.subagent.delegate", "{0}"),
+                I18n.t("chat.artifact.title"),
+                I18n.t("chat.artifact.preview"),
+                I18n.t("chat.artifact.open"),
+                I18n.t("chat.artifact.reveal"),
+                I18n.t("chat.todo.title"),
+                I18n.t("chat.todo.progress", "{0}", "{1}"),
+                ArtifactPreviewWindow.PREVIEW_LANGS);
     }
 }
