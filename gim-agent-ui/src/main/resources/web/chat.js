@@ -16,6 +16,7 @@
     var CHECK_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
     var ERR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>';
     var CHEV_SVG = '<svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>';
+    var PULSE_SVG = '<svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>';
     var EYE_SVG = '<svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>';
 
     var LABELS = {};              // Java 经 setTheme 推入的本地化文案
@@ -219,10 +220,48 @@
         card.appendChild(text);
         var acts = el('div', 'artifact-acts');
         acts.appendChild(artifactBtn(LABELS.artifactPreview || 'Preview', 'preview', f.path));
-        acts.appendChild(artifactBtn(LABELS.artifactOpen || 'Open', 'open', f.path));
-        acts.appendChild(artifactBtn(LABELS.artifactReveal || 'Show in Folder', 'reveal', f.path));
+        acts.appendChild(artifactMore(f));
         card.appendChild(acts);
         return card;
+    }
+
+    /** 「⋯」浮层：系统程序打开与定位文件夹不常按，收进二级菜单，卡片面只留主操作。 */
+    function artifactMore(f) {
+        var more = el('div', 'artifact-more');
+        var btn = el('button', 'artifact-act dots');
+        btn.type = 'button';
+        btn.textContent = '⋯';
+        btn.setAttribute('aria-label', LABELS.artifactMore || 'More');
+        btn.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            more.classList.toggle('open');
+        }, false);
+        var menu = el('div', 'artifact-menu');
+        menu.appendChild(menuItem(LABELS.artifactOpen || 'Open', 'open', f.path));
+        menu.appendChild(menuItem(LABELS.artifactReveal || 'Show in Folder', 'reveal', f.path));
+        more.appendChild(btn);
+        more.appendChild(menu);
+        return more;
+    }
+
+    function menuItem(label, action, path) {
+        var b = el('button', 'artifact-menu-item');
+        b.type = 'button';
+        b.textContent = label;
+        b.addEventListener('click', function (ev) {
+            ev.stopPropagation();
+            closeMenus();
+            if (path && bridge()) { bridge().onArtifact(path, action); }
+        }, false);
+        return b;
+    }
+
+    // 浮层只可能同时开一个之外的多个：点别处就全部收起（JCEF 里没有 :focus-within 之外的托管弹窗层）
+    document.addEventListener('click', closeMenus, false);
+
+    function closeMenus() {
+        var open = document.querySelectorAll('.artifact-more.open');
+        for (var i = 0; i < open.length; i++) { open[i].classList.remove('open'); }
     }
 
     function artifactBtn(label, action, path) {
@@ -251,105 +290,381 @@
         return box;
     }
 
-    function buildThinkingCard(thinking, live) {
-        var card = el('div', 'thinking-card');
-        var head = el('div', 'thinking-header');
-        if (live) {
-            head.appendChild(el('span', 'thinking-live-dot'));
-        } else {
-            head.appendChild(iconEl(CHECK_SVG, 'thinking-icon'));
+    // ---------- 轮次布局：流式与历史重放共用 ----------
+    // 一轮助手消息 = 若干「过程块」（相邻的思考/工具/旁白合成一块，默认收起成一行标题）
+    // 与若干「正文块」（Markdown 裸排，不带边框），外加清单卡与产物卡。
+    // 段序即真相：同样的 items 必然产出同样的 DOM，收尾整页重放才不会让已上屏的一轮重新排版。
+
+    /** 毫秒 → 本地化秒数文案（不足 1 秒返回空串，标题里不出现）。 */
+    function seconds(ms) {
+        if (!ms || ms < 1000) { return ''; }
+        var v = ms >= 10000 ? Math.round(ms / 1000) : Math.round(ms / 100) / 10;
+        return (LABELS.thinkingElapsed || '{0}s').replace('{0}', v);
+    }
+
+    /** 过程块标题：有工具报步数，纯思考报「已思考 · Ns」；在途时改报当前动作。 */
+    function processTitle(tools, failed, thinkMs, running) {
+        if (running) { return running; }
+        if (tools > 0) {
+            return failed > 0
+                ? (LABELS.toolFailed || 'Executed {0} tool call(s), {1} failed')
+                    .replace('{0}', tools).replace('{1}', failed)
+                : (LABELS.toolCount || 'Executed {0} tool call(s)').replace('{0}', tools);
         }
-        head.appendChild(el('span', 'thinking-title', live ? (LABELS.thinking || 'Thinking…') : (LABELS.thinkingDone || 'Thought')));
-        var body = el('div', 'thinking-body');
-        if (!live) {
-            var sum = (thinking || '').replace(/\s+/g, ' ').trim();
-            if (sum.length > 200) { sum = sum.substring(0, 200) + '…'; }
-            head.appendChild(el('span', 'thinking-summary', sum ? ('· ' + sum) : ''));
-            var md = mdToElem(thinking);
-            body.appendChild(md);
-        } else {
-            var pre = el('pre', 'thinking-text');
-            pre.textContent = thinking || '';
-            body.appendChild(pre);
-            body._pre = pre;
+        var t = LABELS.thinkingDone || 'Thought';
+        var el2 = seconds(thinkMs);
+        return el2 ? t + ' · ' + el2 : t;
+    }
+
+    /** 过程块外壳：折叠头 + 分行容器。标题随内容重算，流式逐步追加与整块重绘共用同一外壳。 */
+    function processShell() {
+        var box = el('div', 'process');
+        var head = el('div', 'process-head');
+        head.appendChild(iconEl(CHEV_SVG, 'process-chev'));
+        var title = el('span', 'process-title', '');
+        head.appendChild(title);
+        var body = el('div', 'process-body');
+        box.appendChild(head);
+        box.appendChild(body);
+        var p = { box: box, body: body, title: title, items: [], manual: false };
+        // 用户手动开合过就不再自动折：收尾只收系统开的折叠态
+        head.addEventListener('click', function () { p.manual = true; box.classList.toggle('open'); }, false);
+        return p;
+    }
+
+    /** 重算块头：有工具报步数，纯思考报耗时；块内还有在途行时改报当前动作。 */
+    function refreshProcess(p) {
+        var tools = 0, failed = 0, thinkMs = 0, hasThink = false, running = '';
+        for (var i = 0; i < p.items.length; i++) {
+            var it = p.items[i];
+            if (it.kind === 'tool') {
+                tools++;
+                if (it.live) { running = runningTool(it.tool); }
+                else if (!it.tool.ok) { failed++; }
+            } else if (it.kind === 'think') {
+                hasThink = true;
+                if (it.ms) { thinkMs += it.ms; }
+                if (it.live) { running = LABELS.thinking || 'Thinking…'; }
+            }
         }
-        // 默认收起（live 与完成态一致）：只露标题行，点击展开查看全文
-        body.style.display = 'none';
-        card.appendChild(head);
-        card.appendChild(body);
-        head.addEventListener('click', function () {
-            body.style.display = body.style.display === 'none' ? 'block' : 'none';
+        p.title.textContent = processTitle(tools, failed, thinkMs, running);
+        // 只有旁白的分组不套折叠头：旁白自解释，多一层壳只会让一轮更碎
+        p.box.classList.toggle('bare', tools === 0 && !hasThink);
+    }
+
+    /** 追加分行并同步块头——流式与重放唯一的过程区写入口。 */
+    function addProcessItem(p, it) {
+        it.proc = p;
+        p.items.push(it);
+        p.body.appendChild(it.kind === 'tool' ? toolLine(it) : (it.kind === 'think' ? thinkLine(it) : noticeLine(it)));
+        refreshProcess(p);
+    }
+
+    /** items → 整块过程记录（重放路径：一次成型，与流式逐步追加产出同构 DOM）。 */
+    function processBlock(items) {
+        var p = processShell();
+        for (var i = 0; i < items.length; i++) { addProcessItem(p, items[i]); }
+        return p.box;
+    }
+
+    /** 在途工具的动作摘要（标题用）：委派类显出目标智能体，其余用工具名。 */
+    function runningTool(tool) {
+        var name = toolName(tool);
+        return (LABELS.toolRunning || 'Running {0}…').replace('{0}', name);
+    }
+
+    /** 思考行：只露「已思考 · Ns」，点开才渲染全文（全文只在首次展开时构建一次）。 */
+    function thinkLine(it) {
+        var item = el('div', 'log-item');
+        var row = el('div', 'log-row');
+        var ic = iconEl(it.live ? PULSE_SVG : CHECK_SVG, 'log-ic' + (it.live ? ' live' : ''));
+        row.appendChild(ic);
+        var name = el('span', 'log-name', it.live ? (LABELS.thinking || 'Thinking…') : (LABELS.thinkingDone || 'Thought'));
+        row.appendChild(name);
+        var time = el('span', 'log-time', seconds(it.ms));
+        row.appendChild(time);
+        var detail = el('div', 'log-detail');
+        row.addEventListener('click', function () {
+            if (!detail.firstChild && it.text) { detail.appendChild(mdToElem(it.text)); }
+            item.classList.toggle('open');
         }, false);
-        return card;
-    }
-
-    // 活动组卡标题：流式实时追加与历史重放共用，计数口径只此一处
-    function groupTitle(tools, failed) {
-        if (tools <= 0) { return LABELS.processed || 'Processed'; }
-        return failed > 0
-            ? (LABELS.toolFailed || 'Executed {0} tool call(s), {1} failed').replace('{0}', tools).replace('{1}', failed)
-            : (LABELS.toolCount || 'Executed {0} tool call(s)').replace('{0}', tools);
-    }
-
-    // 活动组卡：相邻的思考与工具调用聚合为一组，组内按发生顺序交错显示（参考时序分组样式）
-    // items 元素：{kind:'tool', tool:…} 或 {kind:'thinking', text:…}
-    function buildActivityCard(items) {
-        var tools = 0;
-        var failed = 0;
-        for (var i = 0; i < items.length; i++) {
-            if (items[i].kind === 'tool') { tools++; if (!items[i].tool.ok) { failed++; } }
-        }
-        var card = el('div', 'tool-group');
-        var head = el('div', 'tool-group-header');
-        head.appendChild(iconEl(CHEV_SVG, 'tool-group-chevron'));
-        head.appendChild(el('span', 'tool-group-title', groupTitle(tools, failed)));
-        var body = el('div', 'tool-group-body');
-        for (var j = 0; j < items.length; j++) {
-            body.appendChild(items[j].kind === 'tool' ? toolRow(items[j].tool) : thinkingRow(items[j].text));
-        }
-        card.appendChild(head);
-        card.appendChild(body);
-        head.addEventListener('click', function () { card.classList.toggle('open'); }, false);
-        return card;
-    }
-
-    // 组内思考行：与工具行同构，默认收起，点击展开 Markdown 全文
-    function thinkingRow(text) {
-        var item = el('div', 'tool-group-item');
-        var row = el('div', 'tool-group-row');
-        row.appendChild(iconEl(CHECK_SVG, 'tool-group-icon ok'));
-        row.appendChild(el('span', 'tool-group-name', LABELS.thinkingDone || 'Thought'));
-        var sum = (text || '').replace(/\s+/g, ' ').trim();
-        if (sum.length > 200) { sum = sum.substring(0, 200) + '…'; }
-        if (sum) { row.appendChild(el('span', 'tool-group-summary', '· ' + sum)); }
-        var detail = el('div', 'tool-group-detail thinking-detail');
-        detail.appendChild(wrapContent(text));
-        row.addEventListener('click', function () { item.classList.toggle('open'); }, false);
         item.appendChild(row);
         item.appendChild(detail);
+        it.refs = { ic: ic, name: name, time: time };
+        it.detail = detail;
         return item;
     }
 
-    function toolRow(r) {
-        var item = el('div', 'tool-group-item');
-        var row = el('div', 'tool-group-row');
-        row.appendChild(iconEl(r.ok ? CHECK_SVG : ERR_SVG, 'tool-group-icon ' + (r.ok ? 'ok' : 'err')));
-        row.appendChild(el('span', 'tool-group-name', toolName(r)));
-        var summary = toolSummary(r);
-        if (summary) { row.appendChild(el('span', 'tool-group-summary', '· ' + summary)); }
-        var detail = el('div', 'tool-group-detail');
+    /** 思考在途→定格的原地改写：换图标、换文案、补耗时，用户已展开的态与滚动位置都不受影响。 */
+    function sealThink(it) {
+        it.live = false;
+        if (it.refs) {
+            it.refs.ic.innerHTML = CHECK_SVG;
+            it.refs.ic.classList.remove('live');
+            it.refs.name.textContent = LABELS.thinkingDone || 'Thought';
+            it.refs.time.textContent = seconds(it.ms);
+        }
+        if (it.detail && it.detail.firstChild) {
+            it.detail.innerHTML = '';
+            it.detail.appendChild(mdToElem(it.text || ''));
+        }
+    }
+
+    /** 思考增量：明文缓冲；若用户已点开，实时重绘正文（未点开则等点开时一次成型）。 */
+    function appendThink(it, text) {
+        it.text = (it.text || '') + text;
+        if (it.detail && it.detail.firstChild) {
+            it.detail.innerHTML = '';
+            it.detail.appendChild(mdToElem(it.text));
+        }
+    }
+
+    /** 工具行详情：入参与输出两段（缺项不占标签）。 */
+    function fillToolDetail(detail, r) {
+        detail.innerHTML = '';
         if (r.input) {
-            detail.appendChild(el('div', 'tool-detail-label', LABELS.toolInput || 'Input'));
-            detail.appendChild(el('pre', 'tool-detail-text', pretty(r.input)));
+            detail.appendChild(el('div', 'log-detail-label', LABELS.toolInput || 'Input'));
+            detail.appendChild(el('pre', 'log-detail-text', pretty(r.input)));
         }
         if (r.output) {
-            detail.appendChild(el('div', 'tool-detail-label', LABELS.toolOutput || 'Response'));
-            detail.appendChild(el('pre', 'tool-detail-text', String(r.output)));
+            detail.appendChild(el('div', 'log-detail-label', LABELS.toolOutput || 'Response'));
+            detail.appendChild(el('pre', 'log-detail-text', String(r.output)));
         }
+    }
+
+    /** 工具行：状态图标 + 工具名 + 入参摘要（+ 耗时），点开给出入参与输出。 */
+    function toolLine(it) {
+        var r = it.tool;
+        var item = el('div', 'log-item');
+        var row = el('div', 'log-row');
+        var ic = iconEl(it.live ? PULSE_SVG : (r.ok ? CHECK_SVG : ERR_SVG),
+                'log-ic' + (it.live ? ' live' : (r.ok ? ' ok' : ' err')));
+        row.appendChild(ic);
+        row.appendChild(el('span', 'log-name', toolName(r)));
+        // 入参在 TOOL_START 时已完整，在途行就给出摘要；耗时未知，留空到定格再补
+        var summary = el('span', 'log-summary', toolSummary(r) || '');
+        row.appendChild(summary);
+        var time = el('span', 'log-time', it.live ? '' : seconds(r.durationMs));
+        row.appendChild(time);
+        var detail = el('div', 'log-detail');
+        fillToolDetail(detail, r);
         row.addEventListener('click', function () { item.classList.toggle('open'); }, false);
         item.appendChild(row);
         item.appendChild(detail);
+        it.refs = { ic: ic, summary: summary, time: time, detail: detail };
         return item;
+    }
+
+    /** 在途工具行就地定格：脉冲停成成败图标、补摘要与耗时、追加输出，展开态不动。 */
+    function sealTool(it) {
+        it.live = false;
+        var r = it.tool, x = it.refs;
+        if (!x) { return; }
+        x.ic.innerHTML = r.ok ? CHECK_SVG : ERR_SVG;
+        x.ic.classList.remove('live');
+        x.ic.classList.add(r.ok ? 'ok' : 'err');
+        if (!x.summary.textContent) { x.summary.textContent = toolSummary(r) || ''; }
+        x.time.textContent = seconds(r.durationMs);
+        fillToolDetail(x.detail, r);
+    }
+
+    /** 运行体旁白行：不折叠、不可点，只作一行说明。 */
+    function noticeLine(it) {
+        return el('div', 'notice', it.text || '');
+    }
+
+    /** 定格正文块：整段 Markdown 一次渲染。 */
+    function proseBlock(text) {
+        var box = el('div', 'prose');
+        box.appendChild(mdToElem(text || ''));
+        return box;
+    }
+
+    /** 在途正文块：明文节点逐字追加，避免半截 Markdown 反复重排造成的闪烁。 */
+    function liveProseNode(it) {
+        var box = el('div', 'prose');
+        var node = el('div', 'prose-live');
+        node.textContent = norm(it.text || '');
+        box.appendChild(node);
+        it.refs = { node: node };
+        return box;
+    }
+
+    /** 在途正文的增量：只改文本节点，不重建 DOM。 */
+    function appendProse(it, text) {
+        it.text = (it.text || '') + text;
+        it.refs.node.textContent = norm(it.text);
+    }
+
+    /** 正文定格：明文节点换成 Markdown 渲染结果。 */
+    function sealProse(it) {
+        if (!it.refs) { return; }
+        var box = it.refs.node.parentNode;
+        box.innerHTML = '';
+        box.appendChild(mdToElem(it.text || ''));
+        delete it.refs;
+    }
+
+    /** 按 items 重画整轮：过程块与正文块按发生顺序穿插，清单卡在原位替换成卡。 */
+    function layoutTurn(turn, items) {
+        turn.innerHTML = '';
+        var group = null;
+        var flush = function () {
+            if (group && group.length) { turn.appendChild(processBlock(group)); }
+            group = null;
+        };
+        for (var i = 0; i < items.length; i++) {
+            var it = items[i];
+            if (it.kind === 'text') {
+                flush();
+                turn.appendChild(it.live ? liveProseNode(it) : proseBlock(it.text));
+            } else if (it.kind === 'todo') {
+                flush();
+                turn.appendChild(todoCard(it.items));
+            } else {
+                if (!group) { group = []; }
+                group.push(it);
+            }
+        }
+        flush();
+    }
+
+    /** 落库分段 → items：与流式累积同构，两条路径进同一个 layoutTurn。 */
+    function turnItems(m) {
+        var items = [];
+        var todoSlot = null;
+        var pushTools = function (list) {
+            for (var i = 0; i < list.length; i++) {
+                var todo = todoItems(list[i]);
+                if (todo) {
+                    // 整表替换语义：一轮只有一张清单卡，卡在首次调用处、内容取最后一次——与实时流就地刷新一致
+                    if (todoSlot) { todoSlot.items = todo; }
+                    else {
+                        todoSlot = { kind: 'todo', items: todo };
+                        items.push(todoSlot);
+                    }
+                    continue;
+                }
+                items.push({ kind: 'tool', tool: list[i] });
+            }
+        };
+        if (m.segments && m.segments.length) {
+            for (var s = 0; s < m.segments.length; s++) {
+                var seg = m.segments[s];
+                if (seg.type === 'text' && seg.text) { items.push({ kind: 'text', text: seg.text }); }
+                else if (seg.type === 'thinking' && seg.text) { items.push({ kind: 'think', text: seg.text, ms: seg.ms }); }
+                else if (seg.type === 'notice' && seg.text) { items.push({ kind: 'notice', text: seg.text }); }
+                else if (seg.type === 'tools' && seg.tools) { pushTools(seg.tools); }
+            }
+            return items;
+        }
+        if (m.thinking) { items.push({ kind: 'think', text: m.thinking }); }
+        if (m.tools && m.tools.length) { pushTools(m.tools); }
+        if (m.content) { items.push({ kind: 'text', text: m.content }); }
+        return items;
+    }
+
+    // ---------- 流式累积：分组边界与 layoutTurn 完全一致 ----------
+    // 在途轮只握三个指针：当前过程块 s.proc、在途思考行 s.think、在途正文块 s.prose。
+    // 正文与清单是分组边界（封掉过程块），思考结束只封思考行、块留着继续接工具——
+    // 于是流式逐段落地的 DOM 就是收尾重放画出来的 DOM，收尾一瞬间不跳版。
+
+    /** 取（或开）在途过程块：流式期间默认展开，跑着的工具与思考逐行上屏，收尾才折回一行统计。 */
+    function liveProc(s) {
+        if (!s.proc) {
+            s.proc = processShell();
+            s.proc.box.classList.add('open');
+            s.host.appendChild(s.proc.box);
+        }
+        return s.proc;
+    }
+
+    /** 封过程块：块内已无在途行，标题由当前动作换回步数/耗时统计，并把展开的块折回。 */
+    function closeProc(s) {
+        if (!s.proc) { return; }
+        refreshProcess(s.proc);
+        if (!s.proc.manual) { s.proc.box.classList.remove('open'); }
+        s.proc = null;
+    }
+
+    /** 思考到此为止：就地定格这一行（耗时按本地墙钟测得，收尾重放以库中值为准）。 */
+    function stopThink(s) {
+        var it = s.think;
+        if (!it) { return; }
+        it.ms = Math.max(0, Date.now() - it.started);
+        sealThink(it);
+        s.think = null;
+        if (it.proc) { refreshProcess(it.proc); }
+    }
+
+    /** 思考增量：必要时先开出在途思考行。 */
+    function liveThink(s, text) {
+        if (!s.think) {
+            s.think = { kind: 'think', text: '', live: true, started: Date.now() };
+            addProcessItem(liveProc(s), s.think);
+        }
+        appendThink(s.think, text);
+    }
+
+    /** 调用发起即上屏一行在途记录：长耗时工具跑着的时候用户看得到当前动作，而不是整块静默。 */
+    function liveToolStart(s, tool) {
+        if (tool.name === 'todo_write') { return; }
+        stopThink(s);
+        var it = { kind: 'tool', tool: tool, live: true };
+        addProcessItem(liveProc(s), it);
+        s.open.push(it);
+    }
+
+    /** 调用结束：按同名最早在途行就地定格（一轮可并发多个同名调用，故 FIFO 配对）；对不上则补一条已完成行。 */
+    function liveToolEnd(s, tool) {
+        stopThink(s);
+        var open = null;
+        for (var i = 0; i < s.open.length; i++) {
+            if (s.open[i].tool.name === tool.name) { open = s.open[i]; s.open.splice(i, 1); break; }
+        }
+        if (open) {
+            open.tool = tool;
+            sealTool(open);
+            if (open.proc) { refreshProcess(open.proc); }
+        } else {
+            addProcessItem(liveProc(s), { kind: 'tool', tool: tool });
+        }
+    }
+
+    /** 运行体旁白：与思考/工具同处过程区，独立一行，不混进正文。 */
+    function liveNotice(s, text) {
+        stopThink(s);
+        addProcessItem(liveProc(s), { kind: 'notice', text: text });
+    }
+
+    /** 正文增量：必要时开出在途正文块（正文是新块，先封掉上面的过程块）。 */
+    function liveProse(s, text) {
+        stopThink(s);
+        closeProc(s);
+        if (!s.prose) {
+            s.prose = { kind: 'text', text: '', live: true };
+            s.host.appendChild(liveProseNode(s.prose));
+        }
+        appendProse(s.prose, text);
+    }
+
+    /** 清单：一轮一张卡，首次出现定位置，后续调用整表刷新同一张卡。 */
+    function liveTodo(s, items) {
+        stopThink(s);
+        closeProc(s);
+        if (s.todo) { renderTodo(s.todo, items); }
+        else {
+            s.todo = todoCard(items);
+            s.host.appendChild(s.todo);
+        }
+    }
+
+    /** 在途标记：本轮还没有任何内容时占位一行，首个事件到达即让位。 */
+    function clearPending(s) {
+        if (s.pending) {
+            s.pending.parentNode.removeChild(s.pending);
+            s.pending = null;
+        }
     }
 
     // ---------- 任务清单卡（todo_write） ----------
@@ -402,25 +717,6 @@
         }
         card.querySelector('.todo-progress').textContent =
             (LABELS.todoProgress || '{0}/{1}').replace('{0}', done).replace('{1}', items.length);
-    }
-
-    /** 一条助手消息里清单的最终态（segments 优先，退回扁平 tools 列表）；没有 todo_write 返回 null。 */
-    function lastTodo(segments, tools) {
-        var found = null;
-        var scan = function (list) {
-            for (var i = 0; i < list.length; i++) {
-                var items = todoItems(list[i]);
-                if (items) { found = items; }
-            }
-        };
-        if (segments && segments.length) {
-            for (var s = 0; s < segments.length; s++) {
-                if (segments[s].type === 'tools' && segments[s].tools) { scan(segments[s].tools); }
-            }
-        } else if (tools && tools.length) {
-            scan(tools);
-        }
-        return found;
     }
 
     var DELEGATE = { agent_spawn: 1, agent_send: 1 };
@@ -515,69 +811,11 @@
             if (m.content) { hostBox.appendChild(el('div', 'bubble-user', norm(m.content))); }
             hostBox.appendChild(actionBar('user', m.id, m.content, false));
         } else {
-            var textBubbles = [];
-            // 相邻的思考/工具聚合为一组活动卡，正文段按发生顺序穿插；文本段出现即收尾当前组
-            var group = null;
-            var flushGroup = function () {
-                if (group && group.length) { hostBox.appendChild(buildActivityCard(group)); }
-                group = null;
-            };
-            // 清单只画一张：整表替换语义下中途的每次 todo_write 都是同一张单的旧状态
-            var finalTodo = lastTodo(m.segments, m.tools);
-            var todoShown = false;
-            var showTodo = function () {
-                if (todoShown || !finalTodo) { return; }
-                todoShown = true;
-                flushGroup();
-                hostBox.appendChild(todoCard(finalTodo));
-            };
-            if (m.segments && m.segments.length) {
-                // 时序分段：思考/工具/正文按发生顺序交错渲染；组卡与思考行默认收起，点击展开
-                for (var si = 0; si < m.segments.length; si++) {
-                    var seg = m.segments[si];
-                    if (seg.type === 'text' && seg.text) {
-                        flushGroup();
-                        var sb = el('div', 'bubble-assistant');
-                        sb.appendChild(wrapContent(seg.text));
-                        hostBox.appendChild(sb);
-                        textBubbles.push(sb);
-                    } else if (seg.type === 'thinking' && seg.text) {
-                        if (!group) { group = []; }
-                        group.push({ kind: 'thinking', text: seg.text });
-                    } else if (seg.type === 'tools' && seg.tools && seg.tools.length) {
-                        if (!group) { group = []; }
-                        for (var ti = 0; ti < seg.tools.length; ti++) {
-                            if (todoItems(seg.tools[ti])) { showTodo(); continue; }
-                            group.push({ kind: 'tool', tool: seg.tools[ti] });
-                        }
-                    }
-                }
-                flushGroup();
-            } else {
-                if (m.thinking) { group = [{ kind: 'thinking', text: m.thinking }]; }
-                if (m.tools && m.tools.length) {
-                    if (!group) { group = []; }
-                    for (var li = 0; li < m.tools.length; li++) {
-                        if (todoItems(m.tools[li])) { continue; }
-                        group.push({ kind: 'tool', tool: m.tools[li] });
-                    }
-                }
-                flushGroup();
-                if (finalTodo) { hostBox.appendChild(todoCard(finalTodo)); }
-                var fb = el('div', 'bubble-assistant');
-                fb.appendChild(wrapContent(m.content));
-                hostBox.appendChild(fb);
-                textBubbles.push(fb);
-            }
-            // 操作条挂最后一个正文气泡；无正文段（纯思考/工具轮）时补一个空气泡承载操作
-            var body = textBubbles.length ? textBubbles[textBubbles.length - 1] : null;
-            if (!body) {
-                body = el('div', 'bubble-assistant');
-                body.appendChild(wrapContent(''));
-                hostBox.appendChild(body);
-            }
+            // 与流式同一条布局路径：落库分段 → items → layoutTurn，收尾重放画出与当时一致的一轮
+            var items = turnItems(m);
+            layoutTurn(hostBox, items);
             if (m.files && m.files.length) {
-                body.appendChild(artifactCards(m.files));
+                hostBox.appendChild(artifactCards(m.files));
             }
             var footer = actionBar('assistant', m.id, m.rawContent || m.content, true);
             footer.appendChild(el('span', 'msg-ai-label', LABELS.aiGenerated || ''));
@@ -585,17 +823,10 @@
                 var t = el('span', 'msg-time', m.time);
                 footer.insertBefore(t, footer.querySelector('.msg-ai-label'));
             }
-            body.appendChild(footer);
+            hostBox.appendChild(footer);
         }
         row.appendChild(hostBox);
         return row;
-    }
-
-    /** 助手正文容器：有文本才建 Markdown 节点（空段只留容器承载操作条）。 */
-    function wrapContent(text) {
-        var cb = el('div', 'bubble-content');
-        if (text) { cb.appendChild(mdToElem(text)); }
-        return cb;
     }
 
     function list() { return document.getElementById('list'); }
@@ -696,18 +927,12 @@
             var row = el('div', 'bubble-row assistant');
             row.setAttribute('data-id', id);
             var hostBox = el('div', 'bubble-host');
-            var body = el('div', 'bubble-assistant');
-            var contentBox = el('div', 'bubble-content');
-            var thinking = el('div', 'bubble-thinking pulsing', LABELS.thinking || 'Thinking…');
-            contentBox.appendChild(thinking);
-            body.appendChild(contentBox);
-            hostBox.appendChild(body);
             row.appendChild(hostBox);
             list().appendChild(row);
-            streaming[id] = {
-                raw: '', think: '', row: row, contentBox: contentBox, thinkingBox: thinking,
-                thinkCard: null, toolCard: null, todoCard: null
-            };
+            var pending = el('div', 'pending pulsing', LABELS.thinking || 'Thinking…');
+            hostBox.appendChild(pending);
+            streaming[id] = { host: hostBox, row: row, pending: pending, proc: null, think: null,
+                              prose: null, todo: null, open: [] };
             followBottom = true;
             scrollToBottom(false);
             updateEmpty();
@@ -716,69 +941,69 @@
         streamDelta: function (id, text) {
             var s = streaming[id];
             if (!s || text == null) { return; }
-            if (s.thinkingBox) { s.contentBox.removeChild(s.thinkingBox); s.thinkingBox = null; }
-            s.raw += text;
-            if (!s.live) { s.live = el('div', 'bubble-live'); s.contentBox.appendChild(s.live); }
-            s.live.textContent = norm(s.raw);
+            clearPending(s);
+            liveProse(s, text);
             if (followBottom) { scrollToBottom(false); }
         },
 
         streamThinking: function (id, text) {
             var s = streaming[id];
             if (!s || text == null) { return; }
-            if (s.thinkingBox) { s.contentBox.removeChild(s.thinkingBox); s.thinkingBox = null; }
-            if (!s.thinkCard) {
-                s.thinkCard = buildThinkingCard('', true);
-                s.contentBox.insertBefore(s.thinkCard, s.contentBox.firstChild);
-            }
-            s.think += text;
-            var pre = s.thinkCard.querySelector('.thinking-body')._pre;
-            if (pre) { pre.textContent = norm(s.think); }
+            clearPending(s);
+            liveThink(s, text);
             if (followBottom) { scrollToBottom(false); }
         },
 
-        streamToolCard: function (id, tool) {
+        /** 调用发起：过程区先亮一行在途记录，长耗时工具跑着时不再整块静默。 */
+        streamToolStart: function (id, tool) {
             var s = streaming[id];
             if (!s || !tool || !tool.name) { return; }
+            clearPending(s);
+            liveToolStart(s, tool);
+            if (followBottom) { scrollToBottom(false); }
+        },
+
+        /** 调用结束：把在途行就地定格（成功/失败、摘要、耗时、输出）。 */
+        streamToolEnd: function (id, tool) {
+            var s = streaming[id];
+            if (!s || !tool || !tool.name) { return; }
+            clearPending(s);
             if (tool.name === 'todo_write') {
                 var items = todoItems(tool);
                 if (items) {
-                    // 清单卡就是这次调用的呈现，不再重复塞一条工具行；后续调用刷新同一张卡
-                    if (!s.todoCard) {
-                        s.todoCard = todoCard(items);
-                        s.contentBox.insertBefore(s.todoCard, s.live || null);
-                    } else {
-                        renderTodo(s.todoCard, items);
-                    }
+                    // 清单卡就是这次调用的呈现：不占工具行，后续调用整表刷新同一张卡
+                    liveTodo(s, items);
                     if (followBottom) { scrollToBottom(false); }
                     return;
                 }
             }
-            if (!s.toolCard) {
-                s.toolCard = buildActivityCard([]);
-                // 排在逐字正文之前：思考卡 → 工具轨迹 → 正文，与收尾重放的层次一致
-                s.contentBox.insertBefore(s.toolCard, s.live || null);
-            }
-            var body = s.toolCard.querySelector('.tool-group-body');
-            body.appendChild(toolRow(tool));
-            var failed = s.toolCard.querySelectorAll('.tool-group-icon.err').length;
-            s.toolCard.querySelector('.tool-group-title').textContent =
-                groupTitle(body.querySelectorAll('.tool-group-item').length, failed);
+            liveToolEnd(s, tool);
+            if (followBottom) { scrollToBottom(false); }
+        },
+
+        streamNotice: function (id, text) {
+            var s = streaming[id];
+            if (!s || !text) { return; }
+            clearPending(s);
+            liveNotice(s, text);
             if (followBottom) { scrollToBottom(false); }
         },
 
         streamEnd: function (id) {
             var s = streaming[id];
             if (!s) { return; }
-            // 实时工具轨迹卡与任务清单就地保留：正文与思考卡按定格文本重排，不该在收尾一瞬间把它们抹掉
-            var trace = s.toolCard;
-            var todo = s.todoCard;
-            s.contentBox.innerHTML = '';
-            if (s.think) { s.contentBox.appendChild(buildThinkingCard(s.think, false)); }
-            if (trace) { s.contentBox.appendChild(trace); }
-            if (todo) { s.contentBox.appendChild(todo); }
-            if (s.raw) { s.contentBox.appendChild(mdToElem(s.raw)); }
-            else if (!s.think) { s.contentBox.appendChild(el('div', 'compare-col-text', '')); }
+            clearPending(s);
+            // 收尾只做定格，不重排：正文明文换 Markdown，思考行补耗时，在途工具按失败收口
+            stopThink(s);
+            for (var i = 0; i < s.open.length; i++) {
+                var it = s.open[i];
+                it.tool = { name: it.tool.name, input: it.tool.input, output: '', ok: false, durationMs: 0 };
+                sealTool(it);
+                refreshProcess(it.proc);
+            }
+            s.open = [];
+            closeProc(s);
+            if (s.prose) { sealProse(s.prose); s.prose = null; }
             delete streaming[id];
             if (followBottom) { scrollToBottom(false); }
         },
@@ -938,13 +1163,13 @@
     });
 
     // 原生右键：拦截并回调 Java（Java 弹原生 ContextMenu）
-    // 仅消息卡片本体响应（气泡/思考卡/工具卡/附件行/操作条）：行容器与宿主容器的留白
-    // （气泡旁空区、卡片间的缝隙）不弹菜单，已有菜单则按「菜单外点击」收起
+    // 仅消息内容本体响应（用户气泡/正文块/工作日志/清单卡/产物卡/附件行/操作条）：行容器与
+    // 留白（气泡旁空区、块间缝隙）不弹菜单，已有菜单则按「菜单外点击」收起
     // ctxMenuOpen 跟踪菜单显示态：JCEF(OSR) 区域点击不触发 JavaFX 弹窗自动隐藏，
     // 由下面的 mousedown/wheel 兜底回抛收起（仅菜单开着时过桥，避免每次点击无谓跨进程）
     var ctxMenuOpen = false;
-    var MSG_CARD_SEL = '.bubble-user,.bubble-assistant,.bubble-footer,.thinking-card,'
-            + '.tool-group,.bubble-images img,.file-row';
+    var MSG_CARD_SEL = '.bubble-user,.prose,.process,.todo-card,.artifact-card,'
+            + '.bubble-footer,.bubble-images img,.file-row';
     document.addEventListener('contextmenu', function (ev) {
         ev.preventDefault();
         var t = ev.target;

@@ -220,12 +220,22 @@ public final class ChatWebView {
         run("ChatAPI.streamThinking(" + id + "," + ChatMessagePayload.jsString(text) + ");");
     }
 
-    /** 流式期间的已完成工具卡：与历史重放共用 {@link WebChatTool} 视图，工具轨迹当场可见而不必等收尾。 */
-    public void streamToolCard(long id, WebChatTool tool) {
-        run("ChatAPI.streamToolCard(" + id + "," + ChatMessagePayload.jsValue(tool) + ");");
+    /** 运行体旁白（步数续跑、子代理启停、授权请求等）：过程区独立一行，不混进助手正文。 */
+    public void streamNotice(long id, String text) {
+        run("ChatAPI.streamNotice(" + id + "," + ChatMessagePayload.jsString(text) + ");");
     }
 
-    /** 流式收尾：以 Markdown 定格临时气泡（随后控制器整页重放补齐真实主键）。 */
+    /** 工具调用发起：过程区先上屏一行在途记录（{@code input} 可空，输出与结果未知）。 */
+    public void streamToolStart(long id, WebChatTool tool) {
+        run("ChatAPI.streamToolStart(" + id + "," + ChatMessagePayload.jsValue(tool) + ");");
+    }
+
+    /** 工具调用结束：与历史重放共用 {@link WebChatTool} 视图，就地定格在途行。 */
+    public void streamToolEnd(long id, WebChatTool tool) {
+        run("ChatAPI.streamToolEnd(" + id + "," + ChatMessagePayload.jsValue(tool) + ");");
+    }
+
+    /** 流式收尾：定格在途行（随后控制器整页重放补齐真实主键）。 */
     public void streamEnd(long id) {
         run("ChatAPI.streamEnd(" + id + ");");
     }

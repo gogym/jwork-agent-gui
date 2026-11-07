@@ -1148,7 +1148,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         final long turnStart = System.currentTimeMillis();
         chatEmpty.set(false);
         chatView.streamStart(streamId);
-        statusBar.beginTurn();
         StringBuilder acc = new StringBuilder();
         enterStreamingUi(sessionId);
         activeStream = flux
@@ -1196,8 +1195,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     }
 
     /**
-     * 把一帧窗口内的事件分派给 WebView：正文/工具/确认提示以明文增量追加（{@code acc} 累加供出错收尾），
-     * 思考增量走实时思考卡。等价于旧 {@code MessageListRenderer.applyBatch}，仅渲染宿主改为桥接。
+     * 把一帧窗口内的事件分派给 WebView：正文、思考、工具、旁白各走各的通道，段序与落盘分段一致，
+     * 收尾整页重放时同一轮不会重新排版（{@code acc} 只累加正文，供出错收尾定格）。
      */
     private void applyBatchToChat(List<StreamEvent> batch, long id, StringBuilder acc) {
         StringBuilder frame = new StringBuilder();
@@ -1206,21 +1205,18 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
                 frame.append(e.getText());
             } else if (e.getType() == StreamEventType.THINKING_DELTA && e.getText() != null) {
                 chatView.streamThinking(id, e.getText());
-            } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null) {
-                // 工具轨迹不再写进正文：底栏报当前动作，气泡里的实时工具卡由 TOOL_END 负责
-                if (e.getToolInput() == null) {
-                    statusBar.toolStarted(e.getToolName());
-                } else {
-                    statusBar.toolArgs(e.getToolName(), e.getToolInput());
-                }
+            } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null && e.getToolInput() != null) {
+                // 带真实入参的这次 TOOL_START 才是「即将执行」：先在过程区亮一行在途记录，长耗时工具不至于整块静默
+                chatView.streamToolStart(id, new WebChatTool(e.getToolName(), e.getToolInput(), null, false, 0L));
             } else if (e.getType() == StreamEventType.TOOL_END && e.getToolName() != null) {
-                chatView.streamToolCard(id, new WebChatTool(e.getToolName(), e.getToolInput(),
+                chatView.streamToolEnd(id, new WebChatTool(e.getToolName(), e.getToolInput(),
                         e.getToolOutput(), e.isToolOk(), e.getToolDurationMillis()));
             } else if (e.getType() == StreamEventType.CONFIRM_REQUEST && e.getToolName() != null) {
-                frame.append("\n").append(I18n.t("chat.toolConfirm", e.getToolName()));
-            } else if (e.getType() == StreamEventType.NOTICE && e.getText() != null) {
-                // 运行体旁白（步数触顶自动续跑等）：实时可见即可，不并入助手正文落盘
-                frame.append("\n").append(UiFormat.notice(e));
+                // 授权请求只在实时呈现（弹窗当场已处理完），不并入助手正文落盘
+                chatView.streamNotice(id, I18n.t("chat.toolConfirm", e.getToolName()));
+            } else if (e.getType() == StreamEventType.NOTICE && e.getToolName() != null) {
+                // 运行体旁白（步数触顶自动续跑、子代理启停等）：随分段落盘，重放不再丢
+                chatView.streamNotice(id, UiFormat.notice(e));
             }
         }
         if (frame.length() > 0) {
@@ -1336,7 +1332,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     public void exitStreamingUi() {
         activeStream = null;
         streamingSessionId = null;
-        statusBar.endTurn();
         Node graphic = sendButton.getGraphic();
         if (graphic instanceof Label icon) {
             icon.setText("\uE74A");

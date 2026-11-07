@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.chat;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.core.chat.ChatSegmentCodec;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.ui.chat.payload.ChatUiLabels;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
@@ -134,6 +135,29 @@ class ChatMessagePayloadTest {
     }
 
     @Test
+    @DisplayName("segments 载荷：思考段带耗时、旁白段带本地化文本，段序原样送达前端")
+    void segmentPayloadCarriesDurationAndNotice(@TempDir Path root) {
+        ChatMessagePayload p = new ChatMessagePayload(new GimPaths(root));
+        List<ChatSegmentCodec.ChatSegment> segs = List.of(
+                ChatSegmentCodec.ChatSegment.ofThinking("先想一下").withDuration(2400L),
+                ChatSegmentCodec.ChatSegment.ofNotice("iterStop", "200,1"),
+                ChatSegmentCodec.ChatSegment.ofText("结论"));
+
+        WebChatMessage m = p.assistant(9L, "结论", null, "先想一下", null, false, segs);
+
+        assertEquals(3, m.segments().size(), "段序即真相：前端按此顺序排版，不在 Java 侧重排");
+        assertEquals("thinking", m.segments().get(0).type());
+        assertEquals(Long.valueOf(2400L), m.segments().get(0).ms());
+        assertEquals("先想一下", m.segments().get(0).text());
+        assertEquals("notice", m.segments().get(1).type());
+        // 旁白在 Java 侧本地化成文案再下发：前端不再持有 noticeCode→文案这张表
+        assertFalse(m.segments().get(1).text().isBlank());
+        assertFalse(m.segments().get(1).text().contains("iterStop"));
+        assertEquals("text", m.segments().get(2).type());
+        assertNull(m.segments().get(2).ms(), "正文段不带耗时");
+    }
+
+    @Test
     @DisplayName("setTheme 载荷：可预览类型清单以 previewLangs 数组送达前端，内容与 Java 白名单同源")
     void previewLangsTravelsWithLabels() throws Exception {
         String js = ChatMessagePayload.jsValue(ChatUiLabels.fromI18n());
@@ -145,5 +169,20 @@ class ChatMessagePayloadTest {
         assertEquals(ArtifactPreviewWindow.PREVIEW_LANGS, pushed);
         // 与谓词一致：清单里的每一项都必须真能预览
         pushed.forEach(lang -> assertTrue(ArtifactPreviewWindow.isPreviewable(lang), lang));
+    }
+
+    @Test
+    @DisplayName("setTheme 载荷：工作日志要用的文案键齐备，缺一个前端就显示英文兜底或空标题")
+    void turnLabelsAreAllPushed() throws Exception {
+        JsonNode labels = new com.fasterxml.jackson.databind.ObjectMapper()
+                .readTree(ChatMessagePayload.jsValue(ChatUiLabels.fromI18n()));
+        for (String key : List.of("thinking", "thinkingDone", "thinkingElapsed", "toolCount", "toolFailed",
+                "toolRunning", "toolInput", "toolOutput", "artifactMore", "todoTitle", "todoProgress")) {
+            assertTrue(labels.hasNonNull(key) && !labels.get(key).asText().isEmpty(), key);
+        }
+        // 耗时模板留 {0} 给前端填数：MessageFormat 在 Java 侧已把占位符原样透出
+        assertTrue(labels.get("thinkingElapsed").asText().contains("{0}"), labels.toString());
+        // 在途标题留 {0} 给工具名：槽位丢了，流式块头就只能显示不带名字的兜底串
+        assertTrue(labels.get("toolRunning").asText().contains("{0}"), labels.toString());
     }
 }

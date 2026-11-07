@@ -244,13 +244,13 @@ public class ChatService {
     /** 对已落盘用户消息的会话发起流式应答并落盘助手消息；{@code chat}/{@code regenerate} 共用的流式主体。 */
     private Flux<StreamEvent> streamAssistant(ChatRequest req, String sessionId, String agentCode, String effectiveModel) {
         StringBuilder assistantBuf = new StringBuilder();
-        // 本轮思考过程（THINKING_DELTA）累积，收尾写入 metadata.thinking 供历史折叠重放
+        // 本轮思考过程（THINKING_DELTA）累积，收尾写入 metadata.thinking 供旧版扁平重放
         StringBuilder thinkingBuf = new StringBuilder();
         AtomicReference<TokenUsage> usageRef = new AtomicReference<>(TokenUsage.ZERO);
         // 本轮工具调用详情（TOOL_END 事件）按发生顺序累积，收尾时写入 tool_calls 列供历史折叠重放
         List<ToolCallRecordCodec.ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
-        // 时序分段：按事件发生顺序合并 text/thinking/tools，收尾写入 metadata.segments 供历史交错重放
-        List<ChatSegmentCodec.ChatSegment> segments = Collections.synchronizedList(new ArrayList<>());
+        // 时序分段：本轮真相的唯一来源，流式与重放共用同一段序（见 Segments）
+        Segments segs = new Segments();
         // 三路终态（完成/出错/取消）都会尝试落盘，settled 保证只落一次；
         // 出错与取消（用户停止）都带 interrupted 标记，半截应答不再丢失
         AtomicBoolean settled = new AtomicBoolean();
@@ -258,46 +258,102 @@ public class ChatService {
                 .doOnNext(event -> {
                     if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                         assistantBuf.append(event.getText());
-                        appendSegment(segments, ChatSegmentCodec.ChatSegment.ofText(event.getText()));
+                        segs.text(event.getText());
                     } else if (event.getType() == StreamEventType.THINKING_DELTA && event.getText() != null) {
                         thinkingBuf.append(event.getText());
-                        appendSegment(segments, ChatSegmentCodec.ChatSegment.ofThinking(event.getText()));
+                        segs.thinking(event.getText());
                     } else if (event.getType() == StreamEventType.USAGE && event.getUsage() != null) {
                         usageRef.set(event.getUsage());
                     } else if (event.getType() == StreamEventType.TOOL_END) {
                         ToolCallRecordCodec.ToolCallRecord record = toRecord(event);
                         toolCalls.add(record);
-                        appendSegment(segments, ChatSegmentCodec.ChatSegment.ofTools(List.of(record)));
+                        segs.tools(record);
+                    } else if (event.getType() == StreamEventType.NOTICE) {
+                        segs.notice(event.getToolName(), event.getText());
                     }
                 })
                 .doOnComplete(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), false, settled, toolCalls, segments))
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), false, settled, toolCalls, segs.finish()))
                 .doOnError(e -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls, segments))
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls, segs.finish()))
                 .doOnCancel(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls, segments));
+                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls, segs.finish()));
     }
 
     /**
-     * 追加进时序分段：与尾段同类型则合并（同段文本拼接 / 同段工具累积），
-     * 否则新开一段。事件流串行到达，合并逻辑无需额外同步。
+     * 时序分段累加器：与尾段同类型则合并（文本/思考拼接、工具累积），否则新开一段。
+     * 思考段按墙钟记录耗时——该段一结束（切到别的类型或本轮收尾）就把毫秒数补记上去，
+     * 渲染层据此只露「思考 · Ns」一行，点开才给全文。
+     * <p>事件流串行到达，合并逻辑无需额外同步。</p>
      */
-    private static void appendSegment(List<ChatSegmentCodec.ChatSegment> segments, ChatSegmentCodec.ChatSegment next) {
-        if (segments.isEmpty()) {
-            segments.add(next);
-            return;
+    private static final class Segments {
+
+        private final List<ChatSegmentCodec.ChatSegment> list = new ArrayList<>();
+        /** 在途思考段的起点（纳秒）；0 表示当前没有思考段在累积。 */
+        private long thinkingStartNs;
+
+        void text(String value) {
+            closeThinking();
+            append(ChatSegmentCodec.ChatSegment.ofText(value));
         }
-        ChatSegmentCodec.ChatSegment last = segments.get(segments.size() - 1);
-        if (!last.type().equals(next.type())) {
-            segments.add(next);
-            return;
+
+        void thinking(String value) {
+            if (thinkingStartNs == 0) {
+                thinkingStartNs = System.nanoTime();
+            }
+            append(ChatSegmentCodec.ChatSegment.ofThinking(value));
         }
-        if (ChatSegmentCodec.ChatSegment.TOOLS.equals(last.type())) {
-            List<ToolCallRecordCodec.ToolCallRecord> merged = new ArrayList<>(last.tools());
-            merged.addAll(next.tools());
-            segments.set(segments.size() - 1, ChatSegmentCodec.ChatSegment.ofTools(merged));
-        } else {
-            segments.set(segments.size() - 1, new ChatSegmentCodec.ChatSegment(last.type(), last.text() + next.text(), null));
+
+        void tools(ToolCallRecordCodec.ToolCallRecord record) {
+            closeThinking();
+            append(ChatSegmentCodec.ChatSegment.ofTools(List.of(record)));
+        }
+
+        void notice(String code, String args) {
+            closeThinking();
+            if (code != null && !code.isBlank()) {
+                append(ChatSegmentCodec.ChatSegment.ofNotice(code, args));
+            }
+        }
+
+        /** 本轮终态：补记末段思考耗时后给出不可变快照。 */
+        List<ChatSegmentCodec.ChatSegment> finish() {
+            closeThinking();
+            return List.copyOf(list);
+        }
+
+        /** 结束在途思考段：思考总是紧邻其后的那一段，故只需回看末段。 */
+        private void closeThinking() {
+            if (thinkingStartNs == 0) {
+                return;
+            }
+            long millis = (System.nanoTime() - thinkingStartNs) / 1_000_000L;
+            thinkingStartNs = 0;
+            int last = list.size() - 1;
+            if (last >= 0 && ChatSegmentCodec.ChatSegment.THINKING.equals(list.get(last).type())) {
+                list.set(last, list.get(last).withDuration(millis));
+            }
+        }
+
+        private void append(ChatSegmentCodec.ChatSegment next) {
+            if (list.isEmpty()) {
+                list.add(next);
+                return;
+            }
+            ChatSegmentCodec.ChatSegment last = list.get(list.size() - 1);
+            // 旁白一段一事，永不合并：相邻两条的入参拼在一起会读不回原意
+            if (!last.type().equals(next.type()) || ChatSegmentCodec.ChatSegment.NOTICE.equals(next.type())) {
+                list.add(next);
+                return;
+            }
+            if (ChatSegmentCodec.ChatSegment.TOOLS.equals(last.type())) {
+                List<ToolCallRecordCodec.ToolCallRecord> merged = new ArrayList<>(last.tools());
+                merged.addAll(next.tools());
+                list.set(list.size() - 1, ChatSegmentCodec.ChatSegment.ofTools(merged));
+            } else {
+                list.set(list.size() - 1, new ChatSegmentCodec.ChatSegment(
+                        last.type(), last.text() + next.text(), null, last.durationMillis(), last.noticeCode()));
+            }
         }
     }
 
@@ -646,10 +702,8 @@ public class ChatService {
         }
         c.setCreatedAt(LocalDateTime.now());
         // 附件/中断/思考/时序分段统一入 metadata（无思考的普通完成轮与原先一致，列留空）。
-        // 分段仅存「多段」轮次：单段布局与旧版扁平渲染等价，不必复制一份
-        List<ChatSegmentCodec.ChatSegment> segmentSnapshot = segments == null ? List.of() : List.copyOf(segments);
-        List<ChatSegmentCodec.ChatSegment> segmentsToStore =
-                segmentSnapshot.size() >= 2 ? segmentSnapshot : List.of();
+        // 分段有多少存多少：单段轮次同样要落，否则重放与流式各画一套布局，收尾一瞬间整块跳位。
+        List<ChatSegmentCodec.ChatSegment> segmentsToStore = segments == null ? List.of() : List.copyOf(segments);
         c.setMetadata(MessageMetadataCodec.write(List.of(), interrupted, thinking, segmentsToStore));
         db.conversationDao().insert(c);
         db.sessionDao().incrementMessageCount(sessionId, 1);

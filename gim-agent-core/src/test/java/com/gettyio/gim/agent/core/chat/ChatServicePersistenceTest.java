@@ -210,6 +210,72 @@ class ChatServicePersistenceTest {
         assertEquals(1, chatService.history(sid).size());
     }
 
+    @Test
+    @DisplayName("分段：单段轮次同样落分段，重放不再退回另一套布局")
+    void singleSegmentTurnIsStored() {
+        String sid = "s-seg-one";
+        Flux<StreamEvent> src = Flux.just(
+                StreamEvent.textDelta(sid, "只有一段正文"),
+                StreamEvent.complete(sid));
+        this.chatService = withGateway(() -> src);
+
+        chatService.chat(req(sid, "在吗")).blockLast();
+
+        ChatConversation assistant = lastAssistant(sid);
+        assertNotNull(assistant);
+        List<ChatSegmentCodec.ChatSegment> segs = MessageMetadataCodec.read(assistant.getMetadata()).segments();
+        assertEquals(1, segs.size(), "旧规则攒够两段才落分段，单段轮重放会与流式排得不一样");
+        assertEquals(ChatSegmentCodec.ChatSegment.TEXT, segs.get(0).type());
+        assertEquals("只有一段正文", segs.get(0).text());
+    }
+
+    @Test
+    @DisplayName("分段：思考段落耗时，且与工具/正文按时序交错")
+    void thinkingSegmentCarriesDuration() {
+        String sid = "s-seg-order";
+        Flux<StreamEvent> src = Flux.just(
+                StreamEvent.thinkingDelta(sid, "先想一下"),
+                StreamEvent.toolEnd(sid, "read_file", "{\"path\":\"a.txt\"}", "内容", 12L, true),
+                StreamEvent.thinkingDelta(sid, "再看一眼"),
+                StreamEvent.textDelta(sid, "结论"),
+                StreamEvent.complete(sid));
+        this.chatService = withGateway(() -> src);
+
+        chatService.chat(req(sid, "读一下")).blockLast();
+
+        List<ChatSegmentCodec.ChatSegment> segs =
+                MessageMetadataCodec.read(lastAssistant(sid).getMetadata()).segments();
+        assertEquals(List.of(ChatSegmentCodec.ChatSegment.THINKING, ChatSegmentCodec.ChatSegment.TOOLS,
+                        ChatSegmentCodec.ChatSegment.THINKING, ChatSegmentCodec.ChatSegment.TEXT),
+                segs.stream().map(ChatSegmentCodec.ChatSegment::type).toList());
+        // 思考段耗时在「下一段开始」时结算：不早于 0，且不因两段思考合并而丢失
+        assertNotNull(segs.get(0).durationMillis());
+        assertTrue(segs.get(0).durationMillis() >= 0L);
+        assertNotNull(segs.get(2).durationMillis());
+        assertNull(segs.get(1).durationMillis(), "工具段不带思考耗时");
+    }
+
+    @Test
+    @DisplayName("分段：运行体旁白独立成段落盘，重放不再凭空消失")
+    void noticeSegmentIsStored() {
+        String sid = "s-seg-notice";
+        Flux<StreamEvent> src = Flux.just(
+                StreamEvent.textDelta(sid, "前半段"),
+                StreamEvent.notice(sid, "iterContinue", "200,1"),
+                StreamEvent.textDelta(sid, "后半段"),
+                StreamEvent.complete(sid));
+        this.chatService = withGateway(() -> src);
+
+        chatService.chat(req(sid, "继续")).blockLast();
+
+        List<ChatSegmentCodec.ChatSegment> segs =
+                MessageMetadataCodec.read(lastAssistant(sid).getMetadata()).segments();
+        assertEquals(3, segs.size(), "旁白既不并入正文，也不与相邻文本段合并");
+        assertEquals(ChatSegmentCodec.ChatSegment.NOTICE, segs.get(1).type());
+        assertEquals("iterContinue", segs.get(1).noticeCode());
+        assertEquals("200,1", segs.get(1).text());
+    }
+
     private ChatService withGateway(Supplier<Flux<StreamEvent>> script) {
         GimDatabase db = new GimDatabase(new SqliteConnectionProvider(tempDir.resolve("gim.db")));
         db.initSchema();

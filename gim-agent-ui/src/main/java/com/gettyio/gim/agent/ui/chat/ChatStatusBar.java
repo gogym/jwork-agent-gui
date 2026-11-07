@@ -16,8 +16,6 @@
 
 package com.gettyio.gim.agent.ui.chat;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.core.chat.ContextCompactionResult;
 import com.gettyio.gim.agent.core.chat.HarnessAgentGateway;
@@ -41,7 +39,6 @@ import javafx.stage.Window;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
-import java.io.IOException;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
@@ -68,13 +65,6 @@ public final class ChatStatusBar {
     private static final double COMPACT_MIN_RATIO = 0.25;
     /** 字符→token 粗估系数（中英混排经验值），仅在拿不到真实回报时兜底。 */
     private static final double CHARS_PER_TOKEN = 2.5;
-
-    /** 工具入参里用来做动作摘要的字段（按优先级）：路径类在前，命令与检索词其次。 */
-    private static final String[] ARG_FIELDS = {"path", "file_path", "command", "url", "pattern", "query", "sheet"};
-    /** 动作摘要里入参文本的长度上限（字符）：底栏一行塞不下整条命令。 */
-    private static final int ARG_MAX_CHARS = 60;
-    /** 解析工具入参 JSON 用（只取摘要字段，不参与落盘）。 */
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     /** 手动压缩的宿主接线：忙判定与执行入口（控制器桥接到 {@code ChatService.compact}）。 */
     public interface ContextCompactor {
@@ -108,12 +98,6 @@ public final class ChatStatusBar {
     private Integer compactedBaseTokens;
     /** 浮层明细当前归属的会话：切换会话时清掉上一会话的压缩结果回显。 */
     private String popoverSessionId;
-    /** 本轮已发起的工具调用数（流式期间实时累加，随 {@link #beginTurn()} 归零）。 */
-    private int turnSteps;
-    /** 当前动作摘要（工具名 + 关键入参）；本轮还没跑工具时为 null。 */
-    private String turnActivity;
-    /** 本轮是否已收到 USAGE 回报：收到了就不许轨迹行再覆盖用量条。 */
-    private boolean usageReported;
 
     public ChatStatusBar(Label usageBar, Label contextBar, ProgressBar contextGauge, HBox contextStats,
                          JcefComposer inputField, ChatService chatService,
@@ -148,7 +132,6 @@ public final class ChatStatusBar {
             }
         }
         if (usage != null) {
-            usageReported = true;
             String sid = currentSessionId.get();
             if (sid != null && sid.equals(compactedSessionId)) {
                 // 压缩后的新一轮真实回报已覆盖估算基准，弃用手动压缩的粗估（含持久化）
@@ -160,69 +143,8 @@ public final class ChatStatusBar {
         }
     }
 
-    // ===================== 流式工具轨迹（本轮步数 + 当前动作）=====================
-
-    /** 一轮流式开始：步数与动作归零，用量条保持原样，等第一个工具调用再让位给轨迹。 */
-    public void beginTurn() {
-        turnSteps = 0;
-        turnActivity = null;
-        usageReported = false;
-    }
-
-    /** 一次工具调用发起（此刻入参还没流完）：步数 +1，动作先只报工具名。 */
-    public void toolStarted(String toolName) {
-        turnSteps++;
-        turnActivity = toolName;
-        showToolTrace();
-    }
-
-    /** 同一调用的入参流完（运行体补发的 TOOL_START）：就地补上关键入参，不重复计步。 */
-    public void toolArgs(String toolName, String argsJson) {
-        if (turnSteps == 0) {
-            turnSteps++;
-        }
-        String detail = argDetail(argsJson);
-        turnActivity = detail == null ? toolName : toolName + " · " + detail;
-        showToolTrace();
-    }
-
-    /** 一轮流式收尾：本轮没拿到用量回报就收起轨迹行，不留「第 N 步」在底栏。 */
-    public void endTurn() {
-        if (usageReported || turnSteps == 0) {
-            return;
-        }
-        hideUsage();
-    }
-
-    /** 轨迹行：「第 N 步 · 动作」。用量已回报时不再插手，免得把真实用量挤掉。 */
-    private void showToolTrace() {
-        if (usageReported || turnSteps <= 0 || usageBar == null) {
-            return;
-        }
-        String base = I18n.t("chat.status.steps", turnSteps);
-        usageBar.setText(turnActivity == null ? base : base + " · " + turnActivity);
-        usageBar.setVisible(true);
-        usageBar.setManaged(true);
-    }
-
-    /** 入参里最能说明「动的是哪个东西」的字段：文件优先，其次命令/链接/检索词；超长截断。 */
-    private static String argDetail(String argsJson) {
-        if (argsJson == null || argsJson.isBlank()) {
-            return null;
-        }
-        try {
-            JsonNode node = MAPPER.readTree(argsJson);
-            for (String field : ARG_FIELDS) {
-                String value = node.path(field).asText("");
-                if (!value.isBlank()) {
-                    return value.length() <= ARG_MAX_CHARS ? value : value.substring(0, ARG_MAX_CHARS) + "…";
-                }
-            }
-        } catch (IOException | RuntimeException e) {
-            // 入参可能被截断、非 JSON 或本就没有参数：只报工具名即可
-        }
-        return null;
-    }
+    // 本轮步数与当前动作不再出现在底栏：过程统一在气泡内的工作日志里呈现
+    // （见 chat.js 的 buildTurn）——两处同时报同一状态是「显示不协调」的直接来源。
 
     /** 切换/重放会话时，取该会话最后一条带用量的助手消息刷新用量条；无则隐藏。 */    public void updateUsageFromSession(String sessionId) {
         if (sessionId == null) {

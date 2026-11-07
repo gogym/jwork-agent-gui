@@ -36,11 +36,12 @@ import java.util.List;
  * @param regenerate  重新生成按钮
  * @param editResend  编辑重发按钮
  * @param aiGenerated 助手气泡「AI 生成」标签
- * @param thinking    思考卡进行中文案
- * @param thinkingDone 思考卡完成文案
+ * @param thinking    思考进行中文案（工作日志在途行与本轮开场占位行）
+ * @param thinkingDone 思考完成文案
+ * @param thinkingElapsed 思考耗时模板（{@code {0}} 为秒数，不足 1 秒不显示）
  * @param toolCount   工具卡标题模板（{@code {0}} 为调用次数）
  * @param toolFailed  工具卡失败标题模板（{@code {0}} 次数、{@code {1}} 失败数）
- * @param processed   纯思考组（组内无工具调用）的标题文案
+ * @param toolRunning 在途工具标题模板（{@code {0}} 为工具名，流式期间块头显示当前动作）
  * @param toolInput   工具详情「入参」标签
  * @param toolOutput  工具详情「输出」标签
  * @param delegate    子智能体委派显示模板（{@code {0}} 为目标智能体）
@@ -48,6 +49,7 @@ import java.util.List;
  * @param artifactPreview   产物卡「就地阅读」按钮
  * @param artifactOpen      产物卡「系统程序打开」按钮
  * @param artifactReveal    产物卡「定位所在文件夹」按钮
+ * @param artifactMore      产物卡「⋯」二级菜单的无障碍名
  * @param todoTitle     任务清单卡标题
  * @param todoProgress  任务清单进度模板（{@code {0}} 已完成、{@code {1}} 总数）
  * @param previewLangs  可预览的语言/扩展名白名单（非文案，取自 {@link ArtifactPreviewWindow#PREVIEW_LANGS}）：
@@ -56,9 +58,9 @@ import java.util.List;
  * @author gogym
  */
 @JsonPropertyOrder({"copy", "copied", "preview", "speak", "regenerate", "editResend", "aiGenerated",
-        "thinking", "thinkingDone", "toolCount", "toolFailed", "processed", "toolInput", "toolOutput", "delegate",
-        "artifactTitle", "artifactPreview", "artifactOpen", "artifactReveal", "todoTitle", "todoProgress",
-        "previewLangs"})
+        "thinking", "thinkingDone", "thinkingElapsed", "toolCount", "toolFailed", "toolRunning", "toolInput",
+        "toolOutput", "delegate", "artifactTitle", "artifactPreview", "artifactOpen", "artifactReveal",
+        "artifactMore", "todoTitle", "todoProgress", "previewLangs"})
 public record ChatUiLabels(
         String copy,
         String copied,
@@ -69,9 +71,10 @@ public record ChatUiLabels(
         String aiGenerated,
         String thinking,
         String thinkingDone,
+        String thinkingElapsed,
         String toolCount,
         String toolFailed,
-        String processed,
+        String toolRunning,
         String toolInput,
         String toolOutput,
         String delegate,
@@ -79,6 +82,7 @@ public record ChatUiLabels(
         String artifactPreview,
         String artifactOpen,
         String artifactReveal,
+        String artifactMore,
         String todoTitle,
         String todoProgress,
         List<String> previewLangs) {
@@ -95,9 +99,10 @@ public record ChatUiLabels(
                 I18n.t("chat.msg.aiGenerated"),
                 I18n.t("chat.thinking"),
                 I18n.t("chat.thinking.done"),
+                I18n.t("chat.thinking.elapsed", "{0}"),
                 I18n.t("chat.tool.group.count", "{0}", "{1}"),
                 I18n.t("chat.tool.group.failed", "{0}", "{1}"),
-                I18n.t("chat.tool.group.processed"),
+                I18n.t("chat.tool.group.running", "{0}"),
                 I18n.t("chat.tool.params"),
                 I18n.t("chat.tool.output"),
                 I18n.t("chat.tool.subagent.delegate", "{0}"),
@@ -105,6 +110,7 @@ public record ChatUiLabels(
                 I18n.t("chat.artifact.preview"),
                 I18n.t("chat.artifact.open"),
                 I18n.t("chat.artifact.reveal"),
+                I18n.t("chat.artifact.more"),
                 I18n.t("chat.todo.title"),
                 I18n.t("chat.todo.progress", "{0}", "{1}"),
                 ArtifactPreviewWindow.PREVIEW_LANGS);

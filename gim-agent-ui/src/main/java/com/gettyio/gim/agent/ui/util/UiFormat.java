@@ -58,12 +58,19 @@ public final class UiFormat {
      * 文案在此按 {@code chat.<编码>} 取译文填充；编码为空则原样显示参数。
      */
     public static String notice(StreamEvent event) {
-        String code = event.getToolName();
-        String payload = event.getText() == null ? "" : event.getText();
+        return noticeText(event.getToolName(), event.getText());
+    }
+
+    /**
+     * 同上，但入参取自落盘的时序分段而非事件：历史重放按当前语言重新解析文案，
+     * 换语言后旧会话的旁白跟着换（落盘的只是码与参数）。
+     */
+    public static String noticeText(String code, String payload) {
+        String args0 = payload == null ? "" : payload;
         if (code == null || code.isBlank()) {
-            return payload;
+            return args0;
         }
-        Object[] args = payload.isEmpty() ? new Object[0] : payload.split(",");
+        Object[] args = args0.isEmpty() ? new Object[0] : args0.split(",");
         return I18n.t("chat." + code, args);
     }
 }

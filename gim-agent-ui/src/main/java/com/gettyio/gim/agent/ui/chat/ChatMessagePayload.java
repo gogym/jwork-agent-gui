@@ -271,7 +271,8 @@ public final class ChatMessagePayload {
 
 
     /**
-     * 把时序分段映射为 JS 载荷：正文段做本地图片内联；中断标记落到最后一个正文段尾。
+     * 把时序分段映射为 JS 载荷：正文段做本地图片内联，思考段带上耗时供「思考 · Ns」呈现，
+     * 旁白段按当前语言解析成文案。中断标记落到最后一个正文段尾。
      * 无输入分段或去空段后为空时返回空列表（前端退化为旧版扁平渲染）。
      */
     private List<WebChatSegment> buildSegments(List<ChatSegmentCodec.ChatSegment> segments, String interruptNote) {
@@ -289,17 +290,20 @@ public final class ChatMessagePayload {
                     for (ToolCallRecordCodec.ToolCallRecord r : s.tools()) {
                         mapped.add(new WebChatTool(r.name(), r.input(), r.output(), r.ok(), r.durationMillis()));
                     }
-                    out.add(new WebChatSegment("tools", null, mapped));
+                    out.add(new WebChatSegment("tools", null, mapped, null));
                 }
+            } else if (ChatSegmentCodec.ChatSegment.NOTICE.equals(s.type())) {
+                out.add(new WebChatSegment("notice", UiFormat.noticeText(s.noticeCode(), s.text()), null, null));
             } else if (s.text() != null && !s.text().isEmpty()) {
-                out.add(new WebChatSegment(s.type(), inlineLocalImages(s.text()), null));
+                Long millis = ChatSegmentCodec.ChatSegment.THINKING.equals(s.type()) ? s.durationMillis() : null;
+                out.add(new WebChatSegment(s.type(), inlineLocalImages(s.text()), null, millis));
             }
         }
         if (interruptNote != null) {
             for (int i = out.size() - 1; i >= 0; i--) {
                 if ("text".equals(out.get(i).type())) {
                     WebChatSegment t = out.get(i);
-                    out.set(i, new WebChatSegment("text", t.text() + interruptNote, null));
+                    out.set(i, new WebChatSegment("text", t.text() + interruptNote, null, t.ms()));
                     break;
                 }
             }
