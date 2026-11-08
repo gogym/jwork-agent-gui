@@ -585,6 +585,10 @@ public final class AppContext implements AutoCloseable {
         props.setProperty("org.quartz.scheduler.instanceName", "JworkScheduler");
         props.setProperty("org.quartz.scheduler.instanceId", "NON_CLUSTERED");
         props.setProperty("org.quartz.scheduler.skipUpdateCheck", "true");
+        // 调度线程与作业线程设为守护：它们默认是非守护的，退出时若正跑到一半的自动化任务，
+        // shutdown(false) 不等其结束，这批线程就会把进程一直吊着（窗口早没了、进程还在）
+        props.setProperty("org.quartz.scheduler.makeSchedulerThreadDaemon", "true");
+        props.setProperty("org.quartz.threadPool.makeThreadsDaemons", "true");
         props.setProperty("org.quartz.threadPool.class", "org.quartz.simpl.SimpleThreadPool");
         props.setProperty("org.quartz.threadPool.threadCount", "10");
         props.setProperty("org.quartz.jobStore.class", "org.quartz.simpl.RAMJobStore");

@@ -207,6 +207,8 @@ public class AppLifecycle {
 
     /** 真正退出：走 JavaFX 正常终止流程（触发应用 {@code stop()} 组合根停机、撤托盘）。 */
     public void exit() {
+        // 先挂看门狗：FX 线程若卡在弹框或事件队列里，stop() 就来不及跑，不能因此让进程吊着
+        AppExit.armWatchdog();
         Platform.runLater(() -> {
             trayNotifier.dispose();
             Platform.exit();

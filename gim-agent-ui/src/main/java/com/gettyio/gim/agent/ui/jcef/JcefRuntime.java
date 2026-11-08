@@ -86,7 +86,7 @@ public final class JcefRuntime {
                 s.root_cache_path = rootOverride;
             }
             app = b.build();
-            Runtime.getRuntime().addShutdownHook(new Thread(this::shutdownQuietly, "jcef-shutdown"));
+            Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "jcef-shutdown"));
             log.info("JCEF CefApp 就绪 installDir={}", installDir().getAbsolutePath());
             return app;
         } catch (Exception e) {
@@ -104,7 +104,12 @@ public final class JcefRuntime {
         return base.toFile();
     }
 
-    private synchronized void shutdownQuietly() {
+    /**
+     * 释放进程级 {@link CefApp}（连带渲染子进程与其占用的 cache 目录句柄）；未初始化或已释放则无操作。
+     * <p>停机主路径（{@code AppExit} 的清理）与 JVM shutdown hook 都调它，故必须幂等：hook 只在
+     * 进程开始退出时才跑，而 CEF 的 AWT 宿主线程正是拦住退出的那类线程，只靠 hook 会互等。</p>
+     */
+    public synchronized void shutdown() {
         if (app == null) {
             return;
         }

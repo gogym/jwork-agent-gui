@@ -24,7 +24,9 @@ import com.gettyio.gim.agent.ui.desktop.QuickAskWindow;
 import com.gettyio.gim.agent.ui.desktop.SelectionAssistant;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
+import com.gettyio.gim.agent.ui.jcef.JcefRuntime;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
+import com.gettyio.gim.agent.ui.window.AppExit;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.AppLifecycle;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
@@ -205,18 +207,25 @@ public class GimAgentApplication extends Application {
         return Math.max(min, Math.min(value, max));
     }
 
-    /** 应用退出回调：先释放 JCEF 视图，再关闭组合根，最后终止 JavaFX 平台。 */
+    /** 应用退出回调：释放在场浏览器 → 关组合根 → 释放 CEF 运行时 → 终止进程。 */
     @Override
     public void stop() {
-        // 常驻浏览器必须在这里关掉：进程级 CefApp 的 dispose 挂在 JVM shutdown hook 上，
-        // 而 hook 只在 JVM 真正开始退出时跑。留着 CefBrowser（及其屏幕外宿主 Frame）会让
-        // AWT/CEF 线程继续存活，退出卡在 hook 之前，cache 目录句柄被渲染子进程占住——
-        // 下一次启动就撞在「文件被占用」上。
+        AppExit.terminate(this::releaseResources);
+    }
+
+    /**
+     * 停机清理（FX 线程）：常驻浏览器必须在这里关掉——{@code CefApp} 的释放原本只挂在 JVM shutdown
+     * hook 上，而 hook 只在进程真正开始退出时才跑；留着 CefBrowser 及其屏幕外 AWT 宿主 Frame，
+     * AWT/CEF 线程继续存活，退出就卡在 hook 之前，cache 目录句柄还被渲染子进程占住，
+     * 下一次启动即撞「文件被占用」。
+     */
+    private void releaseResources() {
         JcefOsrView.disposeAll();
         if (context != null) {
             context.close();
         }
-        Platform.exit();
+        // 放在组合根之后：小窗/终端等各自持有的视图此时已随关闭释放，再收进程级 CefApp
+        JcefRuntime.get().shutdown();
     }
 
     public static void main(String[] args) {
