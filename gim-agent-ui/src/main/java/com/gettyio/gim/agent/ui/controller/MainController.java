@@ -115,6 +115,7 @@ import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -436,6 +437,16 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     private Disposable activeStream;
     /** 在途流所属会话：停止时需告知网关中断哪个会话的 Agent 循环 */
     private String streamingSessionId;
+    /** 在途轮的临时气泡主键（与 {@link #streamingSessionId} 同生命周期）：重放后据此重建同一气泡继续接增量。 */
+    private long streamingBubbleId;
+    /**
+     * 在途轮已推给前端的事件缓冲：本轮落库前它是唯一副本。
+     * <p>整页重放只画已落库的消息，而 {@code chatView.clear()}/{@code renderHistory} 会清掉 JS 侧
+     * 的临时气泡表——没有它，切页或换会话再回来就看不到思考与工具过程，只能等本轮跑完落库才
+     * 「啪」地出现。</p>
+     */
+    private final com.gettyio.gim.agent.ui.chat.TurnReplayBuffer streamingReplay =
+            new com.gettyio.gim.agent.ui.chat.TurnReplayBuffer();
     /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
     private ContextMenu templateMenu;
     /** 消息右键菜单：复用单一实例，右键换目标时先收再弹，不叠出多个弹窗 */
@@ -847,11 +858,21 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
      * 新任务：回到空态并把光标交给输入框。
      * <p>不落库建会话——首条消息发出时才创建（见 {@link #handleSend()}），
      * 否则点几下按钮就会在列表里留下几行没有内容的「新会话」。</p>
+     * <p>有生成在途时不重建视图：忙态下本来就发不出下一轮（{@link #handleSend()} 互斥），
+     * 清空只会抹掉用户点回来正想看的那轮思考过程。此时点它等于「回到对话」，跑完再点才是新任务。</p>
      */
     @FXML
     public void handleNewSession() {
         if (navChat != null) {
             navChat.setSelected(true);
+        }
+        String running = streamingSessionId;
+        if (running != null) {
+            if (!running.equals(currentSessionId)) {
+                switchToSession(running);
+            }
+            Platform.runLater(inputField::requestFocus);
+            return;
         }
         showBlankConversation();
         sidebar.renderSessions();
@@ -1150,11 +1171,15 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         chatView.streamStart(streamId);
         StringBuilder acc = new StringBuilder();
         enterStreamingUi(sessionId);
+        // 本轮的增量先记一份：整页重放把临时气泡清掉后，靠它把思考与工具过程接回同一气泡
+        streamingBubbleId = streamId;
+        streamingReplay.clear();
         activeStream = flux
                 .bufferTimeout(256, FRAME_WINDOW)
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         batch -> Platform.runLater(() -> {
+                            streamingReplay.record(batch);
                             applyBatchToChat(batch, streamId, acc);
                             statusBar.updateUsageFromBatch(batch);
                         }),
@@ -1173,8 +1198,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
                         () -> Platform.runLater(() -> {
                             exitStreamingUi();
                             refreshSessions();
-                            // 完成：从库重放，令刚落的助手/用户气泡拿到真实主键与操作能力
-                            historyPager.render(sessionId);
+                            // 完成：从库重放，令刚落的助手/用户气泡拿到真实主键与操作能力。
+                            // 仅当用户还停在这轮所属会话——他可能已切到别的会话或另起新任务，
+                            // 那时把旧会话刷到眼前等于抢走他正在看的页面。
+                            if (Objects.equals(sessionId, currentSessionId)) {
+                                renderConversation(sessionId);
+                            }
                             // 本轮新落的产物就地可见（面板收起时由展开时刷新兜底）
                             refreshWorkspaceAfterTurn(sessionId, turnStart);
                             // 规划轮跑完：展示并让用户确认/编辑计划文件
@@ -1223,6 +1252,27 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             acc.append(frame);
             chatView.streamDelta(id, frame.toString());
         }
+    }
+
+    /** 整页重放会话历史，再把仍在跑的那轮接回同一临时气泡：切页返回不该等本轮落库才看到过程。 */
+    private void renderConversation(String sessionId) {
+        historyPager.render(sessionId);
+        reattachRunningTurn(sessionId);
+    }
+
+    /**
+     * 重放在途轮：按已记录的事件走与实时完全相同的分派通道，重建同主键临时气泡后增量继续写进这一轮，
+     * 收尾时再由正常的整页重放换成带真实主键的正式气泡。
+     *
+     * @param sessionId 即将上屏的会话；与在途会话不符则不动（用户在别看的那页不该被抢）
+     */
+    private void reattachRunningTurn(String sessionId) {
+        if (streamingBubbleId == 0L || sessionId == null || !sessionId.equals(streamingSessionId)
+                || streamingReplay.isEmpty()) {
+            return;
+        }
+        chatView.streamStart(streamingBubbleId);
+        applyBatchToChat(streamingReplay.snapshot(), streamingBubbleId, new StringBuilder());
     }
 
     /**
@@ -1327,11 +1377,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         sendButton.setTooltip(new Tooltip(I18n.t("chat.stop")));
     }
 
-    /** 退出流式态：恢复发送图标并释放在途句柄。 */
+    /** 退出流式态：恢复发送图标并释放在途句柄与重放记录。 */
     @Override
     public void exitStreamingUi() {
         activeStream = null;
         streamingSessionId = null;
+        streamingBubbleId = 0L;
+        streamingReplay.clear();
         Node graphic = sendButton.getGraphic();
         if (graphic instanceof Label icon) {
             icon.setText("\uE74A");
@@ -1372,7 +1424,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     private void switchToSession(String sessionId) {
         currentSessionId = sessionId;
         hidePlanBanner();
-        historyPager.render(sessionId);
+        renderConversation(sessionId);
         // 高亮当前会话行
         sidebar.renderSessions();
         updateHeaderTitle();
