@@ -62,6 +62,7 @@ import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
 import com.gettyio.gim.agent.tools.image.ImageGenerationClient;
 import com.gettyio.gim.agent.tools.image.ImageGenerationTools;
+import com.gettyio.gim.agent.tools.sandbox.BackgroundShellRunner;
 import com.gettyio.gim.agent.tools.sandbox.DockerAvailabilityProbe;
 import com.gettyio.gim.agent.tools.sandbox.SandboxExecutor;
 import com.gettyio.gim.agent.tools.sandbox.SandboxShellTool;
@@ -426,7 +427,7 @@ public final class AppContext implements AutoCloseable {
 
     /**
      * 应用终止（FX 线程）：按原 {@code @PreDestroy} 语义停机——热键 → 保持唤醒 → 懒构建的
-     * 小窗/终端 → 托盘 → 调度器 → 网关收尾。各步失败仅记日志，保证后续步骤继续执行。
+     * 小窗/终端 → 托盘 → 调度器 → 网关收尾 → 后台子进程清理。各步失败仅记日志，保证后续步骤继续执行。
      */
     @Override
     public synchronized void close() {
@@ -453,6 +454,9 @@ public final class AppContext implements AutoCloseable {
             }
         });
         runQuietly("智能体网关", gateway::close);
+        // 后台命令（execute 的 run_in_background 档）自己起的子进程不归框架管，退出时必须强杀，
+        // 否则窗口关了、dev server / 导出脚本还在机器上跑
+        runQuietly("后台命令", BackgroundShellRunner::disposeAll);
     }
 
     private static void runQuietly(String what, Runnable action) {
@@ -477,6 +481,18 @@ public final class AppContext implements AutoCloseable {
             public io.agentscope.core.model.Model resolveFallback(AgentDefinition def, String providerCode, String modelCode) {
                 ModelSpec fallback = modelResolver.resolveFallback(def, providerCode, modelCode);
                 return fallback == null ? null : modelFactory.getOrCreate(fallback);
+            }
+
+            @Override
+            public boolean supportsVision(AgentDefinition def, String providerCode, String modelCode) {
+                try {
+                    return providerAdmin.modelSupportsVision(
+                            modelResolver.resolveFor(def, providerCode, modelCode).modelCode());
+                } catch (RuntimeException e) {
+                    // 选模链没跑通（未配默认模型等）时不拦图片：本轮多半也会以别的方式失败，
+                    // 而谎报「模型看不见」会让 read_file 永远只回一句尺寸
+                    return true;
+                }
             }
         };
     }

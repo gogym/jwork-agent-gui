@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.memory.MemoryWriteTool;
+import com.gettyio.gim.agent.core.subagent.BuiltinSubagents;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.event.AgentEvent;
 import io.agentscope.core.event.AgentStartEvent;
@@ -158,6 +159,8 @@ public class HarnessAgentGateway implements AutoCloseable {
     private final Supplier<Model> modelSupplier;
     /** 备用模型供体（可空）：主模型故障时由 Harness 框架带重试切换；惰性解析避免过早装配第二个模型 */
     private volatile Supplier<Model> fallbackSupplier;
+    /** 当前模型能否收图片（可空=视为能）：read_file 读到图片时据此决定是否附多模态块 */
+    private volatile BooleanSupplier visionCapableSupplier;
     private final Path workspace;
     private volatile ToolConfirmCallback confirmCallback;
     private volatile Path skillsDir;
@@ -241,6 +244,15 @@ public class HarnessAgentGateway implements AutoCloseable {
         this.fallbackSupplier = fallbackSupplier;
     }
 
+    /**
+     * 注入「当前模型能否收图片」供体：read_file 覆盖工具在每次调用时读它。
+     * <p>给供体而不是布尔，因为生效模型要到请求里才定得下来（消息级覆盖 → 智能体自带 → 应用默认）；
+     * 方向判错会毁掉整轮请求——非视觉模型收到 image 块，provider 直接拒。</p>
+     */
+    public void setVisionCapableSupplier(BooleanSupplier visionCapableSupplier) {
+        this.visionCapableSupplier = visionCapableSupplier;
+    }
+
     /** 上下文窗口 token 上限（正数生效，装配前下发）；非法值忽略、保留默认。 */
     public void setMaxContextTokens(int maxContextTokens) {
         if (maxContextTokens > 0) {
@@ -293,8 +305,9 @@ public class HarnessAgentGateway implements AutoCloseable {
     }
 
     /**
-     * 下发可委派的子智能体声明。非空时装配会 {@code disableDynamicSubagents()} 走静态中间件，
-     * 严格按数据库定义注册委派对象（避免动态中间件每步重扫工作区而丢弃 builder 声明）。
+     * 下发数据库里定义的其它可委派子智能体（{@code null}/空即「用户没有自定义智能体」）。
+     * 装配时总会先并入内置只读 {@code explore}（见 {@link BuiltinSubagents}），因此委派工具
+     * {@code agent_spawn} 恒定在场；同名以用户定义为准。
      * 需在智能体首次装配（或失效重建）前调用才生效。
      */
     public void setSubagentDeclarations(List<SubagentDeclaration> subagentDeclarations) {
@@ -466,11 +479,11 @@ public class HarnessAgentGateway implements AutoCloseable {
                         // 其余工作区上下文（AGENTS.md / 知识索引）照常
                         builder = builder.disableMemoryTools().disableMemoryHooks();
                     }
-                    List<SubagentDeclaration> subs = this.subagentDeclarations;
-                    if (subs != null && !subs.isEmpty()) {
-                        // 按数据库定义静态注册可委派子智能体；关闭动态扫描避免每步重扫工作区丢弃这些声明
-                        builder = builder.subagents(subs).disableDynamicSubagents();
-                    }
+                    // 内置只读探索子代理始终在场，库内定义按名去重后一并静态注册（同名以用户定义为准）。
+                    // 走静态而非动态中间件：动态那档每步重扫工作区 subagents/，与本应用「声明来自数据库、
+                    // 装配期一次性下发」的形态不匹配；磁盘上的 subagents/*.md 在静态档仍会被扫进来一次。
+                    builder = builder.subagents(BuiltinSubagents.withExplore(this.subagentDeclarations))
+                            .disableDynamicSubagents();
                     Path deliverRoot = this.artifactSessionsDir;
                     if (deliverRoot != null) {
                         // 交付闭环：模型产出最终文件后调 deliver_artifact，落到本机可打开的会话目录，
@@ -502,6 +515,28 @@ public class HarnessAgentGateway implements AutoCloseable {
                         AbstractFilesystem fs = local.getWorkspaceManager().getFilesystem();
                         if (fs != null) {
                             local.getToolkit().registerTool(new OverwritableWriteFileTool(fs));
+                        }
+                    }
+                    if (local.getToolkit().getTool(LineNumberedReadFileTool.NAME) != null) {
+                        // 同名注册即覆盖框架内置 read_file：它的描述承诺行号但实现不给，二进制还整份
+                        // Base64 回灌且不限长——读一张图就烧掉几万字符乱码。这里补行号、限行限字符，
+                        // 文档走抽取、表格转 inspect_file、图片按模型能力附块，其余二进制只报不灌
+                        AbstractFilesystem fs = local.getWorkspaceManager().getFilesystem();
+                        if (fs != null) {
+                            local.getToolkit().registerTool(new LineNumberedReadFileTool(
+                                    fs, workspace, this.visionCapableSupplier));
+                        }
+                    }
+                    AbstractFilesystem fsForSearch = local.getWorkspaceManager().getFilesystem();
+                    if (fsForSearch != null) {
+                        // grep_files：框架按字面量搜（Pattern.quote），get.*Name 一类写法一律搜不到，
+                        // 模型搜不到就把整份文件读进上下文肉眼找；这里换成 JDK 正则 + 分页与三档输出
+                        if (local.getToolkit().getTool(RegexGrepTool.NAME) != null) {
+                            local.getToolkit().registerTool(new RegexGrepTool(fsForSearch));
+                        }
+                        // glob_files：框架按遍历序截断，历史文件占满前 200 条、刚生成的那份落在截断外
+                        if (local.getToolkit().getTool(MtimeOrderedGlobTool.NAME) != null) {
+                            local.getToolkit().registerTool(new MtimeOrderedGlobTool(fsForSearch));
                         }
                     }
                     for (Object target : toolTargets) {

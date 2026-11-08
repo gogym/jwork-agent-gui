@@ -24,11 +24,13 @@ import io.agentscope.core.tool.ToolParam;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.io.InputStream;
 import java.net.URI;
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
@@ -64,8 +66,12 @@ public class WebSearchTools {
 
     private static final String TAVILY_ENDPOINT = "https://api.tavily.com/search";
     private static final String BOCHA_ENDPOINT = "https://api.bochaai.com/v1/web-search";
-    /** 抓取正文的截断上限（字符），避免超长页面撑爆上下文。 */
-    private static final int MAX_FETCH_CHARS = 6000;
+    /** web_fetch 默认返回上限（字符）：与框架内置 web_fetch 同口径，够读完一篇长文。 */
+    private static final int DEFAULT_FETCH_CHARS = 20_000;
+    /** web_fetch 硬上限（字符）：再长就该用 prompt 选段，而不是整页灌进上下文。 */
+    private static final int MAX_FETCH_CHARS = 100_000;
+    /** 单次抓取最多读多少字节：防住把几十兆的下载文件读进内存。 */
+    private static final int MAX_PAGE_BYTES = 4_000_000;
     /** 单条搜索结果的摘要截断上限（字符）。 */
     private static final int SNIPPET_CHARS = 400;
 
@@ -90,11 +96,11 @@ public class WebSearchTools {
     public String webSearch(
             @ToolParam(name = "query", description = "搜索关键词或问题（尽量具体）") String query,
             @ToolParam(name = "max_results", required = false,
-                    description = "返回结果条数，1-10，默认 5") String maxResults) {
+                    description = "返回结果条数，1-10，默认 5") Integer maxResults) {
         if (query == null || query.isBlank()) {
             return "query 不能为空。";
         }
-        int n = clamp(parseInt(maxResults, 5), 1, 10);
+        int n = clamp(maxResults == null ? 5 : maxResults, 1, 10);
         return switch (currentProvider()) {
             case PROVIDER_BOCHA -> searchBocha(query.trim(), n);
             case PROVIDER_SEARXNG -> searchSearxng(query.trim(), n);
@@ -209,10 +215,18 @@ public class WebSearchTools {
         }
     }
 
-    /** 工具入口（{@code web_fetch}）：仅收 http/https，抓取后抽正文纯文本并按上限截断；失败信息以文本返回。 */
+    /** 工具入口（{@code web_fetch}）：抓页面 → 抽正文 → 按 prompt 选段或按上限截断；失败信息以文本返回。 */
     @Tool(name = "web_fetch", readOnly = true,
-            description = "抓取指定网页并返回其正文纯文本（已去标签、截断过长内容）。用于读取搜索结果里某条链接的完整页面。")
-    public String webFetch(@ToolParam(name = "url", description = "要抓取的网页地址（http/https）") String url) {
+            description = "抓取 HTTP(S) 网页并返回正文：已做正文抽取（去掉导航、侧栏、评论、相关推荐，"
+                    + "保留标题与段落，标题行以 # 标记），并给出重定向后的最终地址。"
+                    + "想知道页面里的某些信息时传 prompt，工具只回最相关的几段；不传则按 max_chars 从正文开头截断。")
+    public String webFetch(
+            @ToolParam(name = "url", description = "要抓取的网页地址（http/https）") String url,
+            @ToolParam(name = "prompt", required = false,
+                    description = "想从页面里得到什么（如「退款订单的统计口径」）；给了就只回相关段落")
+                    String prompt,
+            @ToolParam(name = "max_chars", required = false,
+                    description = "最多返回多少字符（默认 20000，上限 100000）") Integer maxChars) {
         if (url == null || url.isBlank()) {
             return "url 不能为空。";
         }
@@ -220,31 +234,167 @@ public class WebSearchTools {
         if (!target.startsWith("http://") && !target.startsWith("https://")) {
             return "仅支持 http/https 地址：" + target;
         }
+        int limit = maxChars != null && maxChars > 0
+                ? Math.min(maxChars, MAX_FETCH_CHARS) : DEFAULT_FETCH_CHARS;
         try {
             HttpRequest req = HttpRequest.newBuilder(URI.create(target))
                     .timeout(Duration.ofSeconds(20))
                     .header("User-Agent", "Mozilla/5.0 (Jwork Desktop)")
-                    .header("Accept", "text/html,application/xhtml+xml")
+                    .header("Accept", "text/html,application/xhtml+xml,text/plain,application/json")
                     .GET()
                     .build();
-            HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (resp.statusCode() / 100 != 2) {
-                return "抓取失败：HTTP " + resp.statusCode();
+            HttpResponse<InputStream> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofInputStream());
+            String finalUrl = resp.uri().toString();
+            int status = resp.statusCode();
+            try (InputStream in = resp.body()) {
+                if (status >= 400) {
+                    return "抓取失败：HTTP " + status + "（" + finalUrl + "）";
+                }
+                if (status >= 300) {
+                    // JDK 客户端不做 https→http 降级跳转：如实给出Location，别让模型以为抓到了正文
+                    String location = resp.headers().firstValue("location").orElse("");
+                    return "未跟随的重定向（HTTP " + status + "）：" + (location.isBlank() ? finalUrl : location)
+                            + "\n请改用该地址重试。";
+                }
+                byte[] raw = in.readNBytes(MAX_PAGE_BYTES);
+                String contentType = resp.headers().firstValue("content-type").orElse("");
+                return renderFetch(decode(raw, contentType), contentType, target, finalUrl,
+                        prompt, limit, raw.length >= MAX_PAGE_BYTES);
             }
-            String text = htmlToText(resp.body());
-            if (text.isBlank()) {
-                return "页面无可抽取的正文（可能是纯脚本渲染或非 HTML 内容）：" + target;
-            }
-            if (text.length() > MAX_FETCH_CHARS) {
-                text = text.substring(0, MAX_FETCH_CHARS) + "…（已截断）";
-            }
-            return "【网页正文】" + target + "\n" + text;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "抓取被中断。";
         } catch (Exception e) {
             log.warn("web_fetch 异常: {}", target, e);
             return "抓取失败：" + e.getMessage();
+        }
+    }
+
+    /**
+     * 渲染抓取结果：HTML 走正文抽取，纯文本/JSON 原样给出，其余类型明确说明读不了。
+     * 头部固定给出标题与最终地址（重定向时连原地址一起），正文按 prompt 选段或按上限截断。
+     */
+    private static String renderFetch(String body, String contentType, String target, String finalUrl,
+                                      String prompt, int limit, boolean byteCapped) {
+        String text;
+        String title = "";
+        if (isHtml(contentType, body)) {
+            HtmlArticleExtractor.Article article = HtmlArticleExtractor.extract(body);
+            title = article.title();
+            text = article.text();
+        } else if (contentType.contains("text") || contentType.contains("json")
+                || contentType.contains("xml") || contentType.isBlank()) {
+            text = body.strip();
+        } else {
+            return "该地址不是网页正文（Content-Type: " + contentType + "）：" + finalUrl
+                    + "\n需要保存这类文件时，用 execute 下载后再按文件类型处理。";
+        }
+        if (text.isBlank()) {
+            return "页面没有可抽取的正文（可能是纯脚本渲染，或站点返回了空内容）：" + finalUrl;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("【网页正文】").append(title.isBlank() ? finalUrl : title).append('\n');
+        sb.append("地址：").append(finalUrl);
+        if (!finalUrl.equals(target)) {
+            sb.append("（从 ").append(target).append(" 跳转）");
+        }
+        if (byteCapped) {
+            sb.append("（响应已按 ").append(MAX_PAGE_BYTES / 1024).append("KB 截断）");
+        }
+        sb.append('\n');
+        if (prompt != null && !prompt.isBlank()) {
+            PassageSelector.Selection picked = PassageSelector.select(text, prompt, limit);
+            if (picked.matched() > 0) {
+                sb.append("\n与「").append(prompt.strip()).append("」相关的段落（正文 ")
+                        .append(picked.total()).append(" 段，取回 ").append(picked.matched())
+                        .append(" 段，按原文顺序）：\n").append(picked.text());
+                return sb.toString();
+            }
+            sb.append("\n（正文里没有与该 prompt 直接相关的段落，以下按开头给出。）\n");
+        }
+        sb.append('\n');
+        if (text.length() > limit) {
+            sb.append(text, 0, limit).append("\n…（正文共 ").append(text.length())
+                    .append(" 字符，已截断到 ").append(limit)
+                    .append("；想看特定内容请带 prompt，或调大 max_chars）");
+        } else {
+            sb.append(text);
+        }
+        return sb.toString();
+    }
+
+    /** 是否按 HTML 处理：Content-Type 说了算，没有头时看正文开头像不像标记语言。 */
+    private static boolean isHtml(String contentType, String body) {
+        if (contentType.contains("html")) {
+            return true;
+        }
+        if (!contentType.isBlank() && !contentType.contains("text")) {
+            return false;
+        }
+        String head = body.stripLeading();
+        return head.regionMatches(true, 0, "<", 0, 1) || head.regionMatches(true, 0, "<!doctype", 0, 9);
+    }
+
+    /**
+     * 按页面真实编码解码：Content-Type 的 {@code charset} 优先，其次 HTML 里的 meta charset，
+     * 都不认识才用 UTF-8——GBK/GB2312 的国内站点不少，硬按 UTF-8 读会整页乱码。
+     */
+    private static String decode(byte[] raw, String contentType) {
+        Charset charset = charsetOf(contentTypeParam(contentType, "charset"), raw);
+        return new String(raw, charset);
+    }
+
+    private static Charset charsetOf(String fromHeader, byte[] raw) {
+        Charset direct = supported(fromHeader);
+        if (direct != null) {
+            return direct;
+        }
+        String head = new String(raw, 0, Math.min(raw.length, 2048), StandardCharsets.ISO_8859_1)
+                .toLowerCase(Locale.ROOT);
+        int at = head.indexOf("charset=");
+        if (at >= 0) {
+            Charset meta = supported(valueUpToDelimiters(head.substring(at + "charset=".length())));
+            if (meta != null) {
+                return meta;
+            }
+        }
+        return StandardCharsets.UTF_8;
+    }
+
+    /** 取响应头里的参数值：{@code text/html; charset=utf-8} 里的 charset。 */
+    private static String contentTypeParam(String header, String name) {
+        return header == null || header.isBlank() ? null : parameterOf(header, name);
+    }
+
+    private static String parameterOf(String header, String name) {
+        String lower = header.toLowerCase(Locale.ROOT);
+        int at = lower.indexOf(name + "=");
+        if (at < 0) {
+            return null;
+        }
+        return valueUpToDelimiters(header.substring(at + name.length() + 1));
+    }
+
+    private static String valueUpToDelimiters(String raw) {
+        String v = raw.strip();
+        int cut = v.length();
+        for (char stop : new char[] {';', ' ', '"', '\'', '>', '\t', '\n', '\r', '/'}) {
+            int at = v.indexOf(stop);
+            if (at >= 0 && at < cut) {
+                cut = at;
+            }
+        }
+        return v.substring(0, cut);
+    }
+
+    private static Charset supported(String name) {
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        try {
+            return Charset.forName(name.trim());
+        } catch (RuntimeException e) {
+            return null;
         }
     }
 
@@ -376,38 +526,7 @@ public class WebSearchTools {
         sb.append("   ").append(content.replace("\n", " ").trim()).append('\n');
     }
 
-    /** 粗略 HTML→文本：去 script/style，剥标签，折叠空白，解码常见实体。 */
-    private static String htmlToText(String html) {
-        if (html == null) {
-            return "";
-        }
-        String s = html
-                .replaceAll("(?is)<(script|style|noscript|svg|template)[^>]*>.*?</\\1>", " ")
-                .replaceAll("(?is)<br\\s*/?>", "\n")
-                .replaceAll("(?is)</(p|div|li|h[1-6]|tr|section|article)>", "\n")
-                .replaceAll("(?is)<[^>]+>", " ");
-        s = s.replace("&nbsp;", " ")
-                .replace("&amp;", "&")
-                .replace("&lt;", "<")
-                .replace("&gt;", ">")
-                .replace("&quot;", "\"")
-                .replace("&#39;", "'");
-        return s.replaceAll("[ \\t\\x0B\\f\\r]+", " ")
-                .replaceAll("\n{3,}", "\n\n")
-                .trim();
-    }
-
-    private static int parseInt(String raw, int def) {
-        if (raw == null || raw.isBlank()) {
-            return def;
-        }
-        try {
-            return Integer.parseInt(raw.trim());
-        } catch (NumberFormatException e) {
-            return def;
-        }
-    }
-
+    /** 收进 [lo, hi] 区间。 */
     private static int clamp(int v, int lo, int hi) {
         return Math.max(lo, Math.min(hi, v));
     }

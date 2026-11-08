@@ -26,7 +26,7 @@ import java.util.function.Supplier;
  * 面向 Agent 的知识检索工具：{@code knowledge_search}——对当前智能体的知识库做混合检索
  * （向量语义 + 关键词覆盖率加权），返回最相关的若干知识块原文与出处。
  * <p>与 KNOWLEDGE.md 文件树路线并存：先混合召回相关片段，需要完整上下文再按 doc_name 用
- * {@code read}/{@code grep} 读原文。embedding 未配置时返回明确提示（引导去知识页配置），
+ * {@code read_file}/{@code grep_files} 读原文。embedding 未配置时返回明确提示（引导去知识页配置），
  * 而非抛异常打断对话。每个智能体一份实例（agentCode 经网关注入）。</p>
  *
  * @author gogym
@@ -48,18 +48,18 @@ public class KnowledgeSearchTools {
     @Tool(name = "knowledge_search", readOnly = true,
             description = "在当前智能体的知识库中做混合检索（向量语义 + 关键词），返回最相关的知识片段及出处文档名。"
                     + "适合在 KNOWLEDGE.md 目录看不出该读哪个文件、或问题需要分散在多份资料里的细节时使用；"
-                    + "需要完整上下文时再用 read/grep 按出处文件名读原文。")
+                    + "需要完整上下文时再用 read_file/grep_files 按出处文件名读原文。")
     public String knowledgeSearch(
             @ToolParam(name = "query", description = "要检索的问题或关键词（语义自然表达即可）") String query,
             @ToolParam(name = "top_k", required = false,
-                    description = "返回片段条数，1-10，默认 5") String topK) {
+                    description = "返回片段条数，1-10，默认 5") Integer topK) {
         if (query == null || query.isBlank()) {
             return "query 不能为空。";
         }
         if (!indexer.isConfigured()) {
             return "向量知识索引未配置：请到「拓展 > 知识」页填写 embedding 提供方（Base URL / 模型 / API Key）后重建索引。";
         }
-        int k = parseTopK(topK);
+        int k = topK == null ? 5 : Math.max(1, Math.min(10, topK));
         try {
             List<EmbeddingIndexService.SearchHit> hits = indexer.search(agentCodeSupplier.get(), query.trim(), k);
             if (hits.isEmpty()) {
@@ -80,17 +80,6 @@ public class KnowledgeSearchTools {
             return sb.toString().strip();
         } catch (RuntimeException e) {
             return "知识检索失败：" + e.getMessage();
-        }
-    }
-
-    private static int parseTopK(String raw) {
-        if (raw == null || raw.isBlank()) {
-            return 5;
-        }
-        try {
-            return Math.max(1, Math.min(10, Integer.parseInt(raw.trim())));
-        } catch (NumberFormatException e) {
-            return 5;
         }
     }
 }

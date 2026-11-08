@@ -27,6 +27,7 @@ import java.nio.file.Path;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -145,14 +146,52 @@ class WorkspaceProvisionerTest {
     }
 
     @Test
-    @DisplayName("带旧版本标记的模板可升级（模拟未来再发新版）")
+    @DisplayName("旧版带标记的模板原文可升级：升级到当前版并带上「先搜后读」总则")
     void olderMarkedTemplateUpgrades() throws IOException {
-        provisioner().provision();
-        String marked = Files.readString(agentsMd(), StandardCharsets.UTF_8)
-                .replace(WorkspaceProvisioner.TEMPLATE_VERSION + " -->", "1 -->");
-        writeAgentsMd(marked);
+        String v2 = WorkspaceProvisioner.markedTemplate(WorkspaceProvisioner.TEMPLATE_VERSION - 1);
+        assertNotNull(v2, "上一版模板必须有原文记录，否则升级判定只能凭标记瞎猜");
+        writeAgentsMd(v2);
         WorkspaceProvisioner p = provisioner();
         assertEquals(WorkspaceProvisioner.AgentsMdState.UPGRADABLE, p.agentsMdState());
         assertTrue(p.upgradeAgentsMd());
+        String upgraded = Files.readString(agentsMd(), StandardCharsets.UTF_8);
+        assertTrue(upgraded.contains("grep_files"), "新版应补搜索优先总则");
+        assertTrue(upgraded.contains("<!-- gim-agents-template: " + WorkspaceProvisioner.TEMPLATE_VERSION),
+                "升级后应换到当前版本标记");
+    }
+
+    @Test
+    @DisplayName("v3 老工作区可升级：升级后补齐探索子代理与 web_fetch 截断口径")
+    void previousMarkedTemplateUpgradesToNewGuidance() throws IOException {
+        writeAgentsMd(WorkspaceProvisioner.markedTemplate(3));
+        WorkspaceProvisioner p = provisioner();
+        assertEquals(WorkspaceProvisioner.AgentsMdState.UPGRADABLE, p.agentsMdState());
+        assertTrue(p.upgradeAgentsMd());
+
+        String upgraded = Files.readString(agentsMd(), StandardCharsets.UTF_8);
+        assertTrue(upgraded.contains("agent_spawn"), "新版应补子代理分工总则");
+        assertTrue(upgraded.contains("max_chars"), "新版应讲清 web_fetch 的截断口径");
+        assertFalse(upgraded.contains("完整正文"), "旧文案里「读完整正文」的承诺已被实现推翻");
+    }
+
+    @Test
+    @DisplayName("改了正文却留着旧版本标记：认作用户改写，不覆盖")
+    void staleMarkWithEditedBodyIsNeverTouched() throws IOException {
+        String tampered = WorkspaceProvisioner.markedTemplate(WorkspaceProvisioner.TEMPLATE_VERSION - 1)
+                .replace("- 简洁直接：回答以可执行为先，避免冗余。",
+                        "- 简洁直接：回答以可执行为先，避免冗余。\n- 我的规矩：所有报表都要留源表路径。");
+        writeAgentsMd(tampered);
+        WorkspaceProvisioner p = provisioner();
+        assertEquals(WorkspaceProvisioner.AgentsMdState.CUSTOMIZED, p.agentsMdState());
+        assertFalse(p.upgradeAgentsMd());
+        assertEquals(tampered, Files.readString(agentsMd(), StandardCharsets.UTF_8));
+    }
+
+    @Test
+    @DisplayName("换行符与缩进差异不影响带标记模板的核对")
+    void markedTemplateToleratesLineEndings() throws IOException {
+        writeAgentsMd(WorkspaceProvisioner.markedTemplate(WorkspaceProvisioner.TEMPLATE_VERSION - 1)
+                .replace("\n", "\r\n"));
+        assertEquals(WorkspaceProvisioner.AgentsMdState.UPGRADABLE, provisioner().agentsMdState());
     }
 }

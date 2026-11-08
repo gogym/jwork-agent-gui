@@ -61,6 +61,14 @@ public class MermaidView {
         this.host.setPrefSize(DEFAULT_WIDTH, 120);
         this.view.syncSize(DEFAULT_WIDTH, 120);
         this.view.loadUrl(mermaidUrl(code));
+        // 一张图 = 一个 Chromium 浏览器实例，而每次重渲染都新建视图、旧节点不再复用
+        // （MarkdownRenderer.render 总返回全新节点列表）。离开场景即释放，否则预览过的每个
+        // 文档都把浏览器与帧缓冲留在进程里，直到退出。
+        this.host.sceneProperty().addListener((obs, was, now) -> {
+            if (was != null && now == null) {
+                view.dispose();
+            }
+        });
     }
 
     private static String mermaidUrl(String code) {

@@ -23,6 +23,7 @@ import com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService;
 import com.gettyio.gim.agent.ui.desktop.QuickAskWindow;
 import com.gettyio.gim.agent.ui.desktop.SelectionAssistant;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.AppLifecycle;
@@ -204,9 +205,14 @@ public class GimAgentApplication extends Application {
         return Math.max(min, Math.min(value, max));
     }
 
-    /** 应用退出回调：关闭组合根（AppContext）后终止 JavaFX 平台。 */
+    /** 应用退出回调：先释放 JCEF 视图，再关闭组合根，最后终止 JavaFX 平台。 */
     @Override
     public void stop() {
+        // 常驻浏览器必须在这里关掉：进程级 CefApp 的 dispose 挂在 JVM shutdown hook 上，
+        // 而 hook 只在 JVM 真正开始退出时跑。留着 CefBrowser（及其屏幕外宿主 Frame）会让
+        // AWT/CEF 线程继续存活，退出卡在 hook 之前，cache 目录句柄被渲染子进程占住——
+        // 下一次启动就撞在「文件被占用」上。
+        JcefOsrView.disposeAll();
         if (context != null) {
             context.close();
         }

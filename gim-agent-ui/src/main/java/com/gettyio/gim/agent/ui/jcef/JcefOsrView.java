@@ -44,6 +44,8 @@ import java.awt.event.InputEvent;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
 /**
@@ -66,6 +68,29 @@ import java.util.function.Consumer;
 public final class JcefOsrView {
 
     private static final Logger log = LoggerFactory.getLogger(JcefOsrView.class);
+
+    /**
+     * 在场视图登记：主窗聊天、Mermaid 卡片、输入框、预览窗都是常驻实例，没人调 {@link #dispose()}。
+     * <p>停机时先逐个关掉浏览器，{@code CefApp.dispose()} 才不会面对仍开着的 CefBrowser——那时
+     * 渲染子进程继续占着 cache 目录句柄，下一次启动就被「文件被占用」卡在解包/引导阶段。</p>
+     */
+    private static final Set<JcefOsrView> LIVE = ConcurrentHashMap.newKeySet();
+
+    /**
+     * 释放全部在场视图（浏览器、消息路由、屏幕外宿主 Frame）。
+     * <p>须在 JavaFX 应用线程调用：{@link #dispose()} 要停 FX 动画计时器。由应用停机路径
+     * （{@code GimAgentApplication.stop()}）在关闭组合根之前调用。</p>
+     */
+    public static void disposeAll() {
+        for (JcefOsrView v : LIVE.toArray(new JcefOsrView[0])) {
+            try {
+                v.dispose();
+            } catch (Throwable t) {
+                log.warn("JCEF 视图释放失败", t);
+            }
+        }
+        LIVE.clear();
+    }
 
     private final Canvas canvas = new Canvas();
     private final StackPane host = new StackPane(canvas);
@@ -213,6 +238,7 @@ public final class JcefOsrView {
         // 计入 min/pref 尺寸——窗口拉宽后 canvas 变大并把宿主的最小宽度撑大，窗口缩小时布局被卡住
         // 缩不回（表现为内容不缩回、画布被居中偏移）。取消托管后宿主尺寸完全随容器，画布定位固定左上。
         canvas.setManaged(false);
+        LIVE.add(this);
         this.client = JcefRuntime.get().createClient();
 
         CefMessageRouter.CefMessageRouterConfig cfg = new CefMessageRouter.CefMessageRouterConfig();
@@ -1292,6 +1318,7 @@ public final class JcefOsrView {
 
     /** 销毁视图：停掉计时器、关闭浏览器/路由/客户端并释放屏幕外宿主窗口（各步容错）。 */
     public void dispose() {
+        LIVE.remove(this);
         final javafx.animation.PauseTransition fd = sizeFlushDelay;
         if (fd != null) {
             try { fd.stop(); } catch (Throwable ignored) {}

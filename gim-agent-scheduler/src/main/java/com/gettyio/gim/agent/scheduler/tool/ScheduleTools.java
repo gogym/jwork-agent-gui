@@ -70,7 +70,7 @@ public class ScheduleTools {
             @ToolParam(name = "task_name", description = "任务的可读名称") String taskName,
             @ToolParam(name = "cron", required = false, description = "Quartz cron 表达式，如 '0 0 9 * * ?'（周期任务用，与 run_at 互斥）") String cron,
             @ToolParam(name = "prompt", description = "到点投递给 Agent 的指令内容") String prompt,
-            @ToolParam(name = "once", required = false, description = "是否一次性任务（配 cron 时生效），'true'/'false'，默认 false") String once,
+            @ToolParam(name = "once", required = false, description = "是否一次性任务（配 cron 时生效：只触发一次后停用），默认 false") Boolean once,
             @ToolParam(name = "run_at", required = false, description = "一次性执行时刻 'yyyy-MM-dd HH:mm:ss'（与 cron 互斥）") String runAt) {
         boolean hasRunAt = runAt != null && !runAt.isBlank();
         boolean hasCron = cron != null && !cron.isBlank();
@@ -112,8 +112,8 @@ public class ScheduleTools {
         task.setRunAt(runAtTime);
         task.setStatus(TaskStatus.READY.name());
         // 指定时刻的一次性任务强制 once；否则按传入 once
-        task.setOnce(runAtTime != null || "true".equalsIgnoreCase(once)
-                ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
+        boolean oneShot = runAtTime != null || Boolean.TRUE.equals(once);
+        task.setOnce(oneShot ? EnabledStatus.ENABLED : EnabledStatus.DISABLED);
         taskDao.insert(task);
         try {
             schedulerService.schedule(task);
@@ -124,12 +124,13 @@ public class ScheduleTools {
         }
         return "已创建定时任务 [" + task.getTaskName() + "] 编码=" + code
                 + (runAtTime != null ? " 执行于=" + runAtTime.format(FMT) + "（一次性）"
-                        : " cron=" + expr + ("true".equalsIgnoreCase(once) ? "（一次性）" : "")) + "。";
+                        : " cron=" + expr + (oneShot ? "（一次性）" : "")) + "。";
     }
 
     /** 工具入口（{@code list_tasks}）：列出全部任务的编码/名称/触发定义/状态/下次触发时刻。 */
     @Tool(name = "list_tasks", readOnly = true,
-            description = "列出所有已配置的定时任务，返回其编码、名称、cron、状态。")
+            description = "列出所有已配置的定时任务，逐条返回编码、名称、触发定义（cron= 周期表达式或"
+                    + " run_at= 一次性时刻）、状态与下次触发时刻。取消时用编码（task- 开头那段）。")
     public String listTasks() {
         List<ScheduledTask> tasks = taskDao.findAll();
         if (tasks.isEmpty()) {

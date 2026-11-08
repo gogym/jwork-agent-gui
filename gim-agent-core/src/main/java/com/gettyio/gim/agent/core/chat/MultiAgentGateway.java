@@ -248,6 +248,9 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
                 () -> modelResolver.resolve(effective, providerCode, modelCode), workspace);
         // 备用模型惰性解析：装配时才找替代，解析不出则保持单模型（不抛错不阻断对话）
         gateway.setFallbackSupplier(() -> modelResolver.resolveFallback(effective, providerCode, modelCode));
+        // 视觉能力随同一选模链判定：read_file 读到图片时据此决定附不附多模态块（装配方不实现即视为能看）
+        gateway.setVisionCapableSupplier(
+                () -> modelResolver.supportsVision(effective, providerCode, modelCode));
         gateway.setProjectDir(project);
         assembler.accept(gateway);
         // 能力在通用挂载之后下发：白名单可以覆盖共享技能目录等全局默认
@@ -349,6 +352,15 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
          */
         default Model resolveFallback(AgentDefinition definition, String providerCode, String modelCode) {
             return null;
+        }
+
+        /**
+         * 该链解析出的生效模型能否接收图片：仅供 read_file 决定附不附多模态块。
+         * <p>装配方不覆盖即按能看处理——与模型管理侧「未测得即放行」一致；给非视觉模型发图片块
+         * 会让整轮请求被 provider 拒掉，所以实现方应在解析失败时返回 {@code true} 而非抛。</p>
+         */
+        default boolean supportsVision(AgentDefinition definition, String providerCode, String modelCode) {
+            return true;
         }
     }
 }

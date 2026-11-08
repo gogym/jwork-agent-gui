@@ -88,8 +88,8 @@ class WebSearchToolsTest {
     @Test
     @DisplayName("web_fetch：空 url 拒绝，非 http/https 明确提示")
     void fetchGuardsUrl() {
-        assertTrue(withKey(() -> "sk").webFetch("").contains("不能为空"));
-        assertTrue(withKey(() -> "sk").webFetch(null).contains("不能为空"));
-        assertTrue(withKey(() -> "sk").webFetch("ftp://example.com/x").contains("仅支持"));
+        assertTrue(withKey(() -> "sk").webFetch("", null, null).contains("不能为空"));
+        assertTrue(withKey(() -> "sk").webFetch(null, null, null).contains("不能为空"));
+        assertTrue(withKey(() -> "sk").webFetch("ftp://example.com/x", null, null).contains("仅支持"));
     }
 }

@@ -48,7 +48,10 @@ import java.util.function.Supplier;
  *   <li><b>本地档</b>：未开启隔离、非自动通过档、或 Docker 握手失败时，完整委托内置实现
  *       （含 working_directory 校验与输出渲染），行为与替换前逐字节一致；</li>
  *   <li><b>回退</b>：开启隔离但环境不可用/执行中途异常时自动回退本地执行，并以每会话一次的
- *       提示标注「未在容器内执行」，绝不让 Shell 能力因沙箱故障而中断。</li>
+ *       提示标注「未在容器内执行」，绝不让 Shell 能力因沙箱故障而中断；</li>
+ *   <li><b>后台档</b>：{@code run_in_background=true} 交给 {@link BackgroundShellRunner} 自己持有
+ *       进程，配 {@code shell_output}/{@code kill_shell} 增量读进度与真停；容器档下直接拒绝，
+ *       不把本该隔离的命令偷偷跑在宿主上。</li>
  * </ul>
  *
  * @author gogym
@@ -60,16 +63,31 @@ public class SandboxShellTool {
     /** 注册工具名：与框架内置 Shell 工具同名，装配后注册即完成替换。 */
     public static final String NAME = "execute";
 
-    /** 与框架内置 Shell 工具完全一致的描述：替换实现不应改变模型对工具的既有理解。 */
+    /** 与框架内置 Shell 工具同源的描述，末尾补上本地增强的两档：更宽的默认超时与后台执行。 */
     private static final String DESCRIPTION =
             "Execute a shell command. Use for git, npm, build, test, and other terminal"
                     + " operations. Returns combined output and exit code. If a dedicated tool"
                     + " exists (e.g., read_file, write_file), you MUST use it instead of shell"
-                    + " commands.";
+                    + " commands. For a command that outlives a reasonable timeout (a dev server,"
+                    + " a long training or export job, watch -n), pass run_in_background=true: it"
+                    + " returns a task id immediately, and shell_output(task_id) reads whatever has"
+                    + " appeared so far while kill_shell(task_id) stops it.";
 
     /** 工具级默认超时（秒）：框架内置是 30，这里放宽到 120——pandas/openpyxl 出报表的脚本常跑过半分钟，
      *  超时报错后模型只会改个写法再跑一遍，白烧一轮。显式传 {@code timeout} 仍以模型给的为准。 */
     private static final int DEFAULT_TIMEOUT_SECONDS = 120;
+
+    /** shell_output 缺省等待秒数：给一点等待窗口，模型一次调用就能看到进展而不是空转。 */
+    private static final int DEFAULT_WAIT_SECONDS = 15;
+
+    /** shell_output 缺省单次读取字符数。 */
+    private static final int DEFAULT_READ_CHARS = 12_000;
+
+    /**
+     * shell_output 等待上限（秒）：框架单次工具调用默认 5 分钟就判超时，留出收尾余量后取 120——
+     * 再长也只是把风险推给框架，模型本来就能反复 poll。
+     */
+    private static final int MAX_WAIT_SECONDS = 120;
 
     /** 输出截断上限（字符），与本地档默认（LocalFilesystemSpec.maxOutputBytes=100_000）对齐。 */
     private static final int MAX_OUTPUT_CHARS = 100_000;
@@ -143,7 +161,13 @@ public class SandboxShellTool {
                             name = "timeout",
                             description = "Timeout in seconds (default: 120)",
                             required = false)
-                    Integer timeout) {
+                    Integer timeout,
+            @ToolParam(
+                            name = "run_in_background",
+                            description = "Start the command in the background and return a task"
+                                    + " id immediately instead of waiting for it (default: false)",
+                            required = false)
+                    Boolean runInBackground) {
         if (command == null || command.isBlank()) {
             return localDelegate.execute(runtimeContext, command, workingDirectory, timeout);
         }
@@ -155,6 +179,9 @@ public class SandboxShellTool {
                     + " (absolute paths, '~', and '..' are not allowed).";
         }
         int timeoutSeconds = timeout != null && timeout > 0 ? timeout : DEFAULT_TIMEOUT_SECONDS;
+        if (Boolean.TRUE.equals(runInBackground)) {
+            return startBackground(runtimeContext, command, wd);
+        }
         if (!dockerModeEnabled()) {
             // 本地档也按放宽后的默认值下发（框架内置默认 30 秒，脚本类任务不够用）
             return localDelegate.execute(runtimeContext, command, workingDirectory, timeoutSeconds);
@@ -181,7 +208,111 @@ public class SandboxShellTool {
         }
     }
 
+    // ===================== 后台任务读取 =====================
+
+    /**
+     * 读后台任务的增量输出。游标由上一次调用给出，只回新增部分，反复轮询不会把同一段日志灌进上下文。
+     *
+     * @param taskId      {@code execute(run_in_background=true)} 返回的任务号
+     * @param cursor      上一次返回的游标（缺省从头读）
+     * @param waitSeconds 没有新增输出时的最长等待秒数
+     * @param limit       本次最多返回的字符数
+     */
+    @Tool(name = "shell_output", readOnly = true, concurrencySafe = true,
+            description = "Read the output of a command started with execute"
+                    + "(run_in_background=true). Returns what has appeared since the cursor you"
+                    + " passed, plus the cursor for the next call, plus whether the task is still"
+                    + " running or how it ended. Pass wait_seconds to block until new output"
+                    + " appears instead of polling in a tight loop.")
+    public String shellOutput(
+            @ToolParam(name = "task_id", description = "Task id returned by execute") String taskId,
+            @ToolParam(name = "cursor", description = "Cursor from the previous reply"
+                            + " (omit to read from the beginning)", required = false) Long cursor,
+            @ToolParam(name = "wait_seconds", description =
+                            "Seconds to wait for new output when there is none yet (default: 15,"
+                                    + " maximum: 120)", required = false) Integer waitSeconds,
+            @ToolParam(name = "limit", description = "Maximum characters to return this call"
+                            + " (default: 12000; whatever does not fit stays behind the next"
+                            + " cursor)", required = false) Integer limit) {
+        if (taskId == null || taskId.isBlank()) {
+            return "Error: task_id is required. Running tasks: " + BackgroundShellRunner.runningIds();
+        }
+        long from = cursor == null || cursor < 0 ? 0L : cursor;
+        int wait = waitSeconds == null ? DEFAULT_WAIT_SECONDS
+                : Math.min(Math.max(waitSeconds, 0), MAX_WAIT_SECONDS);
+        int maxChars = limit == null || limit <= 0 ? DEFAULT_READ_CHARS : limit;
+        return BackgroundShellRunner.poll(taskId.strip(), from, maxChars, wait);
+    }
+
+    /** 停掉后台任务：进程真被 destroyForcibly，不是只把工具调用取消掉。 */
+    @Tool(name = "kill_shell",
+            description = "Stop a background command started with execute(run_in_background=true)"
+                    + " and report what it had been running for. Finished tasks are reported"
+                    + " as-is rather than restarted.")
+    public String killShell(
+            @ToolParam(name = "task_id", description = "Task id returned by execute") String taskId) {
+        if (taskId == null || taskId.isBlank()) {
+            return "Error: task_id is required. Running tasks: " + BackgroundShellRunner.runningIds();
+        }
+        return BackgroundShellRunner.kill(taskId.strip());
+    }
+
     // ===================== 内部流程 =====================
+
+    /**
+     * 后台档：起进程、立刻返回任务号，长任务不再占着对话轮次干等。
+     *
+     * <p>沙箱档下直接拒绝：容器是一次性的，{@code --rm} 退出即销毁，没有「后台跑着的容器」可Poll；
+     * 若此时偷偷落回本机执行，等于把用户明确要求隔离的命令跑在了宿主上。</p>
+     */
+    private String startBackground(RuntimeContext runtimeContext, String command, String wd) {
+        String notice = "";
+        if (dockerModeEnabled()) {
+            if (probeAvailable()) {
+                return "Error: run_in_background=true is not available while Docker sandbox isolation"
+                        + " is active (each sandboxed command runs in a one-shot container)."
+                        + " Run it without run_in_background and raise timeout, or turn off sandbox"
+                        + " isolation in settings for long-running jobs.";
+            }
+            // Docker 已开但握手不上：同步档此时同样按本地执行，后台如实标注同一口径
+            notice = fallbackNotice(runtimeContext);
+        }
+        try {
+            String taskId = BackgroundShellRunner.start(command, backgroundDir(wd));
+            return notice + "Started background task " + taskId + ".\n"
+                    + "Read what has appeared so far with shell_output(task_id=\"" + taskId
+                    + "\", cursor=<the cursor from the previous reply>) and stop it with"
+                    + " kill_shell(task_id=\"" + taskId + "\").\n"
+                    + "The command keeps running while you do other work in this turn - poll it"
+                    + " near the end rather than assuming it is done.";
+        } catch (RuntimeException | IOException e) {
+            log.warn("后台命令启动失败: {}", e.getMessage(), e);
+            return "Error: failed to start the background command: " + e.getMessage();
+        }
+    }
+
+    /**
+     * 后台任务的工作目录：与本地档 shell 的 pwd 对齐（有授权项目目录时落在项目目录），
+     * working_directory 仍是已通过校验的工作区内相对路径。
+     */
+    private Path backgroundDir(String wd) {
+        Path base = project != null ? project : workspace;
+        if (wd == null || wd.isEmpty()) {
+            return base;
+        }
+        Path resolved = base.resolve(wd).normalize();
+        return resolved.startsWith(base) ? resolved : base;
+    }
+
+    /** Docker 握手（探针异常按不可用处理，与同步档的回退口径一致）。 */
+    private boolean probeAvailable() {
+        try {
+            return probe.available();
+        } catch (RuntimeException e) {
+            log.warn("Docker 探针失败，视为不可用: {}", e.getMessage());
+            return false;
+        }
+    }
 
     /** 是否走容器档：本轮自动通过（黑名单仍由权限链拦截）且用户开启了 Docker 隔离。 */
     private boolean dockerModeEnabled() {
