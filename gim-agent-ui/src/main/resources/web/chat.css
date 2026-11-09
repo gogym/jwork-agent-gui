@@ -424,6 +424,9 @@ body {
 
 /* mermaid 代码块在聊天区的简单呈现（真正的图渲染仍由卡片化扩展处理） */
 .code-block.is-mermaid pre { overflow-x: auto; }
+/* Mermaid 出图后替换代码体（源码仍可经头部复制/预览取回）；未出图时本节点不存在 */
+.mmd-live { padding: 12px 14px; overflow-x: auto; text-align: center; }
+.mmd-live svg { max-width: 100%; height: auto; }
 
 /* ---------- 过程区：一轮的「工作日志」（思考 + 工具 + 旁白） ---------- */
 // 刻意比正文低两档：不描边、不加底色、缩进一级、字号小一档、色弱一级。
@@ -487,6 +490,8 @@ body {
 .log-item.open > .log-detail { display: block; }
 /* 思考全文：正文的排版，但整体降一档色，展开后仍在讲「这是过程不是答案」 */
 .log-detail .md { color: var(--gim-text-3); font-size: var(--meta-font); line-height: 1.65; max-height: 260px; overflow-y: auto; }
+/* 在途思考全文：定格前只有纯文本，排版留到 seal 的那一次，所以这里自己保住换行与滚动 */
+.log-detail-raw { color: var(--gim-text-3); font-size: var(--meta-font); line-height: 1.65; max-height: 260px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: break-word; }
 .log-detail-label { font-size: var(--meta-font); color: var(--gim-text-4); margin: 4px 0 2px; }
 .log-detail-text {
     display: block;

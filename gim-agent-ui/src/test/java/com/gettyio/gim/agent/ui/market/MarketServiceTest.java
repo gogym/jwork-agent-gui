@@ -107,4 +107,15 @@ class MarketServiceTest {
         IOException noDownload = assertThrows(IOException.class, () -> service.installSkill(noUrl, null));
         assertTrue(noDownload.getMessage().contains("下载地址"));
     }
+
+    @Test
+    @DisplayName("技能包下载地址落在内网时拒掉：市场条目是服务端返回的数据，不是用户填的地址")
+    void installSkillRefusesInternalDownloadUrl() {
+        MarketService.MarketSkill viaInternal = new MarketService.MarketSkill(
+                "demo-skill", "演示技能", "desc", "1.0.0", "tester",
+                List.of(), "http://127.0.0.1:8080/skill.zip", "", -1, "", 0, "");
+
+        IOException ex = assertThrows(IOException.class, () -> service.installSkill(viaInternal, null));
+        assertTrue(ex.getMessage().contains("内网"), ex.getMessage());
+    }
 }

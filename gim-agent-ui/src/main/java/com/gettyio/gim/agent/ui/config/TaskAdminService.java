@@ -131,12 +131,26 @@ public class TaskAdminService {
         });
     }
 
-    /** 手动立即执行一次（异步，不等待结果；执行语义、历史记录与完成通知与调度触发一致）。 */
-    public void runNow(String taskCode) {
+    /**
+     * 手动立即执行一次（异步，不等待结果；执行语义、历史记录与完成通知与调度触发一致）。
+     * <p>已有一轮在跑时不再提交第二轮：合并输出模式下两轮共用 {@code task-{code}} 会话，
+     * 并发落盘会把历史写乱。</p>
+     *
+     * @return 是否已提交；{@code false} 表示任务不存在或上一轮尚未结束
+     */
+    public boolean runNow(String taskCode) {
+        if (taskCode == null || db.taskDao().findByCode(taskCode).isEmpty()) {
+            return false;
+        }
+        if (agentTaskExecutor.isRunning(taskCode)) {
+            log.info("任务上一轮尚未结束，忽略重复的立即执行: {}", taskCode);
+            return false;
+        }
         Thread t = new Thread(() -> agentTaskExecutor.run(taskCode, null, false, null),
                 "task-run-" + taskCode);
         t.setDaemon(true);
         t.start();
+        return true;
     }
 
     /** 执行记录对应的会话是否已存在（存在才可「查看会话」）。 */

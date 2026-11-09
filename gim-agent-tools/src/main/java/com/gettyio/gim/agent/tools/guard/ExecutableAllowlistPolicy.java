@@ -51,9 +51,6 @@ public class ExecutableAllowlistPolicy implements ToolGuard {
     /** 框架注册的 shell 工具名（ShellExecuteTool.NAME）。 */
     public static final String SHELL_TOOL = "execute";
 
-    /** 命令分段符：&&、||、管道 |、分号 ;、按位与 &、换行。 */
-    private static final Pattern SEGMENT_SPLIT = Pattern.compile("&&|\\|\\||;|\\||&|\\r?\\n");
-
     /** 形如 FOO=bar 的环境变量赋值前缀（应跳过、取其后真正的命令名）。 */
     private static final Pattern ENV_ASSIGN = Pattern.compile("^[A-Za-z_][A-Za-z0-9_]*=");
 
@@ -141,21 +138,43 @@ public class ExecutableAllowlistPolicy implements ToolGuard {
 
     /**
      * 命令串里各分段首个可执行名（归一化小写基名，去重保序）。
+     * <p>解释器载荷会被一并展开：{@code cmd /c "notepad"} 的真动作是 notepad，只看首个 token
+     * 就等于让白名单内的 {@code cmd} 替任意程序背书。</p>
      * <p>白名单判定与「总是允许同类命令」的规则键共用这一份解析，两处口径必须一致，
      * 否则会出现「记住了 python 却仍每次询问」或反之。</p>
      */
     public static Set<String> executablesOf(String command) {
         Set<String> out = new LinkedHashSet<>();
-        if (command == null || command.isBlank()) {
-            return out;
+        addFirstExecutables(command, out);
+        for (String payload : CommandPayloads.expand(command)) {
+            addFirstExecutables(payload, out);
         }
-        for (String seg : SEGMENT_SPLIT.split(command)) {
+        return out;
+    }
+
+    /** 一段命令里各分段的首个可执行名（不做载荷展开）。 */
+    private static void addFirstExecutables(String command, Set<String> out) {
+        for (String seg : CommandPayloads.splitSegments(command)) {
             String exe = firstExecutable(seg);
             if (exe != null) {
                 out.add(exe);
             }
         }
-        return out;
+    }
+
+    /** 该调用是否需要人工过目（自动档下限的判据）：含任一解释器即为真。 */
+    public static boolean involvesInterpreter(String toolName, String toolInput) {
+        if (!SHELL_TOOL.equalsIgnoreCase(toolName)) {
+            return false;
+        }
+        for (ToolCallView call : ToolCallsCodec.decode(toolInput)) {
+            for (String exe : executablesOf(call.text("command"))) {
+                if (CommandPayloads.isInterpreter(exe)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     /**
@@ -163,8 +182,11 @@ public class ExecutableAllowlistPolicy implements ToolGuard {
      * 去引号、取路径基名、去可执行扩展名、转小写。取不到（纯赋值/空段）返回 {@code null} 表示不判定。
      */
     private static String firstExecutable(String segment) {
-        String s = segment.strip();
-        String[] tokens = s.split("\\s+");
+        return firstExecutableOf(CommandPayloads.tokenize(segment));
+    }
+
+    /** 从已切分的 token 里取首个非环境变量赋值的程序名（归一化）。 */
+    static String firstExecutableOf(List<String> tokens) {
         for (String token : tokens) {
             if (token.isEmpty()) {
                 continue;
@@ -178,7 +200,7 @@ public class ExecutableAllowlistPolicy implements ToolGuard {
     }
 
     /** 归一化单个程序名：去首尾引号、取文件名基名、去扩展名、转小写；空则返回 {@code null}。 */
-    private static String normalize(String rawToken) {
+    static String normalize(String rawToken) {
         if (rawToken == null) {
             return null;
         }

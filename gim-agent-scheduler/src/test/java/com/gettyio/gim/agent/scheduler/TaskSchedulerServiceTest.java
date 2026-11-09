@@ -35,10 +35,12 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Properties;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -140,6 +142,32 @@ class TaskSchedulerServiceTest {
         assertTrue(scheduler.checkExists(org.quartz.JobKey.jobKey("u1", JOB_GROUP)));
         service.unschedule("u1");
         assertTrue(!scheduler.checkExists(org.quartz.JobKey.jobKey("u1", JOB_GROUP)));
+    }
+
+    @Test
+    @DisplayName("unschedule 只摘同名作业：其他任务不受影响，未注册的编码为无操作")
+    void unscheduleAffectsOnlyNamedJob() throws Exception {
+        ScheduledTask keep = task("keep1");
+        keep.setCronExpression("0 0 9 * * ?");
+        ScheduledTask drop = task("drop1");
+        drop.setCronExpression("0 0 10 * * ?");
+        service.schedule(keep);
+        service.schedule(drop);
+
+        service.unschedule("drop1");
+        service.unschedule("never-registered");
+
+        assertTrue(!scheduler.checkExists(org.quartz.JobKey.jobKey("drop1", JOB_GROUP)));
+        assertInstanceOf(CronTrigger.class, triggerOf("keep1"));
+    }
+
+    @Test
+    @DisplayName("unscheduleQuietly 吞掉调度器异常：下线钩子是 Consumer，不能往外抛")
+    void unscheduleQuietlySwallowsSchedulerFailure() throws Exception {
+        Scheduler broken = mock(Scheduler.class);
+        when(broken.deleteJob(any(org.quartz.JobKey.class))).thenThrow(new SchedulerException("调度器已关"));
+
+        assertDoesNotThrow(() -> new TaskSchedulerService(broken, taskDao).unscheduleQuietly("z1"));
     }
 
     @Test

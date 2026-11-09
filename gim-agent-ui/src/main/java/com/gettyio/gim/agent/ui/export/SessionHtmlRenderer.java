@@ -21,6 +21,7 @@ import com.gettyio.gim.agent.core.chat.ToolCallsCodec.ToolCallView;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import org.commonmark.ext.gfm.tables.TablesExtension;
 import org.commonmark.parser.Parser;
 import org.commonmark.renderer.html.HtmlRenderer;
@@ -77,12 +78,14 @@ public final class SessionHtmlRenderer {
     public static String render(ChatSession session, List<ChatConversation> messages) {
         List<ChatConversation> list = messages == null ? List.of() : messages;
         String title = session == null || session.getTitle() == null || session.getTitle().isBlank()
-                ? (session == null ? "会话导出" : session.getSessionId())
+                ? (session == null ? I18n.t("export.html.defaultTitle") : session.getSessionId())
                 : session.getTitle().trim();
         String exportedAt = LocalDateTime.now().format(TS);
 
         StringBuilder sb = new StringBuilder(8192);
-        sb.append("<!DOCTYPE html>\n<html lang=\"zh-CN\">\n<head>\n")
+        sb.append("<!DOCTYPE html>\n<html lang=\"")
+                .append(I18n.current().locale().toLanguageTag())
+                .append("\">\n<head>\n")
                 .append("<meta charset=\"utf-8\">\n")
                 .append("<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">\n")
                 .append("<title>").append(esc(title)).append("</title>\n")
@@ -94,16 +97,16 @@ public final class SessionHtmlRenderer {
                 .append("<h1 class=\"card-title\">").append(esc(title)).append("</h1>\n")
                 .append("<div class=\"card-meta\">");
         if (session != null) {
-            sb.append("<span>会话：").append(esc(session.getSessionId())).append("</span>");
+            sb.append("<span>").append(escMeta("export.meta.session", session.getSessionId())).append("</span>");
             if (notBlank(session.getAgentCode())) {
-                sb.append("<span>智能体：").append(esc(session.getAgentCode())).append("</span>");
+                sb.append("<span>").append(escMeta("export.meta.agent", session.getAgentCode())).append("</span>");
             }
             if (notBlank(session.getModelCode())) {
-                sb.append("<span>模型：").append(esc(session.getModelCode())).append("</span>");
+                sb.append("<span>").append(escMeta("export.meta.model", session.getModelCode())).append("</span>");
             }
         }
-        sb.append("<span>消息数：").append(list.size()).append("</span>")
-                .append("<span>导出时间：").append(exportedAt).append("</span>")
+        sb.append("<span>").append(escMeta("export.meta.messageCount", String.valueOf(list.size()))).append("</span>")
+                .append("<span>").append(escMeta("export.meta.exportedAt", exportedAt)).append("</span>")
                 .append("</div>\n</header>\n<main class=\"card-body\">\n");
 
         for (ChatConversation c : list) {
@@ -111,9 +114,14 @@ public final class SessionHtmlRenderer {
         }
 
         sb.append("</main>\n")
-                .append("<footer class=\"card-foot\">由 Jwork 导出 · 本地优先的个人 AI 助理</footer>\n")
+                .append("<footer class=\"card-foot\">").append(esc(I18n.t("export.html.footer"))).append("</footer>\n")
                 .append("</article>\n</body>\n</html>\n");
         return sb.toString();
+    }
+
+    /** 元信息项：本地化标签包住已转义的值（值出自库内容，必须先转义再进模板）。 */
+    private static String escMeta(String key, String value) {
+        return I18n.t(key, esc(value));
     }
 
     /** 单条消息：角色徽标 + 时间 + Markdown 气泡 + 工具调用行。 */
@@ -134,7 +142,9 @@ public final class SessionHtmlRenderer {
         }
         sb.append("</div>\n<div class=\"bubble md\">");
         String content = c.getContent() == null ? "" : c.getContent().trim();
-        sb.append(content.isEmpty() ? "<p class=\"muted\">（空）</p>" : HTML_RENDERER.render(PARSER.parse(content)));
+        sb.append(content.isEmpty()
+                ? "<p class=\"muted\">" + esc(I18n.t("export.body.empty")) + "</p>"
+                : HTML_RENDERER.render(PARSER.parse(content)));
         sb.append("</div>\n");
 
         List<ToolCallView> calls = ToolCallsCodec.decode(c.getToolCalls());
@@ -159,17 +169,24 @@ public final class SessionHtmlRenderer {
         if (path == null) {
             return null;
         }
+        // 只嵌认识的位图扩展名：图片目标同样出自模型文本，「按扩展名猜 MIME、什么都读进来」
+        // 等于让导出功能把盘上任意文件的内容抄进一份可以转发出去的文件里
+        String mime = mimeOf(path);
+        if (mime == null) {
+            return null;
+        }
         try {
             if (Files.size(path) > MAX_EMBED_IMAGE_BYTES) {
                 return null;
             }
             byte[] bytes = Files.readAllBytes(path);
-            return "data:" + mimeOf(path) + ";base64," + Base64.getEncoder().encodeToString(bytes);
+            return "data:" + mime + ";base64," + Base64.getEncoder().encodeToString(bytes);
         } catch (Exception e) {
             return null;
         }
     }
 
+    /** 可内嵌的图片 MIME；不是位图（含 {@code svg}——导出的 HTML 里不该夹别人的脚本）返回 null。 */
     private static String mimeOf(Path path) {
         String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
         if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
@@ -184,10 +201,10 @@ public final class SessionHtmlRenderer {
         if (name.endsWith(".bmp")) {
             return "image/bmp";
         }
-        if (name.endsWith(".svg")) {
-            return "image/svg+xml";
+        if (name.endsWith(".png")) {
+            return "image/png";
         }
-        return "image/png";
+        return null;
     }
 
     private static boolean notBlank(String s) {

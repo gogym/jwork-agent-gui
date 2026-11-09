@@ -81,9 +81,26 @@ public final class ToolCallsCodec {
         }
     }
 
+    /**
+     * 单个调用的 JSON 文本：责任链按调用逐个裁决时用。
+     * <p>整批文本只带第一个调用的工具名，策略的名字门槛（是不是 shell、是不是文件工具）
+     * 于是对批内第 2 个以后的调用形同虚设——拆开重编，每个调用才都能被对的策略看到。</p>
+     */
+    public static String encodeSingle(ToolCallView call) {
+        if (call == null) {
+            return "[]";
+        }
+        try {
+            return MAPPER.writeValueAsString(List.of(Map.of(
+                    "name", String.valueOf(call.name()),
+                    "input", call.input() == null ? Map.of() : call.input())));
+        } catch (RuntimeException | com.fasterxml.jackson.core.JsonProcessingException e) {
+            return call.name() + "(" + call.input() + ")";
+        }
+    }
+
     /** 解码 {@link #encode} 产物；非 JSON（如退化文本）时返回空列表。 */
-    public static List<ToolCallView> decode(String json) {
-        if (json == null || json.isBlank() || json.charAt(0) != '[') {
+    public static List<ToolCallView> decode(String json) {        if (json == null || json.isBlank() || json.charAt(0) != '[') {
             return List.of();
         }
         try {

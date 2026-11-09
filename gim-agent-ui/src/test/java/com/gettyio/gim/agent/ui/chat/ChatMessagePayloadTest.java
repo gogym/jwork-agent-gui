@@ -185,4 +185,12 @@ class ChatMessagePayloadTest {
         // 在途标题留 {0} 给工具名：槽位丢了，流式块头就只能显示不带名字的兜底串
         assertTrue(labels.get("toolRunning").asText().contains("{0}"), labels.toString());
     }
+
+    @Test
+    @DisplayName("jsValue：序列化失败即失败（返回 null 交调用方放弃），绝不回退成 JS 的 null 字面量")
+    void jsValueFailureReturnsNullNotLiteral() {
+        assertNull(ChatMessagePayload.jsValue(new Object()));
+        // 字符串通道另有一套：脏值退化成空串仍可安全拼进脚本，不会让整条 executeScript 语法错
+        assertEquals("\"\"", ChatMessagePayload.jsString(null));
+    }
 }

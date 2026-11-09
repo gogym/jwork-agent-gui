@@ -92,4 +92,12 @@ class WebSearchToolsTest {
         assertTrue(withKey(() -> "sk").webFetch(null, null, null).contains("不能为空"));
         assertTrue(withKey(() -> "sk").webFetch("ftp://example.com/x", null, null).contains("仅支持"));
     }
+
+    @Test
+    @DisplayName("web_fetch：默认配置下内网地址直接拒掉，桌面端不当跳板")
+    void fetchRefusesInternalAddressByDefault() {
+        String out = withKey(() -> "sk").webFetch("http://127.0.0.1:11434/api/tags", null, null);
+        assertTrue(out.contains("抓取被拒绝"), out);
+        assertTrue(out.contains("内网"), out);
+    }
 }

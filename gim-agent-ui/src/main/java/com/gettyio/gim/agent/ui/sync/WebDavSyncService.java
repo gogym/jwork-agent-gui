@@ -20,7 +20,7 @@ import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.backup.SqliteSnapshotValidator;
-import com.gettyio.gim.agent.domain.security.SecretCipher;
+import com.gettyio.gim.agent.domain.security.SecretStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,11 +57,13 @@ import com.github.sardine.SardineFactory;
  * 上传到用户配置的 WebDAV 目录（坚果云/Nextcloud/InfiniCloud 等均兼容），并支持从远端
  * 挑选快照下载恢复（下载校验后落为 pending 文件，重启时由
  * {@link com.gettyio.gim.agent.domain.backup.RestoreApplier} 替换当前库生效）。
- * <p>配置存 settings 表：地址/账号明文，密码与同步口令经 {@link SecretCipher} 加密；
+ * <p>配置存 settings 表：地址/账号明文，密码与同步口令经 {@link SecretStore} 加密；
  * 自动同步按小时周期（0 或空表示仅手动），由应用就绪后的守护线程巡检到期触发；
- * 远端快照滚动保留最近 {@value #REMOTE_SNAPSHOT_KEEP} 份；配置了同步口令时，上传前用
- * {@link SyncPayloadCipher} 对载荷加密（文件名加 {@value #ENC_SUFFIX} 后缀）。所有远端
- * 路径 {@code <base>/<文件名>} 平铺，不创建子目录结构。</p>
+ * 远端快照滚动保留最近 {@value #REMOTE_SNAPSHOT_KEEP} 份。上传载荷一律先用
+ * {@link SyncPayloadCipher} 以同步口令加密（文件名加 {@value #ENC_SUFFIX} 后缀）：快照里是
+ * 全量对话记录与加密后的密钥，未设口令时同步直接拒绝并提示去设置页填写，不提供明文上传；
+ * 历史遗留的明文远端快照仍可正常下载恢复。所有远端路径 {@code <base>/<文件名>} 平铺，
+ * 不创建子目录结构。</p>
  *
  * @author gogym
  */
@@ -73,14 +75,18 @@ public class WebDavSyncService {
     public static final String KEY_URL = "sync.webdav.url";
     /** 账号设置键 */
     public static final String KEY_USERNAME = "sync.webdav.username";
-    /** 密码设置键（SecretCipher 加密存储） */
+    /** 密码设置键（SecretStore 加密存储） */
     public static final String KEY_PASSWORD = "sync.webdav.password";
-    /** 同步加密口令设置键（SecretCipher 加密存储；空表示明文上传） */
+    /** 同步加密口令设置键（SecretStore 加密存储；未设置时同步被拒绝，不再有明文上传这条分支） */
     public static final String KEY_PASSPHRASE = "sync.webdav.passphrase";
     /** 自动同步周期（小时）设置键：0 或空表示仅手动 */
     public static final String KEY_INTERVAL_HOURS = "sync.webdav.intervalHours";
     /** 最近同步时间设置键 */
     public static final String KEY_LAST_SYNC = "sync.webdav.lastSyncAt";
+
+    /** settings.remark 文案：改动需保持与既有入库行一致，避免每次保存重写备注。 */
+    private static final String REMARK_PASSWORD = "WebDAV 同步密码（加密）";
+    private static final String REMARK_PASSPHRASE = "WebDAV 同步加密口令（加密）";
 
     /** 加密载荷文件名后缀：界面据此识别加密快照 */
     public static final String ENC_SUFFIX = ".enc";
@@ -102,18 +108,18 @@ public class WebDavSyncService {
     private static final long CHECK_MINUTES = 30;
 
     private final GimDatabase db;
-    private final SecretCipher cipher;
+    private final SecretStore secrets;
     private final GimPaths gimPaths;
     private final DbBackupService backupService;
-    /** 自动同步巡检线程（守护，应用退出即终止） */
-    private ScheduledExecutorService autoSyncExecutor;
+    /** 自动同步巡检线程（守护；停机时由 {@link #stopAutoSync()} 关闭，线程本身 volatile 保证跨线程可见） */
+    private volatile ScheduledExecutorService autoSyncExecutor;
     /** 同步结果监听者（设置页据此刷新「最近同步」与失败提示） */
     private final List<Consumer<SyncResult>> listeners = new CopyOnWriteArrayList<>();
 
-    public WebDavSyncService(GimDatabase db, SecretCipher cipher, GimPaths gimPaths,
+    public WebDavSyncService(GimDatabase db, SecretStore secrets, GimPaths gimPaths,
                              DbBackupService backupService) {
         this.db = db;
-        this.cipher = cipher;
+        this.secrets = secrets;
         this.gimPaths = gimPaths;
         this.backupService = backupService;
     }
@@ -143,9 +149,17 @@ public class WebDavSyncService {
 
     // ---- 配置读写 ----
 
-    /** 是否已配置服务地址（自动/手动同步的前置条件）。 */
+    /** 是否已配置服务地址（列目录与下载恢复的前置条件）。 */
     public boolean isConfigured() {
         return !url().isBlank();
+    }
+
+    /**
+     * 是否满足上传条件：地址已配且设了可解开的加密口令。缺口令时自动同步据此跳过本轮
+     * （属「尚未配置」而非「同步失败」，不该每 30 分钟刷一条告警），手动同步据此明确拒绝。
+     */
+    public boolean isSyncReady() {
+        return isConfigured() && !passphrasePlain().isEmpty();
     }
 
     public String url() {
@@ -156,27 +170,28 @@ public class WebDavSyncService {
         return db.settingDao().getValue(KEY_USERNAME).orElse("").trim();
     }
 
-    /** 解密后的密码；未配置返回空串（解密失败视为未配置并告警，不阻断界面读取）。 */
+    /** 解密后的密码；未配置或本机解不开返回空串（解不开记 ERROR，且同步入口会明确拒绝，不带空密码硬连）。 */
     public String passwordPlain() {
-        return decryptStored(KEY_PASSWORD);
+        return secrets.open(stored(KEY_PASSWORD), "WebDAV 密码");
     }
 
-    /** 解密后的同步加密口令；未配置或解密失败返回空串（空表示明文上传）。 */
+    /** 解密后的同步加密口令；未配置或本机解不开返回空串（空即「尚不可同步」，而不是「明文上传」）。 */
     public String passphrasePlain() {
-        return decryptStored(KEY_PASSPHRASE);
+        return secrets.open(stored(KEY_PASSPHRASE), "WebDAV 同步口令");
     }
 
-    private String decryptStored(String key) {
-        String stored = db.settingDao().getValue(key).orElse("");
-        if (stored.isBlank()) {
-            return "";
-        }
-        try {
-            return cipher.decrypt(stored);
-        } catch (Exception e) {
-            log.warn("WebDAV 加密配置解密失败，按未配置处理: {}", key, e);
-            return "";
-        }
+    /** 密码项存储状态：设置页据此区分「未配置」与「已配置但本机解不开」。 */
+    public SecretStore.State passwordState() {
+        return secrets.state(stored(KEY_PASSWORD));
+    }
+
+    /** 同步口令项存储状态。 */
+    public SecretStore.State passphraseState() {
+        return secrets.state(stored(KEY_PASSPHRASE));
+    }
+
+    private String stored(String key) {
+        return db.settingDao().getValue(key).orElse("");
     }
 
     /** 自动同步周期（小时）；未配置或脏值返回 0（0=仅手动）。 */
@@ -191,7 +206,11 @@ public class WebDavSyncService {
         }
     }
 
-    /** 保存配置：密码/口令非空则加密入库，空串表示清除；url 统一补尾部斜杠。 */
+    /**
+     * 保存配置：url 统一补尾部斜杠；密码/口令非空才加密覆盖。
+     * <p><b>留空表示沿用已存值，不是清除</b>：口令框不回显明文，若把空串当清除，一次「解密暂时
+     * 失败 + 失焦」就会永久抹掉用户凭据。撤销走 {@link #clearPassword()} / {@link #clearPassphrase()}。</p>
+     */
     public void save(String url, String username, String password, String passphrase, int intervalHours) {
         String u = url == null ? "" : url.trim();
         if (!u.isEmpty() && !u.endsWith("/")) {
@@ -199,15 +218,37 @@ public class WebDavSyncService {
         }
         db.settingDao().upsert(KEY_URL, u, "WebDAV 同步服务地址");
         db.settingDao().upsert(KEY_USERNAME, username == null ? "" : username.trim(), "WebDAV 同步账号");
-        saveSecret(KEY_PASSWORD, password, "WebDAV 同步密码（加密）");
-        saveSecret(KEY_PASSPHRASE, passphrase, "WebDAV 同步加密口令（加密）");
+        saveSecret(KEY_PASSWORD, password, REMARK_PASSWORD);
+        saveSecret(KEY_PASSPHRASE, passphrase, REMARK_PASSPHRASE);
         db.settingDao().upsert(KEY_INTERVAL_HOURS, String.valueOf(Math.max(0, intervalHours)),
                 "WebDAV 自动同步周期（小时，0=仅手动）");
     }
 
     private void saveSecret(String key, String value, String remark) {
-        String v = value == null ? "" : value;
-        db.settingDao().upsert(key, v.isEmpty() ? "" : cipher.encrypt(v), remark);
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        db.settingDao().upsert(key, secrets.seal(value), remark);
+    }
+
+    /** 单独保存密码（加密入库）；空白不落库，即「不修改」。 */
+    public void savePassword(String plain) {
+        saveSecret(KEY_PASSWORD, plain, REMARK_PASSWORD);
+    }
+
+    /** 单独保存同步口令（加密入库）；空白不落库，即「不修改」。 */
+    public void savePassphrase(String plain) {
+        saveSecret(KEY_PASSPHRASE, plain, REMARK_PASSPHRASE);
+    }
+
+    /** 显式清除已存 WebDAV 密码（界面上的「清除」按钮，而非留空保存）。 */
+    public void clearPassword() {
+        db.settingDao().upsert(KEY_PASSWORD, "", REMARK_PASSWORD);
+    }
+
+    /** 显式清除已存同步口令；清除后上传改为明文载荷。 */
+    public void clearPassphrase() {
+        db.settingDao().upsert(KEY_PASSPHRASE, "", REMARK_PASSPHRASE);
     }
 
     // ---- 同步动作 ----
@@ -224,13 +265,21 @@ public class WebDavSyncService {
     }
 
     /**
-     * 手动同步：先后完成快照（VACUUM INTO）、workspace 打包与（可选）口令加密，
-     * 再把两个载荷流式上传（失败自动重试），成功后滚动清理远端快照并记录同步时间。
+     * 手动同步：先校验口令、再依次完成快照（VACUUM INTO）、workspace 打包与载荷加密，
+     * 然后把两个密文流式上传（失败自动重试），成功后滚动清理远端快照并记录同步时间。
      *
-     * @return 上传的数据库快照文件（本地路径）
+     * @return 上传的数据库快照文件（本地明文快照路径，便于就地查看）
+     * @throws IOException 未配置地址或<b>未设置加密口令</b>（明文上传已不再允许）
      */
     public synchronized Path syncNow() throws IOException {
         String base = requireConfigured();
+        // 口令为空即「没配过」（解不开的情况 requireConfigured 已拦）。这条分支以前走明文上传：
+        // 快照里是全量对话记录与加密后的密钥，等于把用户的数据原样推上第三方网盘。
+        // 先拒再干活，免得白做一次 VACUUM 与整包 workspace 压缩。
+        String passphrase = passphrasePlain();
+        if (passphrase.isEmpty()) {
+            throw new IOException("未设置同步加密口令：快照包含全部对话记录，不允许明文上传，请在设置页填写口令");
+        }
         Path zipFile = null;
         Path encDb = null;
         Path encZip = null;
@@ -239,25 +288,15 @@ public class WebDavSyncService {
                     .orElseThrow(() -> new IOException("数据库为空（无表），跳过同步"));
             zipFile = zipWorkspace();
 
-            // 载荷准备：配置了口令则先加密到临时文件，随后统一流式上传
-            String passphrase = passphrasePlain();
-            boolean encrypted = !passphrase.isEmpty();
-            Path dbSource = dbSnapshot;
-            Path zipSource = zipFile;
-            String dbRemoteName = dbSnapshot.getFileName().toString();
-            String zipRemoteName = WORKSPACE_ZIP_NAME;
-            if (encrypted) {
-                encDb = Files.createTempFile("jwork-sync-", ".db.enc");
-                SyncPayloadCipher.encrypt(dbSnapshot, encDb, passphrase);
-                encZip = Files.createTempFile("jwork-sync-", ".zip.enc");
-                SyncPayloadCipher.encrypt(zipFile, encZip, passphrase);
-                dbSource = encDb;
-                zipSource = encZip;
-                dbRemoteName += ENC_SUFFIX;
-                zipRemoteName += ENC_SUFFIX;
-            }
+            // 载荷加密到临时文件，随后统一流式上传；远端名加 .enc 后缀供界面识别
+            encDb = Files.createTempFile("jwork-sync-", ".db.enc");
+            SyncPayloadCipher.encrypt(dbSnapshot, encDb, passphrase);
+            encZip = Files.createTempFile("jwork-sync-", ".zip.enc");
+            SyncPayloadCipher.encrypt(zipFile, encZip, passphrase);
+            String dbRemoteName = dbSnapshot.getFileName() + ENC_SUFFIX;
+            String zipRemoteName = WORKSPACE_ZIP_NAME + ENC_SUFFIX;
 
-            uploadWithRetry(base, dbRemoteName, dbSource, zipRemoteName, zipSource);
+            uploadWithRetry(base, dbRemoteName, encDb, zipRemoteName, encZip);
             purgeRemoteSnapshots(base);
 
             db.settingDao().upsert(KEY_LAST_SYNC, Instant.now().toString(), "WebDAV 最近同步时间");
@@ -336,8 +375,10 @@ public class WebDavSyncService {
     }
 
     /**
-     * 「从云端恢复」第二步：下载所选快照（加密则用当前同步口令解密），校验 SQLite 头后
-     * 写入待恢复文件；重启应用时由 RestoreApplier 原子替换生效。
+     * 「从云端恢复」第二步：下载所选快照（加密则用当前同步口令解密），头校验 + 完整性校验都
+     * 通过后写入待恢复文件与来源信息；重启应用时由 RestoreApplier 原子替换生效。
+     * <p>待恢复文件与来源信息作为一对写入：任一失败即两个都清掉，绝不留「下次启动悄悄换库」
+     * 而界面看不出原因的状态。</p>
      *
      * @return 待恢复文件（pending）路径
      */
@@ -366,11 +407,14 @@ public class WebDavSyncService {
             if (!SqliteSnapshotValidator.hasValidHeader(plain)) {
                 throw new IOException("下载内容不是有效的数据库快照");
             }
-            Path pending = gimPaths.pendingRestoreFile();
-            Files.createDirectories(pending.getParent());
-            Files.copy(plain, pending, StandardCopyOption.REPLACE_EXISTING);
+            // 截断的下载能骗过头校验：16 字节的魔数在文件最前面，正文页却已在传输中丢了一截，
+            // 换进现网就是打开报「database disk image is malformed」。这里挡住比重启后救库便宜得多。
+            if (!SqliteSnapshotValidator.passesIntegrityCheck(plain)) {
+                throw new IOException("快照未通过完整性校验（integrity_check），内容已损坏，请重新同步后再试");
+            }
+            stagePendingRestore(remoteName, plain);
             log.info("云端快照已就绪，重启应用后完成恢复: {}", remoteName);
-            return pending;
+            return gimPaths.pendingRestoreFile();
         } finally {
             deleteQuietly(downloaded);
             if (plain != downloaded) {
@@ -379,10 +423,72 @@ public class WebDavSyncService {
         }
     }
 
+    /** 落待恢复快照与来源信息；半途失败撤掉这一对，不留下「下次启动会悄悄换库」的悬空状态。 */
+    private void stagePendingRestore(String remoteName, Path plain) throws IOException {
+        Path pending = gimPaths.pendingRestoreFile();
+        Path info = gimPaths.pendingRestoreInfoFile();
+        Files.createDirectories(pending.getParent());
+        try {
+            Files.writeString(info, remoteName + "\t" + Instant.now(), StandardCharsets.UTF_8);
+            Files.copy(plain, pending, StandardCopyOption.REPLACE_EXISTING);
+        } catch (IOException e) {
+            deleteQuietly(info);
+            deleteQuietly(pending);
+            throw e;
+        }
+    }
+
+    /** 待恢复的云端快照：{@code source} 为远端文件名，{@code at} 为下载时间。 */
+    public record PendingRestore(String source, Instant at) {
+    }
+
+    /**
+     * 当前是否有排队到下次启动的恢复：{@code restore/pending.db} 存在即是。
+     * <p>设置页据此把「下次启动会换成哪一份快照」摆到明面上并给出撤销入口——这个状态一旦落下
+     * 就跨重启存活，用户很容易在下一次启动前把它忘掉。</p>
+     */
+    public Optional<PendingRestore> pendingRestore() {
+        Path pending = gimPaths.pendingRestoreFile();
+        if (!Files.isRegularFile(pending)) {
+            return Optional.empty();
+        }
+        Instant at = null;
+        String source = "";
+        try {
+            String raw = Files.readString(gimPaths.pendingRestoreInfoFile(), StandardCharsets.UTF_8).trim();
+            int tab = raw.indexOf('\t');
+            if (tab > 0) {
+                source = raw.substring(0, tab);
+                at = Instant.parse(raw.substring(tab + 1).trim());
+            }
+        } catch (Exception e) {
+            log.warn("待恢复快照来源信息不可读，改用文件时间: {}", e.getMessage());
+        }
+        if (at == null) {
+            try {
+                at = Files.getLastModifiedTime(pending).toInstant();
+            } catch (IOException e) {
+                at = Instant.EPOCH;
+            }
+        }
+        return Optional.of(new PendingRestore(source, at));
+    }
+
+    /** 撤销待恢复的快照：删掉 pending 与其来源信息，下次启动保持当前库不变。 */
+    public synchronized void cancelPendingRestore() throws IOException {
+        Path pending = gimPaths.pendingRestoreFile();
+        if (!Files.isRegularFile(pending)) {
+            return;
+        }
+        Files.delete(pending);
+        Files.deleteIfExists(gimPaths.pendingRestoreInfoFile());
+        log.info("已撤销待恢复的云端快照: {}", pending);
+    }
+
     /** 距上次同步超过配置周期且已配置则自动同步一次；返回本次上传的快照（未触发为空）。 */
     public synchronized Optional<Path> syncIfDue() throws IOException {
         int hours = intervalHours();
-        if (hours <= 0 || !isConfigured()) {
+        if (hours <= 0 || !isSyncReady()) {
             return Optional.empty();
         }
         Optional<Instant> last = lastSyncAt();
@@ -428,6 +534,20 @@ public class WebDavSyncService {
         }
     }
 
+    /**
+     * 停机：关掉巡检线程，避免退出流程走到一半又起一轮快照上传。
+     * <p>刻意不加锁：正在进行的那次同步占着本实例的 monitor 可能长达数十秒，
+     * 而这里是在 FX 线程的退出路径上调用，等它等于把退出挂住。巡检线程是守护线程，
+     * {@code shutdownNow} 只负责不再排新任务。</p>
+     */
+    public void stopAutoSync() {
+        ScheduledExecutorService executor = autoSyncExecutor;
+        autoSyncExecutor = null;
+        if (executor != null) {
+            executor.shutdownNow();
+        }
+    }
+
     // ---- 内部工具 ----
 
     private Sardine begin() {
@@ -444,6 +564,11 @@ public class WebDavSyncService {
         String base = url();
         if (base.isEmpty()) {
             throw new IOException("未配置 WebDAV 服务地址");
+        }
+        // 口令解不开时 passphrasePlain 返回空串，与「没配过」在界面上是两件事：这里明确报错，
+        // 别让它退化成「未设置口令」这种让人以为从没配过加密的说法
+        if (passphraseState() == SecretStore.State.UNREADABLE) {
+            throw new IOException("同步口令无法在本机解密（换过机器或 Windows 账户），请在设置页重新录入后再同步");
         }
         return base;
     }

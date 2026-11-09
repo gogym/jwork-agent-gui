@@ -57,15 +57,37 @@
     // 整条抹掉 href，点击静默无响应。路径是否真在本工作区内由 Java 侧 chatLink 再判一次，越界拒绝。
     var ALLOWED_URI = /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|matrix|file):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i;
 
+    // 表单/交互标签一律剔除：本页面拥有 Java 桥（window.javaBridge），模型产出的 Markdown 属于
+    // 不可信输入。默认放行表允许 <form>＋<input>＋<button>，一句 <form action=...> 就能把气泡变成
+    // 可点击的自动提交表单（配合 target=_blank 即桥外带数据）；<style> 可做点击劫持式遮挡，
+    // <template>/<slot>/<shadow> 则能把已消毒的节点重新接进未消毒的子树（mXSS 回环）。
+    var FORBID_TAGS = ['form', 'input', 'button', 'textarea', 'select', 'option', 'label',
+        'style', 'template', 'slot', 'shadow', 'iframe', 'frame', 'frameset', 'object', 'embed',
+        'marquee', 'base', 'meta', 'link', 'noscript', 'math', 'annotation-xml', 'annotation',
+        'description', 'title'];
+
     function mdToHtml(raw) {
         var text = norm(raw);
         try {
             var html = window.marked.parse(text,
                 { breaks: true, gfm: true });
-            return window.DOMPurify.sanitize(html, { ADD_ATTR: ['target'], ALLOWED_URI_REGEXP: ALLOWED_URI });
+            return sanitize(html);
         } catch (e) {
-            return window.DOMPurify.sanitize('<pre>' + esc(text) + '</pre>');
+            return sanitize('<pre>' + esc(text) + '</pre>');
         }
+    }
+
+    // 统一消毒出口：正文解析失败时退化为纯文本 <pre>，两条路径都必须过同一套限制。
+    function sanitize(html) {
+        return window.DOMPurify.sanitize(html, {
+            ADD_ATTR: ['target'],
+            ALLOWED_URI_REGEXP: ALLOWED_URI,
+            FORBID_TAGS: FORBID_TAGS,
+            // on* 内联处理器与 style 属性在 HTML 注入链上是常规跳板（onerror=...、
+            // style="background:url(javascript:...)"），本页样式全部由 Java 侧注入的 CSS 负责，无需行内。
+            FORBID_ATTR: ['style', 'srcdoc', 'formaction', 'formenctype', 'formmethod',
+                'formtarget', 'formnovalidate', 'sandbox', 'http-equiv', 'integrity', 'nonce']
+        });
     }
 
     function mdToElem(raw) {
@@ -89,6 +111,76 @@
             var p = img.getAttribute('data-path') || img.getAttribute('src');
             if (p && bridge()) { bridge().onImage(p); }
         }
+    }
+
+    // ---------- Mermaid 图表（与产物预览共用同一份 mermaid.min.js） ----------
+    // 库 2.7MB，不内联进 index.html：首次真出现 ```mermaid 才从同目录（同源，不受 file://
+    // 跨目录限制）按需装载。装载中/装载失败/语法错误一律保持代码块原样——图源码本身可读，
+    // 功能零退化，也与聊天页启动成本解耦。
+    var mermaidStage = 0;            // 0 未开始 / 1 装载中 / 2 可用 / -1 不可用
+    var mermaidSeq = 0;
+    var mermaidWaits = [];           // 装载期间排队的代码块
+
+    function mermaidTheme() {
+        return document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'default';
+    }
+
+    function loadMermaid() {
+        if (mermaidStage !== 0) { return; }
+        mermaidStage = 1;
+        var s = document.createElement('script');
+        s.src = 'mermaid.min.js';
+        s.onload = function () {
+            try {
+                mermaidInit();
+                mermaidStage = 2;
+            } catch (e) {
+                mermaidStage = -1;
+            }
+            var waits = mermaidWaits;
+            mermaidWaits = [];
+            for (var i = 0; i < waits.length; i++) { drawMermaid(waits[i]); }
+        };
+        s.onerror = function () { mermaidStage = -1; };
+        document.head.appendChild(s);
+    }
+
+    function mermaidInit() {
+        // securityLevel 必须 strict：图表源码是模型输出，宽松模式会把 HTML 直接注进页面
+        window.mermaid.initialize({ startOnLoad: false, theme: mermaidTheme(), securityLevel: 'strict' });
+    }
+
+    /** 把一个 mermaid 代码块升级成图：成功则在代码体位置上图、隐源码，失败保持代码块。 */
+    function drawMermaid(wrap) {
+        if (mermaidStage === 0) {
+            loadMermaid();
+            mermaidWaits.push(wrap);
+            return;
+        }
+        if (mermaidStage !== 2) { return; }
+        var p = null;
+        try { p = window.mermaid.render('gim-mmd-' + (++mermaidSeq), wrap._mmd); } catch (e) { return; }
+        if (!p || typeof p.then !== 'function') { return; }
+        p.then(function (out) { showMermaid(wrap, out && out.svg); }, function () {});
+    }
+
+    function showMermaid(wrap, svg) {
+        var old = wrap.querySelector('.mmd-live');
+        if (old && old.parentNode) { old.parentNode.removeChild(old); }
+        if (!svg) { return; }
+        var box = el('div', 'mmd-live');
+        box.innerHTML = svg;
+        var pre = wrap.querySelector('pre');
+        wrap.insertBefore(box, pre);
+        if (pre) { pre.style.display = 'none'; }
+    }
+
+    /** 换明暗主题：主题只在 initialize 时生效一次，已出图的块按新主题重画。 */
+    function restyleMermaid() {
+        if (mermaidStage !== 2) { return; }
+        try { mermaidInit(); } catch (e) { return; }
+        var wraps = list().querySelectorAll('.code-block.is-mermaid');
+        for (var i = 0; i < wraps.length; i++) { drawMermaid(wraps[i]); }
     }
 
     // 代码块：包一层头部（语言名 + 复制 + 可选预览）
@@ -117,6 +209,10 @@
             }
             wrap.appendChild(head);
             wrap.appendChild(pre);
+            if (lang === 'mermaid') {
+                wrap._mmd = text;
+                drawMermaid(wrap);
+            }
         }
     }
 
@@ -373,6 +469,24 @@
         return (LABELS.toolRunning || 'Running {0}…').replace('{0}', name);
     }
 
+    /**
+     * 思考详情的呈现方式。
+     * <p>在途只铺纯文本：整段 Markdown 重解析的代价随已积累字数线性增长，
+     * 每个增量重跑一遍就成了二次方；排版留到定格（或重放）那一次。</p>
+     */
+    function renderThinkDetail(it) {
+        if (!it.detail) { return; }
+        it.detail.innerHTML = '';
+        it.raw = null;
+        if (it.live) {
+            it.raw = el('div', 'log-detail-raw');
+            it.raw.textContent = it.text || '';
+            it.detail.appendChild(it.raw);
+            return;
+        }
+        if (it.text) { it.detail.appendChild(mdToElem(it.text)); }
+    }
+
     /** 思考行：只露「已思考 · Ns」，点开才渲染全文（全文只在首次展开时构建一次）。 */
     function thinkLine(it) {
         var item = el('div', 'log-item');
@@ -385,7 +499,7 @@
         row.appendChild(time);
         var detail = el('div', 'log-detail');
         row.addEventListener('click', function () {
-            if (!detail.firstChild && it.text) { detail.appendChild(mdToElem(it.text)); }
+            if (!detail.firstChild && it.text) { renderThinkDetail(it); }
             item.classList.toggle('open');
         }, false);
         item.appendChild(row);
@@ -405,18 +519,19 @@
             it.refs.time.textContent = seconds(it.ms);
         }
         if (it.detail && it.detail.firstChild) {
-            it.detail.innerHTML = '';
-            it.detail.appendChild(mdToElem(it.text || ''));
+            renderThinkDetail(it);
         }
     }
 
-    /** 思考增量：明文缓冲；若用户已点开，实时重绘正文（未点开则等点开时一次成型）。 */
+    /** 思考增量：明文缓冲；若用户已点开就续上纯文本（未点开则等点开时一次成型）。 */
     function appendThink(it, text) {
         it.text = (it.text || '') + text;
-        if (it.detail && it.detail.firstChild) {
-            it.detail.innerHTML = '';
-            it.detail.appendChild(mdToElem(it.text));
+        if (!it.detail || !it.detail.firstChild) { return; }
+        if (it.raw) {
+            it.raw.textContent = it.text;
+            return;
         }
+        renderThinkDetail(it);
     }
 
     /** 工具行详情：入参与输出两段（缺项不占标签）。 */
@@ -826,6 +941,10 @@
             hostBox.appendChild(footer);
         }
         row.appendChild(hostBox);
+        // 留住原始载荷供换语言时就地重建（relocalize），本地化片段随之重取。
+        // 带内联图片的行例外：data URI 单张可达 8MB，重建一屏就等于钉住整屏图片字节，
+        // 而这类用户行里唯一本地化的东西是两个按钮提示——不值这个价，留旧文案即可。
+        if (!m.images || !m.images.length) { row._msg = m; }
         return row;
     }
 
@@ -835,10 +954,27 @@
         if (bridge()) { bridge().onEmpty(list().children.length === 0); }
     }
 
+    /**
+     * 按 flags 显隐「重新生成/编辑重发」：只有本轮末条可用。
+     * <p>凡新建行的路径都得重跑一遍——整页重放由 Java 显式调 setFlags，但向上补页与换语言
+     * 重建只是往列表里塞新节点，不重跑就把按钮留成默认可见，早先每一轮都像是可重生成的末轮。</p>
+     */
+    function applyFlags() {
+        var rows = list().querySelectorAll('.bubble-row');
+        for (var i = 0; i < rows.length; i++) {
+            var id = parseInt(rows[i].getAttribute('data-id'), 10);
+            var regen = rows[i].querySelector('.act-regen');
+            if (regen) { regen.classList.toggle('hidden', id !== flags.lastAssistantId); }
+            var edit = rows[i].querySelector('.act-edit');
+            if (edit) { edit.classList.toggle('hidden', id !== flags.lastUserId); }
+        }
+    }
+
     // ---------- 公开 API ----------
     var api = {
         setTheme: function (mode, font, lang, labels) {
             var h = document.documentElement;
+            var prevMode = h.getAttribute('data-theme');
             h.setAttribute('data-theme', mode);
             h.setAttribute('data-font', font);
             h.setAttribute('lang', lang);
@@ -846,6 +982,7 @@
                 LABELS = labels;
                 PREVIEW_LANGS = previewLangs(labels.previewLangs);
             }
+            if (prevMode !== mode) { restyleMermaid(); }
         },
 
         renderHistory: function (msgs) {
@@ -878,11 +1015,30 @@
                 se.scrollTop += d;
             }
             updateEmpty();
+            applyFlags();
+        },
+
+        // 换语言：逐行按原始载荷就地重建（buildMessage 重取 LABELS 里的文案），滚动位置原样保住。
+        // 在途临时气泡与对比卡没有 _msg、不参与重建：它们挂在运行态引用上，收尾定格时自会用新文案。
+        relocalize: function () {
+            var l = list();
+            var se = document.scrollingElement || document.documentElement;
+            var top = se.scrollTop;
+            var kids = l.children;
+            for (var i = 0; i < kids.length; i++) {
+                var node = kids[i];
+                if (node._msg) { l.replaceChild(buildMessage(node._msg), node); }
+            }
+            // 重建后行高可能因译文长短而变：贴底/跟随态直接对齐底部，否则按原偏移继续读。
+            if (followBottom || wasAtBottom) { scrollToBottom(false); }
+            else { se.scrollTop = top; }
+            updateEmpty();
+            applyFlags();
         },
 
         // 顶部回收（长会话控内存）：贴底后 DOM 过重时，从列表头部移除最旧的已落盘消息行。
         // 数据仍在库中——上滚触顶时 Java 侧照常补页，把被回收段重新加载回来。
-        // 只回收连续位于顶部的已落盘行（data-id>0）：遇非消息节点或临时流式行即停止。
+        // 只回收已落盘的行（data-id>0 且非在途）：其余节点留在原位，跳过继续向后扫。
         // 由调用方保证贴底时触发：移除部分全在视口上方，scrollTop 被浏览器
         // clamp 到新的底部，视觉零跳变。回收完成后把新首条主键回抛 Java 前移补页游标。
         trimOldest: function (keep) {
@@ -890,13 +1046,17 @@
             var removeCount = l.children.length - keep;
             if (removeCount <= 0) { return; }
             var removed = 0;
-            while (removed < removeCount && l.firstChild) {
-                var node = l.firstChild;
-                if (!node.classList || !node.classList.contains('bubble-row')) { break; }
-                var id = parseInt(node.getAttribute('data-id'), 10);
-                if (isNaN(id) || id <= 0 || streaming[id]) { break; }
-                l.removeChild(node);
-                removed++;
+            var node = l.firstChild;
+            while (removed < removeCount && node) {
+                var next = node.nextSibling;
+                if (node.classList && node.classList.contains('bubble-row')) {
+                    var id = parseInt(node.getAttribute('data-id'), 10);
+                    if (!isNaN(id) && id > 0 && !streaming[id]) {
+                        l.removeChild(node);
+                        removed++;
+                    }
+                }
+                node = next;
             }
             if (removed <= 0) { return; }
             var newOldest = 0;
@@ -919,6 +1079,7 @@
         appendMessage: function (m) {
             list().appendChild(buildMessage(m));
             updateEmpty();
+            applyFlags();
             followBottom = true;
             scrollToBottom(false);
         },
@@ -1005,20 +1166,19 @@
             closeProc(s);
             if (s.prose) { sealProse(s.prose); s.prose = null; }
             delete streaming[id];
+            // 定格后仍是空气泡（一个 token 都没收到就点了停止）：把这行整体撤掉。留着不只是
+            // 多一道空白，trimOldest 与 setFlags 也会把它当成一条消息参与回收与标志位比对。
+            if (s.host.childNodes.length === 0) {
+                s.row.parentNode.removeChild(s.row);
+                updateEmpty();
+            }
             if (followBottom) { scrollToBottom(false); }
         },
 
         setFlags: function (lastAssistantId, lastUserId) {
             flags.lastAssistantId = lastAssistantId;
             flags.lastUserId = lastUserId;
-            var rows = list().querySelectorAll('.bubble-row');
-            for (var i = 0; i < rows.length; i++) {
-                var id = parseInt(rows[i].getAttribute('data-id'), 10);
-                var regen = rows[i].querySelector('.act-regen');
-                if (regen) { regen.classList.toggle('hidden', id !== lastAssistantId); }
-                var edit = rows[i].querySelector('.act-edit');
-                if (edit) { edit.classList.toggle('hidden', id !== lastUserId); }
-            }
+            applyFlags();
         },
 
         reveal: function (id) {
@@ -1035,6 +1195,10 @@
         scrollToBottom: function (smooth) { scrollToBottom(smooth !== false); },
 
         compareStart: function (cols) {
+            // 先撤上一张：对比卡不入库、也不随整页重放重建，早先每张都留在列表里，
+            // 而 streaming.compare 只记最新一张——旧卡就此成为没人引用的孤行（算进
+            // 回收行数却永远回收不掉，直到下次整页重放才顺带清掉）。
+            api.compareClear();
             var row = el('div', 'compare-card');
             row.setAttribute('data-cols', '1');
             for (var i = 0; i < cols.length; i++) {

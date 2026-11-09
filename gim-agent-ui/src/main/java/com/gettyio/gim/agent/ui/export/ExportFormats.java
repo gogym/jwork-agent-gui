@@ -16,12 +16,14 @@
 
 package com.gettyio.gim.agent.ui.export;
 
+import com.gettyio.gim.agent.ui.i18n.I18n;
+
 import java.util.Locale;
 import java.util.Map;
 
 /**
  * 导出格式化共享纯函数：Markdown / HTML / PDF / DOCX 四种导出器共用的
- * 工具入参摘要与角色中文标签。
+ * 工具入参摘要与角色本地化标签。
  * <p>仅 {@code ui.export} 包内部使用（包私有）。摘要口径与标签文案在此收敛一处，
  * 避免各导出器各自实现导致展示漂移。</p>
  *
@@ -48,30 +50,30 @@ final class ExportFormats {
         return "(" + sb + ")";
     }
 
-    /** 角色 → 带 emoji 的中文标签（Markdown 导出用；{@code null} → "消息"，未知角色原样返回）。 */
+    /** 角色 → 带 emoji 的本地化标签（Markdown 导出用；{@code null} → "消息"，未知角色原样返回）。 */
     static String roleLabelMd(String role) {
         if (role == null) {
-            return "消息";
+            return I18n.t("export.role.message");
         }
         return switch (role.toUpperCase(Locale.ROOT)) {
-            case "USER" -> "🧑 用户";
-            case "ASSISTANT" -> "🤖 助手";
-            case "SYSTEM" -> "⚙️ 系统";
-            case "TOOL" -> "🔧 工具";
+            case "USER" -> "🧑 " + I18n.t("export.role.user");
+            case "ASSISTANT" -> "🤖 " + I18n.t("export.role.assistant");
+            case "SYSTEM" -> "⚙️ " + I18n.t("export.role.system");
+            case "TOOL" -> "🔧 " + I18n.t("export.role.tool");
             default -> role;
         };
     }
 
-    /** 角色 → 纯文本中文标签（PDF / DOCX 与 HTML 导出用；{@code null} → "消息"）。 */
+    /** 角色 → 纯文本本地化标签（PDF / DOCX 与 HTML 导出用；{@code null} → "消息"）。 */
     static String rolePlain(String role) {
         if (role == null) {
-            return "消息";
+            return I18n.t("export.role.message");
         }
         return switch (role.toUpperCase(Locale.ROOT)) {
-            case "USER" -> "用户";
-            case "ASSISTANT" -> "助手";
-            case "SYSTEM" -> "系统";
-            case "TOOL" -> "工具";
+            case "USER" -> I18n.t("export.role.user");
+            case "ASSISTANT" -> I18n.t("export.role.assistant");
+            case "SYSTEM" -> I18n.t("export.role.system");
+            case "TOOL" -> I18n.t("export.role.tool");
             default -> role;
         };
     }

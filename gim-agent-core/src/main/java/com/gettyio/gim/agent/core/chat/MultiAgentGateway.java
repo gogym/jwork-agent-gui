@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.capability.AgentCapabilityResolver;
+import com.gettyio.gim.agent.core.fs.CanonicalPath;
 import com.gettyio.gim.agent.core.subagent.SubagentSpecs;
 import com.gettyio.gim.agent.domain.dao.AgentDefinitionDao;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
@@ -267,7 +268,8 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
             return defaultWorkspaceFor(def.getAgentCode());
         }
         Path candidate = fallbackWorkspace.resolve(relative).normalize();
-        if (!candidate.startsWith(fallbackWorkspace)) {
+        // 规范形判定：字符串前缀看不见符号链接，「相对共享目录」的配置可以借一个链接落到磁盘任意处
+        if (!CanonicalPath.within(candidate, fallbackWorkspace)) {
             log.warn("智能体工作区越出共享目录，回退共享目录: {}", relative);
             return fallbackWorkspace;
         }

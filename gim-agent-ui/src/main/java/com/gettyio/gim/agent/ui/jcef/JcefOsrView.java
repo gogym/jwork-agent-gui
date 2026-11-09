@@ -29,9 +29,11 @@ import org.cef.browser.CefFrame;
 import org.cef.browser.CefMessageRouter;
 import org.cef.callback.CefQueryCallback;
 import org.cef.handler.CefDisplayHandlerAdapter;
+import org.cef.handler.CefLifeSpanHandlerAdapter;
 import org.cef.handler.CefLoadHandlerAdapter;
 import org.cef.handler.CefMessageRouterHandlerAdapter;
 import org.cef.handler.CefRenderHandler;
+import org.cef.handler.CefRequestHandlerAdapter;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -101,6 +103,14 @@ public final class JcefOsrView {
     private volatile Runnable loadEnd;
     /** native browser 创建前到达的装载请求暂存（native 在 GLCanvas 首次 paint 时才真正创建）。 */
     private String pendingUrl;
+    /**
+     * 本页唯一可信的文档目标：由 Java 侧 {@link #loadUrl(String)} 显式给出（聊天骨架、Mermaid 页、
+     * 预览报表各为其自身的那一个）。页面内容属不可信输入——Markdown 出自模型、预览 HTML 出自工具，
+     * 若允许它们把顶层框架导航到远端/data 文档，那份文档就能直接调用本视图注入的 JS 桥，
+     * 桥的载荷又直通 Java 业务链路，等于把「渲染一层」升级成「执行任意本机调用」。
+     * 导航闸门与桥闸门都以它为准。
+     */
+    private volatile String trustedUrl;
     /** native browser 是否已创建：首个主框架 {@code onLoadStart} 即为其存在的确证。 */
     private boolean nativeCreated;
     /** {@link #pendingUrl}/{@link #nativeCreated} 的并发门闩（loadUrl 在 FX 线程、装载事件在 CEF 线程）。 */
@@ -245,10 +255,25 @@ public final class JcefOsrView {
         cfg.jsQueryFunction = queryFn;
         cfg.jsCancelFunction = cancelFn;
         this.router = CefMessageRouter.create(cfg, new CefMessageRouterHandlerAdapter() {
-            /** JS 桥查询入口（{@code queryFn}）：转到 FX 线程交给 requestHandler，异常回 fail 而非抛给 CEF。 */
+            /**
+             * JS 桥查询入口（{@code queryFn}）：转到 FX 线程交给 requestHandler，异常回 fail 而非抛给 CEF。
+             *
+             * <p>入口先验文档可信性：消息路由注入到<b>所有</b>框架（含 iframe 与导航后的远端文档），
+             * 因此必须拒绝非主框架、以及主框架文档已不是 {@link #trustedUrl} 的那一次调用——
+             * 否则页面里任何一份外来文档都能借桥打进 Java 侧。</p>
+             */
             @Override
             public boolean onQuery(CefBrowser b, CefFrame f, long qid,
                                    String request, boolean persistent, CefQueryCallback cb) {
+                String doc = f == null ? null : f.getURL();
+                if (f == null || !f.isMain() || !isTrustedDocument(doc)) {
+                    log.warn("JCEF 桥调用被拒绝（非可信文档）: main={} url={}",
+                            f != null && f.isMain(), abbrev(doc));
+                    if (cb != null) {
+                        cb.failure(-403, "untrusted document");
+                    }
+                    return true;
+                }
                 if (requestHandler != null) {
                     Platform.runLater(() -> {
                         try {
@@ -337,6 +362,42 @@ public final class JcefOsrView {
                     log.info("JS console [{}] {} ({}:{})", level, message, source, line);
                 }
                 return false;
+            }
+        });
+
+        // 导航闸门：只放行 Java 侧显式装载的那一个目标（忽略 #片段，页内锚点照常工作），
+        // 内容自己发起的跳转（<a> 未被拦截、location.assign、表单提交、meta refresh）一律取消。
+        this.client.addRequestHandler(new CefRequestHandlerAdapter() {
+            @Override
+            public boolean onBeforeBrowse(CefBrowser b, CefFrame f, org.cef.network.CefRequest request,
+                                          boolean userGesture, boolean isRedirect) {
+                String url = request == null ? null : request.getURL();
+                if (isAllowedNavigation(url)) {
+                    return false;
+                }
+                log.warn("JCEF 页面导航被拒绝（非可信目标）: main={} url={}",
+                        f != null && f.isMain(), abbrev(url));
+                return true;
+            }
+
+            /** 中间键/Ctrl+左键等"开新标签"式导航：可信目标照常装载，其余取消。 */
+            @Override
+            public boolean onOpenURLFromTab(CefBrowser b, CefFrame f, String targetUrl, boolean userGesture) {
+                if (isAllowedNavigation(targetUrl)) {
+                    return false;
+                }
+                log.warn("JCEF 页外导航被拒绝: {}", abbrev(targetUrl));
+                return true;
+            }
+        });
+
+        // 本视图是常驻离屏画布，没有"再开一个浏览器"的形态：新窗口/弹窗一律不创建。
+        // 正文里的外链由页面 JS 拦下 click 后交给 Java 的系统浏览器打开。
+        this.client.addLifeSpanHandler(new CefLifeSpanHandlerAdapter() {
+            @Override
+            public boolean onBeforePopup(CefBrowser b, CefFrame f, String targetUrl, String frameName) {
+                log.info("JCEF 弹窗被拒绝: {}", abbrev(targetUrl));
+                return true;
             }
         });
 
@@ -845,6 +906,8 @@ public final class JcefOsrView {
      * 因此此处把过早到达的请求暂存，等首个主框架装载事件（native 已创建的信号）到达时补发。</p>
      */
     public void loadUrl(String url) {
+        // 先立可信目标再导航：onBeforeBrowse 在导航派发的瞬间就会回读它，晚一步会被自己的闸门拦下
+        trustedUrl = url;
         synchronized (loadGate) {
             if (!nativeCreated) {
                 pendingUrl = url;
@@ -853,6 +916,97 @@ public final class JcefOsrView {
             }
         }
         browser.loadURL(url);
+    }
+
+    /** 该导航目标是否就是 Java 侧装载的那一个文档（{@code about:*} 为初始空白页，始终放行）。 */
+    private boolean isAllowedNavigation(String url) {
+        if (url == null) {
+            return false;
+        }
+        if (url.startsWith("about:")) {
+            return true; // 每个视图创建时的空骨架页，以及被装载请求中断掉的那次导航
+        }
+        String t = trustedUrl;
+        return t != null && sameDocument(t, url);
+    }
+
+    /** 桥调用来源是否可信：主框架当前文档须即 {@link #trustedUrl}。 */
+    private boolean isTrustedDocument(String url) {
+        if (url == null || url.startsWith("about:")) {
+            return true; // 空白骨架页里尚无桥，走到这里也只可能是 CEF 自身的中断导航
+        }
+        String t = trustedUrl;
+        if (t == null) {
+            return false;
+        }
+        if (sameDocument(t, url)) {
+            return true;
+        }
+        // data: 文档的 URL 由 Chromium 规范化回报（内联整页 HTML，可达数兆且未必逐字节回显），
+        // 无法可靠等值比对；跨目标导航已被 onBeforeBrowse 拦住，这里退化为同方案判定。
+        return "data".equalsIgnoreCase(schemeOf(t)) && "data".equalsIgnoreCase(schemeOf(url));
+    }
+
+    /** 去掉 {@code #片段}（锚点跳转不应被当成异源导航）。 */
+    private static String trimFragment(String url) {
+        if (url == null) {
+            return "";
+        }
+        int hash = url.indexOf('#');
+        return hash < 0 ? url : url.substring(0, hash);
+    }
+
+    /** 还原百分号编码；非法序列（裸 {@code %}）按原样返回。 */
+    private static String decode(String url) {
+        try {
+            return java.net.URLDecoder.decode(url, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (RuntimeException e) {
+            return url;
+        }
+    }
+
+    /** 用于日志/比对的文档地址：去片段并还原编码。 */
+    static String documentBase(String url) {
+        return decode(trimFragment(url));
+    }
+
+    /**
+     * 两个地址是否指向同一文档（忽略 {@code #片段} 与百分号编码差异，大小写不敏感）。
+     *
+     * <p>先走原串快路径：{@code data:} 内联页的整页 HTML 可达数兆，逐次解码纯属浪费。</p>
+     */
+    static boolean sameDocument(String a, String b) {
+        String sa = trimFragment(a);
+        String sb = trimFragment(b);
+        return sa.equalsIgnoreCase(sb) || decode(sa).equalsIgnoreCase(decode(sb));
+    }
+
+    /**
+     * URL 方案（小写、不含冒号）；无方案返回空串。
+     *
+     * <p>单字母前缀一律判为「无方案」：真实 URI 方案不存在单字母的，而 {@code C:/x.html} 这种
+     * 裸盘符路径在本项目里确实会作为 URL 片段出现，不能把它误读成方案 {@code c:}。</p>
+     */
+    static String schemeOf(String url) {
+        if (url == null || url.length() < 2) {
+            return "";
+        }
+        char first = url.charAt(0);
+        if (!((first >= 'a' && first <= 'z') || (first >= 'A' && first <= 'Z'))) {
+            return "";
+        }
+        for (int i = 1; i < url.length(); i++) {
+            char c = url.charAt(i);
+            if (c == ':') {
+                return i < 2 ? "" : url.substring(0, i).toLowerCase();
+            }
+            boolean schemeChar = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '+' || c == '-' || c == '.';
+            if (!schemeChar) {
+                return "";
+            }
+        }
+        return "";
     }
 
     /** 日志用 URL 截断（data: URL 可达数兆，直接打印会淹没日志）。 */
@@ -923,7 +1077,7 @@ public final class JcefOsrView {
                 }
                 lastSetSizeW = tw;
                 lastSetSizeH = th;
-                log.info("OSR resize 下发: {}x{}（尺寸变化静默 {}ms）", tw, th,
+                log.debug("OSR resize 下发: {}x{}（尺寸变化静默 {}ms）", tw, th,
                         lastSizeEventNs == 0 ? -1 : (System.nanoTime() - lastSizeEventNs) / 1_000_000L);
                 // 进入「重排敏感期」：期内 CEF 输出的是「旧+新」分块拼贴半成品，由 onPaint 攒住
                 // 不上屏（保持稳定帧过渡绘制），验证稳定后收尾上屏。每轮 setSize 重置敏感期与
@@ -1326,6 +1480,12 @@ public final class JcefOsrView {
         final javafx.animation.PauseTransition rh = resizeHold;
         if (rh != null) {
             try { rh.stop(); } catch (Throwable ignored) {}
+        }
+        // 拖动兜底轮询是 INDEFINITE Timeline，只在真实 RELEASE/超时里停；按住鼠标时关窗或切走
+        // 视图则没人停它，而它的 tick 会继续读全局光标并向已关闭的 browser 合成事件。
+        final javafx.animation.Timeline dp = dragPoll;
+        if (dp != null) {
+            try { dp.stop(); } catch (Throwable ignored) {}
         }
         try { browser.close(true); } catch (Throwable ignored) {}
         try { router.dispose(); } catch (Throwable ignored) {}

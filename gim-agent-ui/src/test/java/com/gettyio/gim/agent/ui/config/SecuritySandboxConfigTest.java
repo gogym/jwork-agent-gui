@@ -20,6 +20,7 @@ import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.persist.SqliteConnectionProvider;
 import com.gettyio.gim.agent.domain.persist.SqlSchemaInitializer;
 import com.gettyio.gim.agent.domain.security.AesGcmSecretCipher;
+import com.gettyio.gim.agent.domain.security.SecretStore;
 import com.gettyio.gim.agent.tools.sandbox.SandboxExecutor;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -51,7 +52,8 @@ class SecuritySandboxConfigTest {
         SqliteConnectionProvider cp = new SqliteConnectionProvider(tempDir.resolve("gim.db"));
         new SqlSchemaInitializer(cp).initialize();
         db = new GimDatabase(cp);
-        service = new SecurityAdminService(db, new AesGcmSecretCipher(tempDir.resolve("secret.key")));
+        Path keyFile = tempDir.resolve("secret.key");
+        service = new SecurityAdminService(db, new SecretStore(new AesGcmSecretCipher(keyFile), keyFile));
     }
 
     @Test
@@ -61,7 +63,8 @@ class SecuritySandboxConfigTest {
 
         service.setSandboxDockerEnabled(true);
         assertTrue(service.isSandboxDockerEnabled());
-        assertTrue(new SecurityAdminService(db, new AesGcmSecretCipher(tempDir.resolve("secret.key")))
+        Path keyFile = tempDir.resolve("secret.key");
+        assertTrue(new SecurityAdminService(db, new SecretStore(new AesGcmSecretCipher(keyFile), keyFile))
                 .isSandboxDockerEnabled(), "新实例应读回同一持久化值");
 
         service.setSandboxDockerEnabled(false);

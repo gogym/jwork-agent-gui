@@ -114,8 +114,10 @@ public final class JcefComposer {
 
     /** Enter（无 Shift）提交回调（由控制器接线到发送流程）。 */
     private Runnable onSubmit;
-    /** 在途的「取最新文本」请求回调（sendNow 应答消费，单槽：快速连按时旧请求让位新请求）。 */
+    /** 在途的「取最新文本」请求回调（单槽，新请求覆盖旧回调；应答由 {@link #sendSeq} 判定归属）。 */
     private Consumer<String> pendingSend;
+    /** 最近一发的取文本序号：JS 应答按 EDT 顺序回抛，旧请求的应答可能后到，凭此把它作废。 */
+    private long sendSeq;
     /** 选区变化回调（composer.js selectionchange 上报驱动）：告知宿主「最近一次选区交互在输入框」。 */
     private Runnable onSelectionChanged;
 
@@ -264,7 +266,8 @@ public final class JcefComposer {
     /**
      * 取 DOM 最新全文并经 FX 线程回调（发送路径专用）。
      * <p>经 EDT 队列向 JS 发 askSend（与键盘转发同一队列，FIFO 保证此前字符已入 DOM），
-     * JS 读全文经桥回传。页面未就绪时直接回退镜像（保证功能不挂起）。</p>
+     * JS 读全文带序号经桥回传，只有最新一发的应答会被消费。页面未就绪时直接回退镜像
+     * （保证功能不挂起）。</p>
      */
     public void requestSend(Consumer<String> onText) {
         if (onText == null) {
@@ -275,7 +278,7 @@ public final class JcefComposer {
             return;
         }
         pendingSend = onText;
-        execJs("ComposerAPI.askSend();");
+        execJs("ComposerAPI.askSend(" + (++sendSeq) + ");");
     }
 
     // ===================== 键盘处理 =====================
@@ -477,9 +480,12 @@ public final class JcefComposer {
                 }
                 case "sendNow" -> {
                     String text = str(a, 0);
-                    Consumer<String> cb = pendingSend;
-                    pendingSend = null;
-                    if (cb != null) {
+                    long seq = lng(a, 1);
+                    // 只认最新一发的应答：连按 Enter 时旧 askSend 的应答可能后到，它带的是上一次
+                    // 的 DOM 快照，交进当前回调等于把旧草稿发出去、把新草稿那次请求吞掉。
+                    if (seq == sendSeq && pendingSend != null) {
+                        Consumer<String> cb = pendingSend;
+                        pendingSend = null;
                         cb.accept(text);
                     }
                 }

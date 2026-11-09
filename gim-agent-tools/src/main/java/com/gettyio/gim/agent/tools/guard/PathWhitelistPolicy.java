@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.tools.guard;
 
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec;
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec.ToolCallView;
+import com.gettyio.gim.agent.core.fs.CanonicalPath;
 
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
@@ -67,12 +68,14 @@ public class PathWhitelistPolicy implements ToolGuard {
             }
             Path target;
             try {
-                target = Paths.get(path).toAbsolutePath().normalize();
+                target = Paths.get(path);
             } catch (InvalidPathException e) {
                 continue; // 畸形路径交给文件系统层拒绝，这里不误伤
             }
-            if (!inAllowed(target)) {
-                outside.add(target.toString());
+            // 先取规范形再判断与展示：用户要看见的是这一笔写入真正落到哪儿
+            Path canonical = CanonicalPath.real(target);
+            if (!inAllowed(canonical)) {
+                outside.add(canonical.toString());
             }
         }
         if (outside.isEmpty()) {
@@ -82,19 +85,15 @@ public class PathWhitelistPolicy implements ToolGuard {
         return GuardResult.ask("目标路径在授权目录之外，请谨慎确认：" + String.join("、", outside));
     }
 
-    /** 判断路径是否落在任一授权根（静态 + 动态快照）内。 */
+    /**
+     * 判断路径是否落在任一授权根（静态 + 动态快照）内。
+     * <p>用 {@link CanonicalPath} 而不是字符串前缀比较：工作区里放一个指向家目录的链接，
+     * 前缀比较会一路放行到 {@code ~/.ssh}。</p>
+     */
     private boolean inAllowed(Path target) {
-        for (Path root : allowedRoots) {
-            if (target.startsWith(root.normalize())) {
-                return true;
-            }
-        }
-        for (Path root : extraRoots.get()) {
-            if (root != null && target.startsWith(root.toAbsolutePath().normalize())) {
-                return true;
-            }
-        }
-        return false;
+        List<Path> roots = new ArrayList<>(allowedRoots);
+        roots.addAll(extraRoots.get());
+        return CanonicalPath.withinAny(target, roots) != null;
     }
 
     @Override

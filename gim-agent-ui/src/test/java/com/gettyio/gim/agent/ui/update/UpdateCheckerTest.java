@@ -92,6 +92,17 @@ class UpdateCheckerTest {
     }
 
     @Test
+    @DisplayName("下载入口先过地址策略：更新接口被劫持时不让本机去取内网地址的字节")
+    void downloadRefusesInternalAddress() {
+        UpdateChecker checker = new UpdateChecker(null, null);
+        UpdateChecker.UpdateInfo viaMetadata = new UpdateChecker.UpdateInfo(
+                "9.9.9", "http://169.254.169.254/latest/user-data", -1, "", "desc", false);
+
+        IOException ex = assertThrows(IOException.class, () -> checker.download(viaMetadata, null));
+        assertTrue(ex.getMessage().contains("内网"), ex.getMessage());
+    }
+
+    @Test
     @DisplayName("校验失败抛 IOException 并删除本地文件；未知长度/空值跳过校验")
     void verifyChecksumFailuresAndSkips() throws Exception {
         UpdateChecker checker = new UpdateChecker(null, null);

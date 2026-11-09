@@ -73,6 +73,26 @@ CREATE INDEX IF NOT EXISTS idx_conversations_session ON conversations (session_i
 CREATE INDEX IF NOT EXISTS idx_conversations_agent ON conversations (agent_code);
 CREATE INDEX IF NOT EXISTS idx_conversations_model ON conversations (model_code);
 
+-- 在途应答检查点：一轮生成进行中定期写这里，进程被杀或崩溃后重启时提升为一条助手消息。
+-- 单开一张表而不是往 conversations 提前塞半成品：那半截正由界面实时缓冲画着，混进历史就是两条
+-- 重复气泡，「重新生成／编辑」还会指着这条没跑完的行。列与 conversations 同构，提升即照搬。
+CREATE TABLE IF NOT EXISTS turn_drafts (
+    session_id        TEXT PRIMARY KEY,
+    agent_code        TEXT,
+    content           TEXT,
+    tokens_input      INTEGER,
+    tokens_output     INTEGER,
+    tokens_cached     INTEGER,
+    last_input_tokens INTEGER,
+    llm_calls         INTEGER,
+    llm_elapsed_ms    INTEGER,
+    model_code        TEXT,
+    tool_calls        TEXT,
+    metadata          TEXT,
+    created_at        TEXT,
+    updated_at        TEXT
+);
+
 CREATE TABLE IF NOT EXISTS model_providers (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,
     provider_code TEXT NOT NULL UNIQUE,
@@ -209,5 +229,8 @@ CREATE TABLE IF NOT EXISTS tool_permission_rules (
     rule_content TEXT,
     decision    TEXT NOT NULL,
     created_at  TEXT,
+    -- 「整个工具」级通配授权的失效时刻；窄规则（程序/指纹/目录）为 NULL 长期有效。
+    -- 历史库里为 NULL 的通配行按已过期处理：那批授权是在「一次点击永久放开整个 execute」的年代写下的
+    expires_at  TEXT,
     UNIQUE (tool_name, rule_content)
 );

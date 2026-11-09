@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  测试专用日志配置：只走控制台，不写文件。
+  主配置的兜底目录是 ~/.jwork/logs，测试若沿用会把用例噪声混进用户真实运行日志，
+  导致「按日志核对应用行为」时读到自己造的噪声。surefire 仍会收录控制台输出。
+-->
+<configuration>
+    <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
+        <encoder>
+            <pattern>%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n</pattern>
+            <charset>UTF-8</charset>
+        </encoder>
+    </appender>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+    </root>
+</configuration>

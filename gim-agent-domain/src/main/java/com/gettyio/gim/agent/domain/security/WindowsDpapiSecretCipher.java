@@ -33,7 +33,8 @@ import java.util.Base64;
  */
 public class WindowsDpapiSecretCipher implements SecretCipher {
 
-    private static final String PREFIX = "dpapi:";
+    /** 密文前缀；{@link SecretStore} 按此前缀把存量密文路由回本实现。 */
+    public static final String PREFIX = "dpapi:";
     private static final int CRYPTPROTECT_UI_FORBIDDEN = 0x01;
 
     private final Crypt32 crypt32;

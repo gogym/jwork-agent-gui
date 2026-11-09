@@ -32,7 +32,7 @@ import java.util.Optional;
  */
 public class ToolPermissionRuleDao {
 
-    private static final String COLUMNS = "id, tool_name, rule_content, decision, created_at";
+    private static final String COLUMNS = "id, tool_name, rule_content, decision, created_at, expires_at";
 
     private final SqlRunner runner;
 
@@ -47,17 +47,28 @@ public class ToolPermissionRuleDao {
         r.setRuleContent(rs.getString("rule_content"));
         r.setDecision(rs.getString("decision"));
         r.setCreatedAt(SqlRunner.getDateTime(rs, "created_at"));
+        r.setExpiresAt(SqlRunner.getDateTime(rs, "expires_at"));
         return r;
     }
 
-    /** 记录或更新某工具（+可选规则内容）的决策 */
-    public void upsert(String toolName, String ruleContent, String decision) {
+    /**
+     * 记录或更新某工具（+可选规则内容）的决策。
+     * <p>{@code expiresAt} 由调用方决定：工具级通配带有效期（{@code GuardChain.TOOL_LEVEL_TTL}），
+     * 窄规则传 null 长期有效。 重复点击「总是允许」走更新分支并<b>重写到期时间</b>——那是用户当场又确认了一次，
+     * 若沿用建行时的 created_at 来推算，一个天天在用的工具会因为第一次点击太久前而反复弹框。</p>
+     *
+     * @param ruleContent 规则内容；null 表示整个工具级
+     * @param expiresAt   失效时刻，null 表示不失效
+     */
+    public void upsert(String toolName, String ruleContent, String decision, LocalDateTime expiresAt) {
         Optional<ToolPermissionRule> existing = find(toolName, ruleContent);
         if (existing.isPresent()) {
-            runner.update("UPDATE tool_permission_rules SET decision=? WHERE id=?", decision, existing.get().getId());
+            runner.update("UPDATE tool_permission_rules SET decision=?, expires_at=? WHERE id=?",
+                    decision, expiresAt, existing.get().getId());
         } else {
-            runner.insert("INSERT INTO tool_permission_rules (tool_name, rule_content, decision, created_at) VALUES (?,?,?,?)",
-                    toolName, ruleContent, decision, LocalDateTime.now());
+            runner.insert("INSERT INTO tool_permission_rules (tool_name, rule_content, decision, created_at, expires_at) "
+                            + "VALUES (?,?,?,?,?)",
+                    toolName, ruleContent, decision, LocalDateTime.now(), expiresAt);
         }
     }
 

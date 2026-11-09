@@ -19,8 +19,8 @@ package com.gettyio.gim.agent.ui.config;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.persist.SqliteConnectionProvider;
 import com.gettyio.gim.agent.domain.persist.SqlSchemaInitializer;
-import com.gettyio.gim.agent.domain.security.SecretCipher;
-import com.gettyio.gim.agent.domain.security.SecretCipherFactory;
+import com.gettyio.gim.agent.domain.security.AesGcmSecretCipher;
+import com.gettyio.gim.agent.domain.security.SecretStore;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -35,7 +35,8 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link ProxyManager} 单测：设置往返与密码加密落库、系统属性的应用与清理、端口解析边界。
+ * {@link ProxyManager} 单测：设置往返与密码加密落库、留空沿用/显式清除两种语义、
+ * 系统属性的应用与清理、端口解析边界。
  * 全部落临时 SQLite 与临时密钥文件（与 McpAdminServiceTest 同模式）；每个用例结束还原
  * 代理关闭态，避免系统属性污染同 JVM 的其他测试。
  *
@@ -47,7 +48,7 @@ class ProxyManagerTest {
     Path tempDir;
 
     private GimDatabase db;
-    private SecretCipher cipher;
+    private SecretStore secrets;
     private ProxyManager manager;
 
     @BeforeEach
@@ -55,8 +56,10 @@ class ProxyManagerTest {
         SqliteConnectionProvider cp = new SqliteConnectionProvider(tempDir.resolve("gim.db"));
         new SqlSchemaInitializer(cp).initialize();
         db = new GimDatabase(cp);
-        cipher = SecretCipherFactory.create(tempDir.resolve("secret.key"));
-        manager = new ProxyManager(db, cipher);
+        Path keyFile = tempDir.resolve("secret.key");
+        // 固定用 AES 实现：DPAPI 绑定 Windows 用户，CI 与本机行为会不一致
+        secrets = new SecretStore(new AesGcmSecretCipher(keyFile), keyFile);
+        manager = new ProxyManager(db, secrets);
     }
 
     @AfterEach
@@ -86,8 +89,32 @@ class ProxyManagerTest {
 
         String raw = db.settingDao().getValue(ProxyManager.KEY_PASSWORD).orElseThrow();
         assertNotEquals("plain-secret", raw);
-        assertTrue(cipher.canHandle(raw));
-        assertEquals("plain-secret", cipher.decrypt(raw));
+        assertTrue(secrets.canHandle(raw));
+        assertEquals("plain-secret", secrets.decrypt(raw));
+    }
+
+    @Test
+    @DisplayName("密码留空沿用已存值，clearPassword 才撤销")
+    void blankPasswordKeepsAndClearRevokes() {
+        manager.save(new ProxyManager.Settings(true, "127.0.0.1", 7890, "u", "p@ss", ""));
+
+        // 界面上密码框不回显明文：一次保存带空串不该等于撤销认证
+        manager.save(new ProxyManager.Settings(true, "127.0.0.1", 7890, "u", "   ", ""));
+        assertEquals("p@ss", manager.settings().password(), "留空应沿用已存密码");
+        assertEquals(SecretStore.State.READABLE, manager.passwordState());
+
+        manager.clearPassword();
+        assertEquals("", manager.settings().password());
+        assertEquals(SecretStore.State.EMPTY, manager.passwordState());
+    }
+
+    @Test
+    @DisplayName("外机密文：解不开返回空串并标记 UNREADABLE，绝不把密文体当密码")
+    void foreignSealedPasswordIsNotLeaked() {
+        db.settingDao().upsert(ProxyManager.KEY_PASSWORD, "dpapi:bm90LW9uLXRoaXMtbWFjaGluZQ==", "脏数据");
+
+        assertEquals("", manager.settings().password(), "解不开应返回空串而不是密文");
+        assertEquals(SecretStore.State.UNREADABLE, manager.passwordState());
     }
 
     @Test

@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.update;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gettyio.gim.agent.core.net.AddressPolicy;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.notify.TrayNotifier;
@@ -312,6 +313,13 @@ public class UpdateChecker {
     public Path download(UpdateInfo info, DoubleConsumer onProgress) throws IOException {
         if (info == null || info.downloadUrl() == null || info.downloadUrl().isBlank()) {
             throw new IOException(I18n.t("settings.update.noDownloadUrl"));
+        }
+        // 下载地址来自更新接口的响应，不是用户填的：被劫持的feed指到回环/元数据服务时，
+        // 本机不该替访问者把字节取回来落盘成「安装包」
+        String refusal = AddressPolicy.refusal(info.downloadUrl()).orElse(null);
+        if (refusal != null) {
+            log.warn("更新包下载地址被拒绝: {} — {}", info.downloadUrl(), refusal);
+            throw new IOException("更新包下载地址不可用：" + refusal);
         }
         Path tempDir = Files.createTempDirectory("jwork-update-");
         Path target = tempDir.resolve(safeFileName(info.downloadUrl()));

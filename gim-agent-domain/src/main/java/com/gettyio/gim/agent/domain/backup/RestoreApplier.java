@@ -49,14 +49,17 @@ public final class RestoreApplier {
     }
 
     /**
-     * 若待恢复快照存在则应用：头校验 → 旧库 VACUUM 备份 → 原子替换 → 清理 pending。
+     * 若待恢复快照存在则应用：头校验 → 完整性校验 → 旧库 VACUUM 备份 → 原子替换 → 清理 pending。
+     * <p>两道校验都只读不写原文件；校验失败时 pending 保留，交设置页的「待恢复」行呈现与撤销，
+     * 而不是悄悄吞掉用户明确排队过的一次恢复。</p>
      *
-     * @param dbFile      当前数据库文件路径
-     * @param pendingFile 待恢复快照路径（不存在表示无需恢复）
-     * @param backupsDir  备份目录（恢复前的旧库快照存这里）
+     * @param dbFile          当前数据库文件路径
+     * @param pendingFile     待恢复快照路径（不存在表示无需恢复）
+     * @param pendingInfoFile 待恢复快照的来源信息（可为空，随 pending 一同清理）
+     * @param backupsDir      备份目录（恢复前的旧库快照存这里）
      * @return 是否执行了替换
      */
-    public static boolean applyIfPresent(Path dbFile, Path pendingFile, Path backupsDir) {
+    public static boolean applyIfPresent(Path dbFile, Path pendingFile, Path pendingInfoFile, Path backupsDir) {
         if (pendingFile == null || !Files.isRegularFile(pendingFile)) {
             return false;
         }
@@ -65,14 +68,30 @@ public final class RestoreApplier {
                 log.warn("待恢复快照头校验失败，放弃应用: {}", pendingFile);
                 return false;
             }
+            if (!SqliteSnapshotValidator.passesIntegrityCheck(pendingFile)) {
+                log.error("待恢复快照未通过完整性校验，放弃应用（可在设置页的「待恢复」行撤销）: {}", pendingFile);
+                return false;
+            }
             backupCurrent(dbFile, backupsDir);
             replace(dbFile, pendingFile);
             Files.deleteIfExists(pendingFile);
+            deleteQuietly(pendingInfoFile);
             log.info("已应用云端恢复快照: {}", dbFile);
             return true;
         } catch (Exception e) {
             log.error("应用云端恢复快照失败（原库保持不变）: {}", e.getMessage(), e);
             return false;
+        }
+    }
+
+    private static void deleteQuietly(Path file) {
+        if (file == null) {
+            return;
+        }
+        try {
+            Files.deleteIfExists(file);
+        } catch (IOException e) {
+            log.warn("清理待恢复信息失败: {}", file, e);
         }
     }
 

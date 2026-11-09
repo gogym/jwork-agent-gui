@@ -327,8 +327,10 @@
         clearComposition: function () {
             clearComposition();
         },
-        askSend: function () {
-            send('sendNow', [getText()]);
+        askSend: function (seq) {
+            // 序号原样回抛：Java 只认最新一发的应答（连按 Enter 时旧请求的应答可能晚到，
+            // 那一份是本请求之前的 DOM 快照，用它发送等于把旧草稿再发一遍）
+            send('sendNow', [getText(), seq == null ? 0 : seq]);
         },
         selectAll: function () {
             // 全选：Range 精确选中编辑区内容（不用 execCommand('selectAll')，后者会

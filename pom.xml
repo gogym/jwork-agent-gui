@@ -31,6 +31,7 @@
         <quartz.version>2.5.2</quartz.version>
         <jackson.version>2.21.4</jackson.version>
         <sqlite-jdbc.version>3.50.1.0</sqlite-jdbc.version>
+        <sardine.version>5.10</sardine.version>
         <atlantafx.version>2.0.1</atlantafx.version>
         <jeditermfx.version>1.1.0</jeditermfx.version>
         <commonmark.version>0.24.0</commonmark.version>
@@ -205,6 +206,12 @@
                 <groupId>org.xerial</groupId>
                 <artifactId>sqlite-jdbc</artifactId>
                 <version>${sqlite-jdbc.version}</version>
+            </dependency>
+            <!-- WebDAV 云同步客户端；版本与上面的 JAXB 2.3.x 兜底族绑定，升级需同步核对 -->
+            <dependency>
+                <groupId>com.github.lookfirst</groupId>
+                <artifactId>sardine</artifactId>
+                <version>${sardine.version}</version>
             </dependency>
             <dependency>
                 <groupId>net.java.dev.jna</groupId>

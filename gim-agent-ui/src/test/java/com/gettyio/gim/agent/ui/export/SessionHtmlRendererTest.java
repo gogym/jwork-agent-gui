@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.export;
 
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -64,17 +65,17 @@ class SessionHtmlRendererTest {
                 msg("ASSISTANT", "")));
 
         assertTrue(html.contains("<title>导出测试</title>"));
-        assertTrue(html.contains("会话：s-1"));
-        assertTrue(html.contains("智能体：default"));
-        assertTrue(html.contains("模型：gpt-x"));
-        assertTrue(html.contains("消息数：2"));
+        // 元信息/角色标签走语言包：断言按当前语言取键，避免换台机器（默认语言不同）就误报
+        assertTrue(html.contains(I18n.t("export.meta.session", "s-1")));
+        assertTrue(html.contains(I18n.t("export.meta.agent", "default")));
+        assertTrue(html.contains(I18n.t("export.meta.model", "gpt-x")));
+        assertTrue(html.contains(I18n.t("export.meta.messageCount", "2")));
         assertTrue(html.contains("role-user"));
-        assertTrue(html.contains(">用户<"));
+        assertTrue(html.contains(">" + I18n.t("export.role.user") + "<"));
         assertTrue(html.contains("role-assistant"));
-        assertTrue(html.contains(">助手<"));
+        assertTrue(html.contains(">" + I18n.t("export.role.assistant") + "<"));
         assertTrue(html.contains("2026-01-02 03:04:05"));
-        // 空内容落「（空）」占位
-        assertTrue(html.contains("（空）"));
+        assertTrue(html.contains(I18n.t("export.body.empty")));
     }
 
     @Test
@@ -109,6 +110,20 @@ class SessionHtmlRendererTest {
 
         assertTrue(html.contains("data:image/png;base64,"));
         assertFalse(html.contains(dest));
+    }
+
+    @Test
+    @DisplayName("非位图的本地文件不内嵌：导出文档不该顺手抄走任意文件的内容")
+    void nonImageLocalFileIsNotEmbedded(@TempDir Path dir) throws Exception {
+        Path secret = Files.writeString(dir.resolve("secrets.env"), "TOKEN=abc");
+        String dest = secret.toAbsolutePath().toString().replace('\\', '/');
+
+        String html = SessionHtmlRenderer.render(session(), List.of(
+                msg("ASSISTANT", "![台账](<" + dest + ">)")));
+
+        assertFalse(html.contains("data:image"), "不该出现内嵌数据");
+        assertFalse(html.contains("TOKEN=abc"), "文件内容不该被抄进导出件");
+        assertTrue(html.contains("台账"), "回落 alt 文本");
     }
 
     @Test

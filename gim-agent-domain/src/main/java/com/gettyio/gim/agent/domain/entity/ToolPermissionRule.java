@@ -33,11 +33,19 @@ public class ToolPermissionRule {
     /** 工具名，如 write_file / shell */
     private String toolName;
 
-    /** 规则内容（可为路径前缀或命令匹配），null 表示整个工具 */
+    /** 规则内容（命令程序/命令指纹/目录前缀），null 表示整个工具 */
     private String ruleContent;
 
     /** 决策，见 PermissionDecision */
     private String decision;
 
     private LocalDateTime createdAt;
+
+    /**
+     * 失效时刻，null 表示长期有效。
+     * <p>只有「整个工具」这一级的通配授权带失效时间：它的粒度粗到无法判断到底放开了什么，
+     * 因而必须由用户定期重新确认。按程序/指纹/目录归组的窄规则不带到期时间，
+     * 由设置页「授权管理」撤销。</p>
+     */
+    private LocalDateTime expiresAt;
 }

@@ -94,11 +94,10 @@
             <artifactId>commonmark-ext-gfm-tables</artifactId>
         </dependency>
 
-        <!-- WebDAV 云同步客户端（put/list/exists） -->
+        <!-- WebDAV 云同步客户端（put/list/exists），版本由父 pom dependencyManagement 统一管理 -->
         <dependency>
             <groupId>com.github.lookfirst</groupId>
             <artifactId>sardine</artifactId>
-            <version>5.10</version>
         </dependency>
 
         <dependency>

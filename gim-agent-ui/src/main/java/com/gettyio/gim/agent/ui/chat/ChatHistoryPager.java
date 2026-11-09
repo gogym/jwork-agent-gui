@@ -21,11 +21,19 @@ import com.gettyio.gim.agent.core.chat.MessageMetadataCodec;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
+import javafx.application.Platform;
 import javafx.beans.property.BooleanProperty;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.Executor;
 import java.util.function.BooleanSupplier;
+import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
@@ -35,10 +43,17 @@ import java.util.function.Supplier;
  * <p>游标语义：{@code oldestLoadedId} 恒为「WebView DOM 中第一条消息的主键」——前端贴底回收
  * 顶部 DOM 后经 {@link #onTrimmed(long)} 前移；被回收段仍在库中，上滚触顶时经 {@link #loadOlder()}
  * 照常重新加载。</p>
+ * <p>读库与载荷组装（含附件图片读盘转 data URI、整页 JSON 序列化）交池线程执行，只在 FX 线程上屏：
+ * 50 条带图历史留在 FX 线程就是切会话时的一次白屏。上屏前比对 {@link #replayEpoch}——期间又有新的
+ * 整页重放则整批丢弃，慢的那页不会盖住新的。</p>
+ * <p>整页重放上屏后经 {@code afterReplay} 回接在途轮（临时气泡被 {@code renderHistory} 清掉了，
+ * 不等落库也要接着看）；这一步必须跟着上屏走，否则先后次序会随构建耗时漂移。</p>
  *
  * @author gogym
  */
 public final class ChatHistoryPager {
+
+    private static final Logger log = LoggerFactory.getLogger(ChatHistoryPager.class);
 
     private final ChatService chatService;
     private final ChatWebView chatView;
@@ -47,6 +62,12 @@ public final class ChatHistoryPager {
     private final BooleanProperty chatEmpty;
     private final Supplier<String> currentSessionId;
     private final BooleanSupplier busy;
+    /** 整页重放上屏后的接线（控制器桥到 {@code reattachRunningTurn}）；补页不触发。 */
+    private final Consumer<String> afterReplay;
+    /** 构建所在池线程；测试注入 {@link Schedulers#immediate()}，让「构建 + 上屏」可同步断言。 */
+    private final Scheduler background;
+    /** 上屏通道（生产为 FX 线程队列）。 */
+    private final Executor fx;
 
     /** 已加载的最旧历史主键（游标）；0 表示无可补页 */
     private long oldestLoadedId;
@@ -54,10 +75,21 @@ public final class ChatHistoryPager {
     private boolean hasMoreOlder;
     /** 向上补页进行中（防抖） */
     private boolean loadingOlder;
+    /** 整页重放序号：每次 {@link #render} 自增，构建回来只对号入座最新那次 */
+    private long replayEpoch;
 
     public ChatHistoryPager(ChatService chatService, ChatWebView chatView, ChatMessagePayload payload,
                             ChatStatusBar statusBar, BooleanProperty chatEmpty,
-                            Supplier<String> currentSessionId, BooleanSupplier busy) {
+                            Supplier<String> currentSessionId, BooleanSupplier busy,
+                            Consumer<String> afterReplay) {
+        this(chatService, chatView, payload, statusBar, chatEmpty, currentSessionId, busy, afterReplay,
+                Schedulers.boundedElastic(), Platform::runLater);
+    }
+
+    ChatHistoryPager(ChatService chatService, ChatWebView chatView, ChatMessagePayload payload,
+                     ChatStatusBar statusBar, BooleanProperty chatEmpty,
+                     Supplier<String> currentSessionId, BooleanSupplier busy, Consumer<String> afterReplay,
+                     Scheduler background, Executor fx) {
         this.chatService = chatService;
         this.chatView = chatView;
         this.payload = payload;
@@ -65,14 +97,28 @@ public final class ChatHistoryPager {
         this.chatEmpty = chatEmpty;
         this.currentSessionId = currentSessionId;
         this.busy = busy;
+        this.afterReplay = afterReplay;
+        this.background = background;
+        this.fx = fx;
+    }
+
+    /** 一次整页重放的构建产物：上屏所需的全部只读数据（含归属会话与发起时的重放序号）。 */
+    private record ReplayPage(String sessionId, long epoch, String json, long lastAssistantId,
+                              long lastUserId, boolean empty, boolean hasMoreOlder, long oldestId) {
+    }
+
+    /** 一次向上补页的构建产物（{@code oldestId} 为 0 表示没有更早）。 */
+    private record OlderPage(String json, boolean empty, boolean hasMoreOlder, long oldestId) {
     }
 
     /**
      * 从库重放当前会话的消息：只拉最新一页（{@link ChatService#HISTORY_PAGE_SIZE}）避免长会话全量上屏，
      * 滚动到顶再向上补页；逐条按角色上屏，携带主键以供删除/编辑/重生成/分支。
+     * <p>本方法同步复位游标并清空 DOM，页面内容随后在上屏通道里补上。</p>
      */
     public void render(String sessionId) {
         // 先复位分页态：整页重放会重建 DOM 并把视口复位到最新（底部），不能让旧会话的补页态误触发
+        long epoch = ++replayEpoch;
         hasMoreOlder = false;
         loadingOlder = false;
         oldestLoadedId = 0;
@@ -80,8 +126,20 @@ public final class ChatHistoryPager {
         if (sessionId == null) {
             return;
         }
+        Mono.fromCallable(() -> buildReplay(sessionId, epoch))
+                .subscribeOn(background)
+                .subscribe(page -> fx.execute(() -> paintReplay(page)),
+                        err -> fx.execute(() -> {
+                            log.warn("会话历史重放失败: {}", sessionId, err);
+                            // 整页读不出来就退回欢迎页，别留一块空白当已加载完
+                            chatEmpty.set(true);
+                        }));
+    }
+
+    /** 池线程侧的整页构建：读最新一页、逐条组载荷（附件图片在这里读盘转 data URI）、序列化。 */
+    private ReplayPage buildReplay(String sessionId, long epoch) {
         List<ChatConversation> history = chatService.recentHistory(sessionId, ChatService.HISTORY_PAGE_SIZE);
-        List<WebChatMessage> msgs = new ArrayList<>();
+        List<WebChatMessage> msgs = new ArrayList<>(history.size());
         long lastAssistantId = 0;
         long lastUserId = 0;
         for (ChatConversation c : history) {
@@ -93,16 +151,23 @@ public final class ChatHistoryPager {
                 lastAssistantId = id;
             }
         }
-        chatView.renderHistory(ChatMessagePayload.toJson(msgs));
-        chatView.setFlags(lastAssistantId, lastUserId);
-        // 欢迎页显隐跟 Java 侧真实数据走，不依赖 JS 桥存活
-        chatEmpty.set(history.isEmpty());
-        hasMoreOlder = history.size() >= ChatService.HISTORY_PAGE_SIZE;
-        if (!history.isEmpty() && history.get(0).getId() != null) {
-            oldestLoadedId = history.get(0).getId();
+        return new ReplayPage(sessionId, epoch, ChatMessagePayload.toJson(msgs), lastAssistantId, lastUserId,
+                history.isEmpty(), history.size() >= ChatService.HISTORY_PAGE_SIZE, oldestIdOf(history));
+    }
+
+    private void paintReplay(ReplayPage page) {
+        if (page.epoch() != replayEpoch) {
+            return;
         }
-        statusBar.updateUsageFromSession(sessionId);
+        chatView.renderHistory(page.json());
+        chatView.setFlags(page.lastAssistantId(), page.lastUserId());
+        // 欢迎页显隐跟 Java 侧真实数据走，不依赖 JS 桥存活
+        chatEmpty.set(page.empty());
+        hasMoreOlder = page.hasMoreOlder();
+        oldestLoadedId = page.oldestId();
+        statusBar.updateUsageFromSession(page.sessionId());
         statusBar.updateContext();
+        afterReplay.accept(page.sessionId());
     }
 
     /**
@@ -118,22 +183,40 @@ public final class ChatHistoryPager {
             return;
         }
         loadingOlder = true;
-        List<ChatConversation> older = chatService.historyBefore(sid, oldestLoadedId, ChatService.HISTORY_PAGE_SIZE);
-        hasMoreOlder = older.size() >= ChatService.HISTORY_PAGE_SIZE;
-        if (older.isEmpty()) {
-            loadingOlder = false;
-            return;
-        }
+        long epoch = replayEpoch;
+        long cursor = oldestLoadedId;
         // older 升序（旧→新），按序组载荷后整体 prepend（前端按新增高度补偿滚动）
-        List<WebChatMessage> msgs = new ArrayList<>();
+        Mono.fromCallable(() -> buildOlder(sid, cursor))
+                .subscribeOn(background)
+                .subscribe(page -> fx.execute(() -> paintOlder(page, epoch, cursor)),
+                        err -> fx.execute(() -> {
+                            log.warn("更早历史加载失败: {}", sid, err);
+                            loadingOlder = false;
+                        }));
+    }
+
+    private OlderPage buildOlder(String sessionId, long cursor) {
+        List<ChatConversation> older = chatService.historyBefore(sessionId, cursor, ChatService.HISTORY_PAGE_SIZE);
+        List<WebChatMessage> msgs = new ArrayList<>(older.size());
         for (ChatConversation c : older) {
             msgs.add(toPayload(c));
         }
-        chatView.prependOlder(ChatMessagePayload.toJson(msgs));
-        if (older.get(0).getId() != null) {
-            oldestLoadedId = older.get(0).getId();
-        }
+        return new OlderPage(ChatMessagePayload.toJson(msgs), older.isEmpty(),
+                older.size() >= ChatService.HISTORY_PAGE_SIZE, oldestIdOf(older));
+    }
+
+    private void paintOlder(OlderPage page, long epoch, long cursor) {
         loadingOlder = false;
+        // 期间换过会话（重放序号变了）或顶部 DOM 被回收过（游标前移了）：这一页的位置已不成立，丢弃等下次触顶重取
+        if (epoch != replayEpoch || cursor != oldestLoadedId) {
+            return;
+        }
+        hasMoreOlder = page.hasMoreOlder();
+        if (page.empty()) {
+            return;
+        }
+        chatView.prependOlder(page.json());
+        oldestLoadedId = page.oldestId();
     }
 
     /**
@@ -146,6 +229,10 @@ public final class ChatHistoryPager {
         }
         oldestLoadedId = newOldestId;
         hasMoreOlder = true;
+    }
+
+    private static long oldestIdOf(List<ChatConversation> page) {
+        return page.isEmpty() || page.get(0).getId() == null ? 0L : page.get(0).getId();
     }
 
     /** 把一条历史消息转为 JS 气泡载荷（用户：正文+附件；助手：正文+工具解码+思考+时间+中断标记）。 */

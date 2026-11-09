@@ -27,6 +27,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -132,8 +133,25 @@ class WebFetchHttpTest {
             </body></html>
             """;
 
+    /** 本地测试服务器本身就落在回环段：地址判定换成放行桩，本类只管编码、抽取与跳转链路。 */
     private static WebSearchTools tools() {
-        return new WebSearchTools(() -> WebSearchTools.PROVIDER_TAVILY, () -> "", () -> "");
+        return new WebSearchTools(() -> WebSearchTools.PROVIDER_TAVILY, () -> "", () -> "", url -> Optional.empty());
+    }
+
+    /** 只放行入口地址，跳转目标一律拒绝：用来验证下一跳确实复检过。 */
+    private static WebSearchTools allowEntryOnly() {
+        return new WebSearchTools(() -> WebSearchTools.PROVIDER_TAVILY, () -> "", () -> "",
+                url -> url.endsWith("/old") ? Optional.empty() : Optional.of("目标是内网/保留地址 127.0.0.1（主机 127.0.0.1）"));
+    }
+
+    @Test
+    @DisplayName("跳转的下一跳同样复检地址：公网入口 302 到内网不算借道成功")
+    void redirectHopIsRechecked() {
+        String out = allowEntryOnly().webFetch(base + "/old", null, null);
+
+        assertTrue(out.contains("重定向被拒绝"), out);
+        assertTrue(out.contains("127.0.0.1"), out);
+        assertFalse(out.contains("网页正文"), out);
     }
 
     @Test

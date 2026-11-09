@@ -60,6 +60,8 @@ public final class ChatWebView {
     private volatile boolean ready;
     /** 页面最近一次上报的贴底状态（OSR 过渡帧垂直锚定用；默认贴底）。 */
     private volatile boolean atBottom = true;
+    /** 已同步给前端的语言：仅在与上一次不同（真的换了语言）时重排已渲染的消息行。 */
+    private volatile String syncedLang;
     /** 就绪前的待执行脚本队列（FX 线程读写）。 */
     private final Deque<String> pending = new ArrayDeque<>();
 
@@ -142,7 +144,7 @@ public final class ChatWebView {
                 case "onSelection" -> bridge.onSelection(bool(a, 0));
                 case "onEmpty" -> {
                     boolean empty = bool(a, 0);
-                    log.info("收到 JS onEmpty={}", empty);
+                    log.debug("收到 JS onEmpty={}", empty);
                     bridge.onEmpty(empty);
                 }
                 default -> log.debug("忽略未知聊天桥方法: {}", fn);
@@ -181,6 +183,14 @@ public final class ChatWebView {
                 + ChatMessagePayload.jsString(lang) + ","
                 + ChatMessagePayload.jsValue(labels) + ");";
         run(script);
+        // 换语言时已渲染的那一屏也要跟着换：工具计数、思考标题、操作条按钮、AI 生成脚注这些
+        // 本地化片段是建气泡时烘进 DOM 的，只更新 LABELS 仅对之后新建的节点生效。
+        // 主题与字号切换不触发重建（CSS 变量即时生效，重建反而会丢掉折叠/展开等页面内状态）。
+        boolean relabel = syncedLang != null && !syncedLang.equals(lang);
+        syncedLang = lang;
+        if (relabel) {
+            run("ChatAPI.relocalize();");
+        }
     }
 
     // ---------- 渲染 API ----------
@@ -197,7 +207,11 @@ public final class ChatWebView {
 
     /** 追加单条消息（发送即时上屏的用户气泡）。 */
     public void appendMessage(WebChatMessage msg) {
-        run("ChatAPI.appendMessage(" + ChatMessagePayload.jsValue(msg) + ");");
+        String json = ChatMessagePayload.jsValue(msg);
+        if (json == null) {
+            return;
+        }
+        run("ChatAPI.appendMessage(" + json + ");");
     }
 
     /** 清空消息区。 */
@@ -227,12 +241,20 @@ public final class ChatWebView {
 
     /** 工具调用发起：过程区先上屏一行在途记录（{@code input} 可空，输出与结果未知）。 */
     public void streamToolStart(long id, WebChatTool tool) {
-        run("ChatAPI.streamToolStart(" + id + "," + ChatMessagePayload.jsValue(tool) + ");");
+        String json = ChatMessagePayload.jsValue(tool);
+        if (json == null) {
+            return;
+        }
+        run("ChatAPI.streamToolStart(" + id + "," + json + ");");
     }
 
     /** 工具调用结束：与历史重放共用 {@link WebChatTool} 视图，就地定格在途行。 */
     public void streamToolEnd(long id, WebChatTool tool) {
-        run("ChatAPI.streamToolEnd(" + id + "," + ChatMessagePayload.jsValue(tool) + ");");
+        String json = ChatMessagePayload.jsValue(tool);
+        if (json == null) {
+            return;
+        }
+        run("ChatAPI.streamToolEnd(" + id + "," + json + ");");
     }
 
     /** 流式收尾：定格在途行（随后控制器整页重放补齐真实主键）。 */
@@ -258,7 +280,11 @@ public final class ChatWebView {
     // ---------- 对比卡 ----------
 
     public void compareStart(List<CompareColumn> columns) {
-        run("ChatAPI.compareStart(" + ChatMessagePayload.jsValue(columns) + ");");
+        String json = ChatMessagePayload.jsValue(columns);
+        if (json == null) {
+            return;
+        }
+        run("ChatAPI.compareStart(" + json + ");");
     }
 
     public void compareDelta(int index, String text) {
@@ -270,8 +296,11 @@ public final class ChatWebView {
     }
 
     public void compareEnd(int index, String state, CompareFoot foot) {
-        run("ChatAPI.compareEnd(" + index + "," + ChatMessagePayload.jsString(state) + ","
-                + ChatMessagePayload.jsValue(foot) + ");");
+        String json = ChatMessagePayload.jsValue(foot);
+        if (json == null) {
+            return;
+        }
+        run("ChatAPI.compareEnd(" + index + "," + ChatMessagePayload.jsString(state) + "," + json + ");");
     }
 
     public void compareClear() {

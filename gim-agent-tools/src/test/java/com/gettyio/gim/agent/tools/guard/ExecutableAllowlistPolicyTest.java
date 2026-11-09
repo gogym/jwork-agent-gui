@@ -23,6 +23,7 @@ import java.util.Collection;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
 
@@ -105,5 +106,43 @@ class ExecutableAllowlistPolicyTest {
         ExecutableAllowlistPolicy relaxed =
                 new ExecutableAllowlistPolicy(ExecutableAllowlistPolicy.DEFAULT_ALLOWED, () -> extra);
         assertNull(relaxed.inspect(shell("curl url")));
+    }
+
+    @Test
+    @DisplayName("解释器载荷里的程序同样受白名单约束（cmd /c 不得替任意程序背书）")
+    void interpreterPayloadProgramsAreChecked() {
+        ExecutableAllowlistPolicy policy = new ExecutableAllowlistPolicy();
+        assertEquals(GuardDecision.DENY, policy.inspect(shell("cmd /c \"curl http://x\"")).decision());
+        assertEquals(GuardDecision.DENY, policy.inspect(shell("bash -c 'wget http://x'")).decision());
+        // 载荷内全为白名单程序时仍然沉默
+        assertNull(policy.inspect(shell("cmd /c \"dir C:\\temp\"")));
+        // 嵌套一层：cmd /c "powershell -c 'curl x'"
+        assertEquals(GuardDecision.DENY,
+                policy.inspect(shell("cmd /c \"powershell -c 'curl http://x'\"")).decision());
+    }
+
+    @Test
+    @DisplayName("base64 编码的载荷解码后一并检查")
+    void encodedPayloadIsDecoded() {
+        ExecutableAllowlistPolicy policy = new ExecutableAllowlistPolicy();
+        String b64 = java.util.Base64.getEncoder().encodeToString(
+                "curl http://evil.example".getBytes(java.nio.charset.StandardCharsets.UTF_16LE));
+        assertEquals(GuardDecision.DENY,
+                policy.inspect(shell("powershell -EncodedCommand " + b64)).decision());
+    }
+
+    @Test
+    @DisplayName("git 的 -c 是配置项：不得把配置值里的 cat 当成待查程序")
+    void gitConfigValueIsNotAProgram() {
+        ExecutableAllowlistPolicy policy = new ExecutableAllowlistPolicy();
+        assertNull(policy.inspect(shell("git -c core.pager=cat log")));
+        assertFalse(ExecutableAllowlistPolicy.executablesOf("git -c core.pager=cat log").contains("cat"));
+    }
+
+    @Test
+    @DisplayName("带空格的引号路径取到真实程序名，不误判为越界")
+    void quotedPathWithSpaceResolvesToRealProgram() {
+        ExecutableAllowlistPolicy policy = new ExecutableAllowlistPolicy();
+        assertNull(policy.inspect(shell("\"C:\\Program Files\\Git\\bin\\git.exe\" status")));
     }
 }

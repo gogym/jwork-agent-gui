@@ -54,6 +54,13 @@ public interface SessionSidebarHost extends ChatHost {
     /** 新建/编辑智能体后即接管它。 */
     void adoptAgent(String agentCode);
 
+    /**
+     * 该会话是否正被在途轮次改写：删除会连消息一起移除、分支会整段复制，两者撞上正在落盘的
+     * 半截应答就得到孤儿消息或半条分支。用户已切走、仍在后台跑的轮次同样算在途，
+     * 因此判定按「轮次归属的会话」而非「当前展示的会话」。
+     */
+    boolean generating(String sessionId);
+
     /** 导出会话为长图（PNG）：宿主弹保存对话框并就地渲染（含成功/失败反馈）。 */
     void exportSessionImage(String sessionId);
 

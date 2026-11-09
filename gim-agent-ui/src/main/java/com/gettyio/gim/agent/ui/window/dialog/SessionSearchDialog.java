@@ -25,6 +25,8 @@ import javafx.collections.FXCollections;
 import javafx.collections.ObservableList;
 import javafx.animation.FadeTransition;
 import javafx.animation.Interpolator;
+import javafx.animation.PauseTransition;
+import javafx.application.Platform;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
@@ -45,10 +47,15 @@ import javafx.stage.Modality;
 import javafx.stage.Stage;
 import javafx.stage.StageStyle;
 import javafx.stage.Window;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.time.format.FormatStyle;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
@@ -58,10 +65,14 @@ import java.util.function.Function;
  * 搜索命令面板：无边框圆角弹层，盖在磨玻璃背景上，实时检索当前智能体的会话与消息内容。
  * <p>顶部搜索框：命中会话标题 / 会话 ID 归入「会话」分组，命中消息正文归入「消息内容」分组（正文行
  * 展示会话标题 + 关键词命中片段）。↑↓ 移动选中（跳过分组标题）、Enter 或点击行打开、Esc 关闭。</p>
+ * <p>标题分组在 FX 线程即时刷新（纯内存比较），正文分组要查库，故合并 200ms 内的连续按键、只检索
+ * 最后一次，并在池线程执行；结果带回 FX 时按发起序号校验，慢的那次不会盖掉新的。</p>
  *
  * @author gogym
  */
 public final class SessionSearchDialog {
+
+    private static final Logger log = LoggerFactory.getLogger(SessionSearchDialog.class);
 
     /** 结果行右侧日期：跟随系统区域的中等日期格式，多语言下自适应。 */
     private static final DateTimeFormatter DATE =
@@ -69,7 +80,14 @@ public final class SessionSearchDialog {
     /** 消息片段命中位置前后各取的上下文字数。 */
     private static final int SNIPPET_CONTEXT = 30;
     /** 「消息内容」分组单次最多展示条数。 */
-    private static final int MESSAGE_LIMIT = 50;
+    public static final int MESSAGE_LIMIT = 50;
+    /**
+     * 宿主查库应多取的条数：命中还要按当前智能体过滤，只取展示条数会筛剩半数甚至更少，
+     * 面板据此上限截断，故多取 4 倍再筛。
+     */
+    public static final int MESSAGE_FETCH_LIMIT = MESSAGE_LIMIT * 4;
+    /** 关键词停顿多久才检索消息正文：每敲一个字都扫一遍 {@code conversations} 会让输入明显发涩。 */
+    private static final Duration SEARCH_DEBOUNCE = Duration.millis(200);
     /** 估算行高（px）：仅用于预算列表偏好高（实际单元格按内容自适应）。 */
     private static final double ROW_EST = 42;
     /** ListView 上下内边距（与 CSS .palette-list 的 padding 一致）。 */
@@ -147,13 +165,45 @@ public final class SessionSearchDialog {
         count.getStyleClass().add("palette-hint-count");
         Runnable refreshCount = () -> count.setText(I18n.t("search.palette.count", selectableCount(items)));
 
+        // 消息检索的发起序号：每次改动关键词自增，池线程结果只在序号未变时才并入列表
+        long[] searchSeq = new long[1];
+        PauseTransition debounce = new PauseTransition(SEARCH_DEBOUNCE);
         Runnable rebuild = () -> {
             String kw = field.getText() == null ? "" : field.getText().trim();
-            String needle = kw.toLowerCase(Locale.ROOT);
-            items.setAll(buildRows(sessions, messageFinder, kw, needle));
+            searchSeq[0]++;
+            items.setAll(sessionRows(sessions, kw.toLowerCase(Locale.ROOT)));
             selectFirstSelectable(list);
             refreshCount.run();
+            if (!kw.isEmpty()) {
+                debounce.playFromStart();
+            }
         };
+
+        debounce.setOnFinished(e -> {
+            String kw = field.getText() == null ? "" : field.getText().trim();
+            if (kw.isEmpty()) {
+                return;
+            }
+            long seq = ++searchSeq[0];
+            Mono.fromCallable(() -> messageRows(messageFinder.apply(kw), kw))
+                    .subscribeOn(Schedulers.boundedElastic())
+                    .subscribe(picked -> Platform.runLater(() -> {
+                        // 慢的那次不能盖掉新的：期间只要又敲过字（序号变了）就整批丢弃
+                        if (seq != searchSeq[0] || picked.isEmpty()) {
+                            return;
+                        }
+                        items.add(new Header(I18n.t("search.palette.group.messages")));
+                        items.addAll(picked);
+                        // 会话标题一条没中时列表还没有选中行，补上后要让 Enter 直接可打开首条
+                        if (list.getSelectionModel().getSelectedIndex() < 0) {
+                            selectFirstSelectable(list);
+                        }
+                        refreshCount.run();
+                    }), err -> {
+                        // 检索失败只少了「消息内容」分组，标题命中的会话仍可选择
+                        log.warn("消息正文检索失败: {}", kw, err);
+                    });
+        });
 
         field.textProperty().addListener((obs, old, text) -> rebuild.run());
 
@@ -231,15 +281,17 @@ public final class SessionSearchDialog {
         rebuild.run();
 
         coverOwner(stage, owner, card);
-        bindAndShow(stage, owner, field, card);
+        bindAndShow(stage, owner, field, card, () -> {
+            debounce.stop();
+            // 在途那一轮的序号作废，回来也不再并入已关闭的面板
+            searchSeq[0]++;
+        });
     }
 
-    /** 依据关键词组装行：空关键词仅列全部会话；否则「会话」组 + 「消息内容」组。 */
-    private static List<Row> buildRows(List<ChatSession> sessions,
-                                       Function<String, List<MessageHit>> messageFinder,
-                                       String kw, String needle) {
-        List<Row> rows = new java.util.ArrayList<>();
-        List<ChatSession> matched = new java.util.ArrayList<>();
+    /** 会话分组：标题 / 会话 ID 子串命中（纯内存，随敲键即时刷新）。空关键词列全部、不带分组标题。 */
+    private static List<Row> sessionRows(List<ChatSession> sessions, String needle) {
+        List<Row> rows = new ArrayList<>();
+        List<ChatSession> matched = new ArrayList<>();
         for (ChatSession s : sessions) {
             if (needle.isEmpty()
                     || (s.getTitle() != null && s.getTitle().toLowerCase(Locale.ROOT).contains(needle))
@@ -259,14 +311,22 @@ public final class SessionSearchDialog {
                 rows.add(new SessionRow(s));
             }
         }
-        List<MessageHit> hits = messageFinder.apply(kw);
-        if (hits != null && !hits.isEmpty()) {
-            int n = Math.min(hits.size(), MESSAGE_LIMIT);
-            rows.add(new Header(I18n.t("search.palette.group.messages")));
-            for (int i = 0; i < n; i++) {
-                MessageHit h = hits.get(i);
-                rows.add(new MessageRow(h, snippet(h.content(), kw)));
-            }
+        return rows;
+    }
+
+    /**
+     * 消息分组行：在池线程上组装（整段正文的空白折叠与定位也在这一段，别留在 FX 线程），
+     * 分组标题要查 {@link I18n}，仍由 FX 线程在并入列表时补。
+     */
+    private static List<MessageRow> messageRows(List<MessageHit> hits, String kw) {
+        if (hits == null || hits.isEmpty()) {
+            return List.of();
+        }
+        int n = Math.min(hits.size(), MESSAGE_LIMIT);
+        List<MessageRow> rows = new ArrayList<>(n);
+        for (int i = 0; i < n; i++) {
+            MessageHit h = hits.get(i);
+            rows.add(new MessageRow(h, snippet(h.content(), kw)));
         }
         return rows;
     }
@@ -357,8 +417,8 @@ public final class SessionSearchDialog {
         StackPane.setMargin(card, new Insets(Math.max(48, owner.getHeight() * 0.14), 0, 0, 0));
     }
 
-    /** 显示：卡片先置为不可见，弹窗展示时淡入；叠磨玻璃背景并把焦点给搜索框；关闭时撤除遮罩。 */
-    private static void bindAndShow(Stage stage, Window owner, TextField field, VBox card) {
+    /** 显示：卡片先置为不可见，弹窗展示时淡入；叠磨玻璃背景并把焦点给搜索框；关闭时撤除遮罩、停掉未发的检索。 */
+    private static void bindAndShow(Stage stage, Window owner, TextField field, VBox card, Runnable cancelSearch) {
         Runnable[] frost = new Runnable[1];
         card.setOpacity(0);
         stage.setOnShown(e -> {
@@ -378,6 +438,7 @@ public final class SessionSearchDialog {
                 frost[0].run();
                 frost[0] = null;
             }
+            cancelSearch.run();
         });
         stage.show();
     }

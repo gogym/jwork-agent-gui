@@ -448,6 +448,9 @@ public class SessionSidebar {
         });
         MenuItem branch = new MenuItem(I18n.t("session.branch.menu"), UiTheme.icon(ICON_BRANCH));
         branch.setOnAction(e -> {
+            if (refuseWhileGenerating(s, I18n.t("session.branch.menu"))) {
+                return;
+            }
             String newId = chatService.branchSession(s.getSessionId());
             host.refreshSessions();
             host.openSessionById(newId);
@@ -534,6 +537,9 @@ public class SessionSidebar {
     }
 
     private void confirmDeleteSession(ChatSession s) {
+        if (refuseWhileGenerating(s, I18n.t("common.delete"))) {
+            return;
+        }
         if (GimDialog.confirm(host.currentWindow(), I18n.t("common.delete"),
                 I18n.t("session.deleteConfirm", s.getTitle()))) {
             chatService.deleteSession(s.getSessionId());
@@ -548,6 +554,15 @@ public class SessionSidebar {
                 }
             }
         }
+    }
+
+    /** 该会话正被在途轮次改写时给出提示并挡下动作；返回是否应中止。 */
+    private boolean refuseWhileGenerating(ChatSession s, String title) {
+        if (!host.generating(s.getSessionId())) {
+            return false;
+        }
+        GimDialog.message(host.currentWindow(), title, null, I18n.t("session.busy"));
+        return true;
     }
 
     /** 「会话」整块区域收起/展开（仅控列表；搜索已改为命令面板，不受折叠影响） */

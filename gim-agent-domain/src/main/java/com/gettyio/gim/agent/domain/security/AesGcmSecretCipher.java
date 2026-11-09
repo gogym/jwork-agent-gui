@@ -35,7 +35,8 @@ import java.util.Set;
  */
 public class AesGcmSecretCipher implements SecretCipher {
 
-    private static final String PREFIX = "aes:";
+    /** 密文前缀；{@link SecretStore} 按此前缀把存量密文路由回本实现。 */
+    public static final String PREFIX = "aes:";
     private static final String TRANSFORMATION = "AES/GCM/NoPadding";
     private static final int IV_LENGTH = 12;
     private static final int TAG_BITS = 128;

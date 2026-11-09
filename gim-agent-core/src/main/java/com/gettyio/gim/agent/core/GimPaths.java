@@ -96,6 +96,15 @@ public class GimPaths {
         return restoreDir().resolve("pending.db");
     }
 
+    /**
+     * 待应用快照的来源信息（远端文件名 + 下载时间，制表符分隔一行）。
+     * <p>设置页据此告诉用户「下次启动会换成哪一份快照」并提供撤销入口；应用或撤销时与
+     * {@link #pendingRestoreFile()} 一同删除，两者是同一件事的两半。</p>
+     */
+    public Path pendingRestoreInfoFile() {
+        return restoreDir().resolve("pending.info");
+    }
+
     public Path skillsDir() {
         return workspaceDir().resolve("skills");
     }

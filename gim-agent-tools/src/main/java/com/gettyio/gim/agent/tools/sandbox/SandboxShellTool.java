@@ -34,6 +34,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.BooleanSupplier;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -107,8 +108,11 @@ public class SandboxShellTool {
     private final Path workspace;
     /** 授权项目目录（可空；容器档挂载为 {@code /project} 并作为容器工作目录）。 */
     private final Path project;
-    /** 按调用时刻读取的「本轮自动通过档」标记（与 HITL 判定同源，由网关注入）。 */
-    private final BooleanSupplier autoApprove;
+    /**
+     * 「该会话本轮是否自动通过档」查询（入参 sessionId，与 HITL 判定同源，由网关注入）。
+     * <p>按会话查而不是一把布尔：一个工具实例服务该智能体的全部会话，档位是轮次级的。</p>
+     */
+    private final Predicate<String> autoApprove;
     /** 设置项：自动通过档是否启用 Docker 隔离（实时读取，改设置无需重建工具）。 */
     private final BooleanSupplier dockerEnabled;
     /** 设置项：沙箱镜像（实时读取）。 */
@@ -121,7 +125,7 @@ public class SandboxShellTool {
     private final Set<String> fallbackNoticed = ConcurrentHashMap.newKeySet();
 
     public SandboxShellTool(AbstractSandboxFilesystem localFilesystem, Path workspace, Path project,
-                            BooleanSupplier autoApprove, BooleanSupplier dockerEnabled,
+                            Predicate<String> autoApprove, BooleanSupplier dockerEnabled,
                             Supplier<String> imageSupplier, DockerAvailabilityProbe probe) {
         this(localFilesystem, workspace, project, autoApprove, dockerEnabled, imageSupplier, probe,
                 image -> new SandboxExecutor(probe, image));
@@ -129,13 +133,13 @@ public class SandboxShellTool {
 
     /** 完整构造（单测可注入执行器工厂，按当前镜像现建，用户改镜像设置即时生效）。 */
     public SandboxShellTool(AbstractSandboxFilesystem localFilesystem, Path workspace, Path project,
-                            BooleanSupplier autoApprove, BooleanSupplier dockerEnabled,
+                            Predicate<String> autoApprove, BooleanSupplier dockerEnabled,
                             Supplier<String> imageSupplier, DockerAvailabilityProbe probe,
                             Function<String, SandboxExecutor> executorByImage) {
         this.localDelegate = new ShellExecuteTool(Objects.requireNonNull(localFilesystem, "localFilesystem"));
         this.workspace = Objects.requireNonNull(workspace, "workspace");
         this.project = project;
-        this.autoApprove = autoApprove == null ? () -> false : autoApprove;
+        this.autoApprove = autoApprove == null ? sid -> false : autoApprove;
         this.dockerEnabled = dockerEnabled == null ? () -> false : dockerEnabled;
         this.imageSupplier = imageSupplier == null ? () -> SandboxExecutor.DEFAULT_IMAGE : imageSupplier;
         this.probe = probe == null ? DockerAvailabilityProbe.onPath() : probe;
@@ -182,7 +186,7 @@ public class SandboxShellTool {
         if (Boolean.TRUE.equals(runInBackground)) {
             return startBackground(runtimeContext, command, wd);
         }
-        if (!dockerModeEnabled()) {
+        if (!dockerModeEnabled(runtimeContext)) {
             // 本地档也按放宽后的默认值下发（框架内置默认 30 秒，脚本类任务不够用）
             return localDelegate.execute(runtimeContext, command, workingDirectory, timeoutSeconds);
         }
@@ -267,7 +271,7 @@ public class SandboxShellTool {
      */
     private String startBackground(RuntimeContext runtimeContext, String command, String wd) {
         String notice = "";
-        if (dockerModeEnabled()) {
+        if (dockerModeEnabled(runtimeContext)) {
             if (probeAvailable()) {
                 return "Error: run_in_background=true is not available while Docker sandbox isolation"
                         + " is active (each sandboxed command runs in a one-shot container)."
@@ -315,9 +319,10 @@ public class SandboxShellTool {
     }
 
     /** 是否走容器档：本轮自动通过（黑名单仍由权限链拦截）且用户开启了 Docker 隔离。 */
-    private boolean dockerModeEnabled() {
+    private boolean dockerModeEnabled(RuntimeContext runtimeContext) {
         try {
-            return autoApprove.getAsBoolean() && dockerEnabled.getAsBoolean();
+            String sessionId = runtimeContext == null ? null : runtimeContext.getSessionId();
+            return autoApprove.test(sessionId) && dockerEnabled.getAsBoolean();
         } catch (RuntimeException e) {
             log.warn("读取沙箱开关失败，按本地执行: {}", e.getMessage());
             return false;

@@ -114,6 +114,17 @@ public final class JcefResources {
                 """.formatted(readText(CHAT_CSS), shim(queryFn), readText(MARKED_JS),
                 readText(PURIFY_JS), readText(CHAT_JS));
         Files.writeString(dir.resolve("index.html"), html, StandardCharsets.UTF_8);
+        // Mermaid 图表与 index.html 同目录落地（同目录相对引用属同源，不受 file:// 跨目录限制）：
+        // 2.7MB 的库不内联进页面，聊天页首次真出现 ```mermaid 才按需装载。缺资源不影响启动，
+        // 前端装载失败即把图表块留作代码块（与旧行为一致）。
+        try {
+            Path mermaid = dir.resolve("mermaid.min.js");
+            if (!Files.exists(mermaid)) {
+                copy(MERMAID_JS, mermaid);
+            }
+        } catch (IOException e) {
+            log.warn("mermaid.min.js 未落地聊天目录，图表按代码块显示", e);
+        }
         String url = dir.resolve("index.html").toUri().toString();
         log.info("聊天 JCEF 页面已落地（CSS/JS 全内联）: {}", url);
         chatShellUrl = url;

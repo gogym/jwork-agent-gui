@@ -17,7 +17,7 @@
 package com.gettyio.gim.agent.ui.config;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
-import com.gettyio.gim.agent.domain.security.SecretCipher;
+import com.gettyio.gim.agent.domain.security.SecretStore;
 import io.agentscope.core.model.transport.HttpTransportConfig;
 import io.agentscope.core.model.transport.HttpTransportFactory;
 import io.agentscope.core.model.transport.JdkHttpTransport;
@@ -32,7 +32,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 全局网络代理（HTTP/HTTPS）：设置持久化于 settings 表（密码经 {@link SecretCipher} 加密），
+ * 全局网络代理（HTTP/HTTPS）：设置持久化于 settings 表（密码经 {@link SecretStore} 加密），
  * 保存即应用到进程，覆盖应用内全部出网路径：
  * <ul>
  *   <li><b>系统属性</b>（http.proxyHost 等）：所有未显式指定代理的 JDK HttpClient 建连时实时读取
@@ -58,7 +58,7 @@ public class ProxyManager {
     public static final String KEY_PORT = "net.proxy.port";
     /** 认证用户名（明文存储） */
     public static final String KEY_USERNAME = "net.proxy.username";
-    /** 认证密码（SecretCipher 加密存储） */
+    /** 认证密码（SecretStore 加密存储） */
     public static final String KEY_PASSWORD = "net.proxy.password";
     /** 绕过列表：逗号/分号分隔，支持 * 通配 */
     public static final String KEY_BYPASS = "net.proxy.bypass";
@@ -70,13 +70,15 @@ public class ProxyManager {
     /** 应用管理的系统属性：应用与清理同源，避免开关切换残留 */
     private static final String[] MANAGED_PROPS = {
             "http.proxyHost", "http.proxyPort", "https.proxyHost", "https.proxyPort", "http.nonProxyHosts"};
+    /** settings.remark 文案：与既有入库行保持一致。 */
+    private static final String REMARK_PASSWORD = "网络代理认证密码（加密）";
 
     private final GimDatabase db;
-    private final SecretCipher cipher;
+    private final SecretStore secrets;
 
-    public ProxyManager(GimDatabase db, SecretCipher cipher) {
+    public ProxyManager(GimDatabase db, SecretStore secrets) {
         this.db = db;
-        this.cipher = cipher;
+        this.secrets = secrets;
     }
 
     /** 代理设置快照：{@code port <= 0} 表示未填；{@code password} 为解密后的明文。 */
@@ -85,7 +87,7 @@ public class ProxyManager {
 
     // ---- 读写 ----
 
-    /** 读取当前设置（密码解密失败按未配置处理，不阻断界面读取）。 */
+    /** 读取当前设置（密码本机解不开时返回空串，界面用 {@link #passwordState()} 区分「未配置」与「解不开」）。 */
     public Settings settings() {
         boolean enabled = db.settingDao().getValue(KEY_ENABLED)
                 .map(v -> "true".equalsIgnoreCase(v.trim()))
@@ -93,21 +95,42 @@ public class ProxyManager {
         String host = db.settingDao().getValue(KEY_HOST).orElse("").trim();
         int port = parsePort(db.settingDao().getValue(KEY_PORT).orElse(""));
         String username = db.settingDao().getValue(KEY_USERNAME).orElse("").trim();
-        String password = decryptStored(KEY_PASSWORD);
+        String password = secrets.open(stored(KEY_PASSWORD), "网络代理密码");
         String bypass = db.settingDao().getValue(KEY_BYPASS).orElse("").trim();
         return new Settings(enabled, host, port, username, password, bypass);
     }
 
-    /** 保存设置并立即应用（密码加密入库，空串表示无认证）。 */
+    /**
+     * 保存设置并立即应用。
+     * <p>{@code password} 留空表示<b>沿用已存密码</b>，不是清除：界面上的密码框不回显明文，
+     * 把空串当清除会让一次瞬时解密失败加失焦永久抹掉认证凭据。撤销认证请调
+     * {@link #clearPassword()}。</p>
+     */
     public void save(Settings s) {
         db.settingDao().upsert(KEY_ENABLED, String.valueOf(s.enabled()), "网络代理开关（true/false）");
         db.settingDao().upsert(KEY_HOST, s.host(), "网络代理主机（HTTP/HTTPS）");
         db.settingDao().upsert(KEY_PORT, s.port() > 0 ? String.valueOf(s.port()) : "", "网络代理端口");
         db.settingDao().upsert(KEY_USERNAME, s.username(), "网络代理认证用户名（明文）");
-        db.settingDao().upsert(KEY_PASSWORD, s.password().isEmpty() ? "" : cipher.encrypt(s.password()),
-                "网络代理认证密码（加密）");
+        if (s.password() != null && !s.password().isBlank()) {
+            db.settingDao().upsert(KEY_PASSWORD, secrets.seal(s.password()), REMARK_PASSWORD);
+        }
         db.settingDao().upsert(KEY_BYPASS, s.bypass(), "网络代理绕过列表：逗号/分号分隔，支持 * 通配");
         apply();
+    }
+
+    /** 显式清除已存认证密码（改为无认证）。 */
+    public void clearPassword() {
+        db.settingDao().upsert(KEY_PASSWORD, "", REMARK_PASSWORD);
+        apply();
+    }
+
+    /** 密码项存储状态。 */
+    public SecretStore.State passwordState() {
+        return secrets.state(stored(KEY_PASSWORD));
+    }
+
+    private String stored(String key) {
+        return db.settingDao().getValue(key).orElse("");
     }
 
     // ---- 应用 ----
@@ -195,19 +218,6 @@ public class ProxyManager {
             return port > 0 && port <= 65535 ? port : 0;
         } catch (NumberFormatException e) {
             return 0;
-        }
-    }
-
-    private String decryptStored(String key) {
-        String stored = db.settingDao().getValue(key).orElse("");
-        if (stored.isBlank()) {
-            return "";
-        }
-        try {
-            return cipher.decrypt(stored);
-        } catch (Exception e) {
-            log.warn("网络代理密码解密失败，按未配置处理", e);
-            return "";
         }
     }
 }

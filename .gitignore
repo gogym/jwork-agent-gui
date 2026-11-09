@@ -38,3 +38,16 @@ build/
 ### Mac OS ###
 .DS_Store
 /.idea
+
+### Windows ###
+Thumbs.db
+desktop.ini
+
+### JVM 崩溃/JIT 记录，临时导出与备份 ###
+hs_err_pid*.log
+replay_pid*.log
+*.log
+*.bak
+
+### IDE/代理工作区 ###
+/.qoder/

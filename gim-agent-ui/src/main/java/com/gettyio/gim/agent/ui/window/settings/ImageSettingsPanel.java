@@ -18,8 +18,8 @@ package com.gettyio.gim.agent.ui.window.settings;
 
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
+import com.gettyio.gim.agent.ui.control.SecretField;
 import javafx.scene.Node;
-import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.VBox;
 
@@ -28,8 +28,9 @@ import java.util.List;
 
 /**
  * 图像生成设置子面板（独立菜单页，抽自 {@link GeneralSettingsPanel}）：生成服务地址 / 模型 / API Key。
- * <p>OpenAI 兼容 {@code /images/generations} 协议；地址与模型齐备即视为可用（无鉴权的本地服务可留空 Key）。
+ * <p>OpenAI 兼容 {@code /images/generations} 协议；地址与模型齐备即视为可用（无鉴权的本地服务不必录 Key）。
  * 聊天页「生成图片」入口与 Agent 的 {@code generate_image} 工具共用这份配置，文本框失焦/回车即保存、改配即生效。</p>
+ * <p>API Key 走 {@link SecretField}：已存密钥不回显，留空只表示「不修改」。</p>
  *
  * @author gogym
  */
@@ -51,16 +52,16 @@ final class ImageSettingsPanel {
         TextField modelField = new TextField(securityAdminService.getImageModel());
         modelField.setPromptText(I18n.t("settings.image.model.prompt"));
         modelField.setMaxWidth(200);
-        PasswordField keyField = new PasswordField();
-        keyField.setText(securityAdminService.getImageApiKeyPlain());
-        keyField.setMaxWidth(200);
+        SecretField apiKey = new SecretField(securityAdminService::getImageApiKeyState,
+                securityAdminService::setImageApiKey, securityAdminService::clearImageApiKey);
+        apiKey.field().setPromptText(I18n.t("settings.secret.prompt"));
+        apiKey.field().setMaxWidth(200);
 
         Runnable save = () -> {
             securityAdminService.setImageBaseUrl(urlField.getText());
             securityAdminService.setImageModel(modelField.getText());
-            securityAdminService.setImageApiKey(keyField.getText());
         };
-        for (TextField f : List.of(urlField, modelField, keyField)) {
+        for (TextField f : List.of(urlField, modelField)) {
             f.setOnAction(e -> save.run());
             f.focusedProperty().addListener((obs, was, now) -> {
                 if (!now) {
@@ -74,7 +75,7 @@ final class ImageSettingsPanel {
         rows.add(SettingsLayout.settingRow(I18n.t("settings.image.model"),
                 I18n.t("settings.image.model.desc"), modelField));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.image.apiKey"),
-                I18n.t("settings.image.apiKey.desc"), keyField));
+                I18n.t("settings.image.apiKey.desc"), apiKey.control()));
         box.getChildren().add(SettingsLayout.groupCard(I18n.t("settings.image.group"), rows));
         return box;
     }

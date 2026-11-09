@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.market;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gettyio.gim.agent.core.net.AddressPolicy;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
@@ -224,6 +225,12 @@ public class MarketService {
     public SkillPackage installSkill(MarketSkill skill, DoubleConsumer onProgress) throws IOException {
         if (skill == null || skill.downloadUrl() == null || skill.downloadUrl().isBlank()) {
             throw new IOException("市场条目缺少下载地址");
+        }
+        // 下载地址出自市场接口的响应：被污染的条目把本机指回内网，取回来的字节还要解压成技能
+        String refusal = AddressPolicy.refusal(skill.downloadUrl()).orElse(null);
+        if (refusal != null) {
+            log.warn("市场技能包下载地址被拒绝: {} — {}", skill.downloadUrl(), refusal);
+            throw new IOException("技能包下载地址不可用：" + refusal);
         }
         Path tmp = Files.createTempDirectory("jwork-market-");
         try {

@@ -34,6 +34,7 @@ import com.gettyio.gim.agent.core.memory.MemoryWriteTool;
 import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
 import com.gettyio.gim.agent.core.model.ModelProbe;
 import com.gettyio.gim.agent.core.model.ModelSpec;
+import com.gettyio.gim.agent.core.net.AddressPolicy;
 import com.gettyio.gim.agent.core.plan.PlanService;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
@@ -46,8 +47,7 @@ import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.persist.ConnectionProvider;
 import com.gettyio.gim.agent.domain.persist.SqliteConnectionProvider;
 import com.gettyio.gim.agent.domain.security.LocalAuthService;
-import com.gettyio.gim.agent.domain.security.SecretCipher;
-import com.gettyio.gim.agent.domain.security.SecretCipherFactory;
+import com.gettyio.gim.agent.domain.security.SecretStore;
 import com.gettyio.gim.agent.scheduler.AgentTaskExecutor;
 import com.gettyio.gim.agent.scheduler.AgentTaskJobFactory;
 import com.gettyio.gim.agent.scheduler.TaskSchedulerService;
@@ -58,6 +58,7 @@ import com.gettyio.gim.agent.tools.guard.DangerousCommandPolicy;
 import com.gettyio.gim.agent.tools.guard.ExecutableAllowlistPolicy;
 import com.gettyio.gim.agent.tools.hitl.AskUserTool;
 import com.gettyio.gim.agent.tools.guard.GuardChain;
+import com.gettyio.gim.agent.tools.guard.InterpreterFloorPolicy;
 import com.gettyio.gim.agent.tools.guard.PathWhitelistPolicy;
 import com.gettyio.gim.agent.tools.guard.ToolGuard;
 import com.gettyio.gim.agent.tools.image.ImageGenerationClient;
@@ -71,6 +72,7 @@ import com.gettyio.gim.agent.tools.web.WebSearchTools;
 import com.gettyio.gim.agent.ui.controller.MainController;
 import com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService;
 import com.gettyio.gim.agent.ui.desktop.KeepAwakeService;
+import com.gettyio.gim.agent.ui.desktop.LocalOpenPolicy;
 import com.gettyio.gim.agent.ui.desktop.QuickAskWindow;
 import com.gettyio.gim.agent.ui.desktop.SelectionAssistant;
 import com.gettyio.gim.agent.ui.export.ExportService;
@@ -110,6 +112,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Supplier;
 
 /**
@@ -133,11 +136,14 @@ public final class AppContext implements AutoCloseable {
 
     private static final Logger log = LoggerFactory.getLogger(AppContext.class);
 
+    /** 停机时等待在跑自动化任务收尾的宽限（秒）：够写完结行，又不至于让卡死的任务拖住退出。 */
+    private static final long SCHEDULER_DRAIN_SECONDS = 5;
+
     // ===================== 存储与安全 =====================
 
     private final GimPaths paths;
     private final GimDatabase db;
-    private final SecretCipher cipher;
+    private final SecretStore secrets;
     private final WorkspaceProvisioner workspaceProvisioner;
     /** 内置人格模板升级提示（启动装配后弹一次一键升级）。 */
     private final PersonaTemplateUpgrade personaUpgrade;
@@ -229,22 +235,25 @@ public final class AppContext implements AutoCloseable {
     public AppContext() {
         // ---- 存储：云端恢复须先于任何 SQLite 连接建立 ----
         this.paths = new GimPaths();
-        RestoreApplier.applyIfPresent(paths.dbFile(), paths.pendingRestoreFile(), paths.backupsDir());
+        RestoreApplier.applyIfPresent(paths.dbFile(), paths.pendingRestoreFile(),
+                paths.pendingRestoreInfoFile(), paths.backupsDir());
         ConnectionProvider connection = new SqliteConnectionProvider(paths.dbFile());
         this.db = new GimDatabase(connection);
         db.initSchema();
-        this.cipher = SecretCipherFactory.create(paths.secretKeyFile());
+        this.secrets = SecretStore.create(paths.secretKeyFile());
         this.workspaceProvisioner = new WorkspaceProvisioner(paths);
         workspaceProvisioner.provision();
         this.personaUpgrade = new PersonaTemplateUpgrade(workspaceProvisioner, db);
 
         // ---- 模型 ----
         this.modelFactory = new AgentScopeModelFactory();
-        this.modelResolver = new DefaultModelResolver(db, cipher);
+        this.modelResolver = new DefaultModelResolver(db, secrets);
         this.modelProbe = new ModelProbe(modelFactory);
 
         // ---- 安全与工具 ----
-        this.securityAdmin = new SecurityAdminService(db, cipher);
+        this.securityAdmin = new SecurityAdminService(db, secrets);
+        // 出网地址策略：模型写出来的 URL 默认不许指向回环/内网/元数据地址（SSRF），开关实时读设置页
+        AddressPolicy.configureAllowPrivate(securityAdmin::isAllowPrivateAddresses);
         this.imageGenerationClient = new ImageGenerationClient(() -> new ImageGenerationClient.Config(
                 securityAdmin.getImageBaseUrl(),
                 securityAdmin.getImageModel(),
@@ -270,6 +279,8 @@ public final class AppContext implements AutoCloseable {
         trayNotifier.init();
         this.systemNotifier = new SystemNotifier(trayNotifier, appShell);
         this.taskExecutor = new AgentTaskExecutor(db, chatService, systemNotifier::onTaskCompleted);
+        // 任务下线（一次性已消费 / 连续失败停用 / 触发时状态非就绪）由执行器回调摘除 Quartz 作业
+        this.taskExecutor.setUnscheduleHook(schedulerService::unscheduleQuietly);
         try {
             scheduler.setJobFactory(new AgentTaskJobFactory(taskExecutor));
             scheduler.start();
@@ -283,8 +294,8 @@ public final class AppContext implements AutoCloseable {
         this.planService = new PlanService(gateway);
 
         // ---- 管理服务 ----
-        this.providerAdmin = new ProviderAdminService(db, cipher, modelFactory, modelResolver, modelProbe);
-        this.proxyManager = new ProxyManager(db, cipher);
+        this.providerAdmin = new ProviderAdminService(db, secrets, modelFactory, modelResolver, modelProbe);
+        this.proxyManager = new ProxyManager(db, secrets);
         proxyManager.apply();
         this.agentAdmin = new AgentAdminService(db, gateway);
         this.mcpAdmin = new McpAdminService(db, agentAdmin);
@@ -295,15 +306,15 @@ public final class AppContext implements AutoCloseable {
 
         // ---- 备份/导出/同步/更新 ----
         this.backupService = new DbBackupService(db, paths.backupsDir());
-        this.exportService = new ExportService(db);
+        this.exportService = new ExportService(db, secrets);
         this.updateChecker = new UpdateChecker(db, trayNotifier);
         this.marketService = new MarketService(updateChecker, skillService, mcpAdmin);
-        this.webDavSync = new WebDavSyncService(db, cipher, paths, backupService);
+        this.webDavSync = new WebDavSyncService(db, secrets, paths, backupService);
 
         // ---- 语音/限流 ----
         this.rateGovernor = new ModelRateGovernor(db);
-        this.ttsService = new TtsService(db, cipher);
-        this.voiceInput = new VoiceInputService(db, cipher);
+        this.ttsService = new TtsService(db, secrets);
+        this.voiceInput = new VoiceInputService(db, secrets);
 
         // ---- 窗口与生命周期 ----
         this.appLifecycle = new AppLifecycle(db, trayNotifier, localAuth);
@@ -346,6 +357,10 @@ public final class AppContext implements AutoCloseable {
 
         // @Order(200)：播种内置默认智能体（幂等）
         seedDefaultAgent();
+
+        // 上次进程被杀/崩溃时没跑完的应答先补成一条中断消息，再恢复任务：
+        // 顺序反了的话，同一会话里新触发的那轮会排在这半截之前
+        chatService.recoverInterruptedDrafts();
 
         // 无 @Order（最低优先级，最后执行）：恢复全部 READY 任务
         schedulerService.resumeReadyTasks();
@@ -427,7 +442,8 @@ public final class AppContext implements AutoCloseable {
 
     /**
      * 应用终止（FX 线程）：按原 {@code @PreDestroy} 语义停机——热键 → 保持唤醒 → 懒构建的
-     * 小窗/终端 → 托盘 → 调度器 → 网关收尾 → 后台子进程清理。各步失败仅记日志，保证后续步骤继续执行。
+     * 小窗/终端 → 托盘 → 云端同步巡检 → 调度器（给在跑任务有限宽限）→ 网关收尾 → 后台子进程清理。
+     * 各步失败仅记日志，保证后续步骤继续执行。
      */
     @Override
     public synchronized void close() {
@@ -446,17 +462,43 @@ public final class AppContext implements AutoCloseable {
             runQuietly("终端抽屉", terminal::shutdown);
         }
         runQuietly("系统托盘", trayNotifier::dispose);
-        runQuietly("任务调度器", () -> {
-            try {
-                scheduler.shutdown(false);
-            } catch (SchedulerException e) {
-                throw new IllegalStateException(e);
-            }
-        });
+        // 巡检线程先停：否则退出流程走到一半它可能又起一轮快照上传
+        runQuietly("云端同步巡检", webDavSync::stopAutoSync);
+        runQuietly("任务调度器", this::shutdownScheduler);
         runQuietly("智能体网关", gateway::close);
         // 后台命令（execute 的 run_in_background 档）自己起的子进程不归框架管，退出时必须强杀，
         // 否则窗口关了、dev server / 导出脚本还在机器上跑
         runQuietly("后台命令", BackgroundShellRunner::disposeAll);
+    }
+
+    /**
+     * 停机调度器：给在跑的作业一点时间收尾（它们要写 {@code task_runs} 与助手消息，硬砍会在会话里
+     * 留下没有终态的一轮），排空后再关；超过宽限就直接关，不再等。
+     * <p>这里刻意不用无条件 {@code shutdown(true)}：那个调用会一直等到所有作业跑完，
+     * 一个卡死的自动化任务就能把退出流程永远挂住（窗口没了、进程还在）。</p>
+     */
+    private void shutdownScheduler() {
+        long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(SCHEDULER_DRAIN_SECONDS);
+        boolean busy = false;
+        try {
+            while (System.nanoTime() < deadline) {
+                if (scheduler.getCurrentlyExecutingJobs().isEmpty()) {
+                    break;
+                }
+                busy = true;
+                TimeUnit.MILLISECONDS.sleep(200);
+            }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        } catch (SchedulerException e) {
+            log.warn("查询在跑的自动化任务失败，直接停机", e);
+        }
+        try {
+            // 排空后 wait=true 立即返回；没排空则只标记停机，剩余作业线程是守护线程，不会吊住进程
+            scheduler.shutdown(!busy);
+        } catch (SchedulerException e) {
+            log.warn("任务调度器停机失败", e);
+        }
     }
 
     private static void runQuietly(String what, Runnable action) {
@@ -599,7 +641,11 @@ public final class AppContext implements AutoCloseable {
         }
     }
 
-    /** 工具守卫链：危险命令黑名单 + Shell 程序白名单 + 文件路径白名单（扩展项实时读库）。 */
+    /**
+     * 工具守卫链：危险命令黑名单 → 解释器下限 → Shell 程序白名单 → 文件路径白名单（扩展项实时读库）。
+     * <p>顺带装配 {@link LocalOpenPolicy} 的授权根：白名单判「能不能写」，打开判「能不能交系统程序看」，
+     * 两处必须同一口径——否则同一份模型给出的路径，一边拦一边放。</p>
+     */
     private static GuardChain buildGuardChain(GimPaths paths, GimDatabase db, SecurityAdminService securityAdmin) {
         Path allowed = paths.root().resolve("allowed");
         try {
@@ -607,15 +653,24 @@ public final class AppContext implements AutoCloseable {
         } catch (IOException ignored) {
             // 目录创建失败不阻断，白名单仍可使用
         }
+        List<Path> baseRoots = List.of(allowed, paths.workspaceDir());
+        Supplier<Collection<Path>> extraRoots = pathExtraSupplier(db, securityAdmin);
+        LocalOpenPolicy.configure(() -> {
+            List<Path> merged = new ArrayList<>(baseRoots);
+            merged.addAll(extraRoots.get());
+            return merged;
+        });
         List<ToolGuard> guards = List.of(
                 // 危险命令黑名单：每次评估实时读库，设置页增删改/启停无需重启即生效
                 new DangerousCommandPolicy(securityAdmin::listDangerousRules),
+                // 解释器下限：cmd/powershell/python/node/git 一类调用即使命令「看起来无害」，
+                // 也不得由「自动」审批档替用户放过（详见 InterpreterFloorPolicy）
+                new InterpreterFloorPolicy(),
                 // shell 只能启动白名单内的程序；扩展来源 = 用户文件 + 设置页新增（实时合并）
                 new ExecutableAllowlistPolicy(ExecutableAllowlistPolicy.DEFAULT_ALLOWED,
                         shellExtraSupplier(paths, securityAdmin)),
                 // 动态授权根：各智能体项目目录 + 设置页新增目录，实时并入白名单
-                new PathWhitelistPolicy(List.of(allowed, paths.workspaceDir()),
-                        pathExtraSupplier(db, securityAdmin))
+                new PathWhitelistPolicy(baseRoots, extraRoots)
         );
         return new GuardChain(guards, db.permissionRuleDao());
     }

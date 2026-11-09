@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.chat.workspace;
 
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.chat.FileTextExtractor;
+import com.gettyio.gim.agent.core.fs.CanonicalPath;
 import com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import javafx.application.Platform;
@@ -616,11 +617,13 @@ public final class WorkspacePanel {
         return RenderKind.TEXT;
     }
 
-    /** 目标是否落在工作区根内（归一化后前缀判定），杜绝 {@code ../} 与符号链接外逃逸。 */
+    /**
+     * 目标是否落在工作区根内。
+     * <p>注释里原先写着「杜绝符号链接越界」，实现却只做字符串归一：{@code workspace\link} 指向根外时
+     * 前缀比较一路放过。现在走 {@link CanonicalPath}，逐级跟随链接后再比。</p>
+     */
     static boolean isWithin(Path root, Path target) {
-        Path r = root.toAbsolutePath().normalize();
-        Path t = target.toAbsolutePath().normalize();
-        return t.startsWith(r);
+        return CanonicalPath.within(target, root);
     }
 
     /** 会话专属工作区 = {@code <root>/<sessionId>}；空会话 ID 或归一化后越出根（含分隔符/..）返回 {@code null}。 */

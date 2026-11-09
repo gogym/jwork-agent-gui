@@ -30,12 +30,14 @@ import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.jcef.JcefComposer;
 import com.gettyio.gim.agent.ui.throttle.ModelRateGovernor;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
+import javafx.animation.PauseTransition;
 import javafx.application.Platform;
 import javafx.scene.Node;
 import javafx.scene.control.Label;
 import javafx.scene.control.ProgressBar;
 import javafx.scene.layout.HBox;
 import javafx.stage.Window;
+import javafx.util.Duration;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
@@ -65,6 +67,8 @@ public final class ChatStatusBar {
     private static final double COMPACT_MIN_RATIO = 0.25;
     /** 字符→token 粗估系数（中英混排经验值），仅在拿不到真实回报时兜底。 */
     private static final double CHARS_PER_TOKEN = 2.5;
+    /** 历史扫描节流：输入连打期间每这么久最多扫一次库（扫描本身不占 FX 线程）。 */
+    private static final Duration CONTEXT_SCAN_DEBOUNCE = Duration.millis(250);
 
     /** 手动压缩的宿主接线：忙判定与执行入口（控制器桥接到 {@code ChatService.compact}）。 */
     public interface ContextCompactor {
@@ -98,6 +102,17 @@ public final class ChatStatusBar {
     private Integer compactedBaseTokens;
     /** 浮层明细当前归属的会话：切换会话时清掉上一会话的压缩结果回显。 */
     private String popoverSessionId;
+    /** 最近一次历史扫描的结果与归属会话：每敲一个字重读整段会话历史实在没必要。 */
+    private HistoryScan contextScan;
+    private String contextScanSessionId;
+    /** 在途扫描归属的会话：同一会话不排两轮。 */
+    private String contextScanInFlight;
+    /** 扫描节流定时器（FX 线程上驱动，仅负责延后发起，不在其上读库）。 */
+    private PauseTransition contextScanTimer;
+
+    /** 一次历史扫描的产物（在 FX 线程外算好）：上一轮真实提示体量、历史字符数、上限设置。 */
+    private record HistoryScan(Integer lastInputTokens, long chars, int tokenLimit) {
+    }
 
     public ChatStatusBar(Label usageBar, Label contextBar, ProgressBar contextGauge, HBox contextStats,
                          JcefComposer inputField, ChatService chatService,
@@ -228,29 +243,34 @@ public final class ChatStatusBar {
             popover.setStatus(null, false);
             restoreCompactedBase(sessionId);
         }
-        List<ChatConversation> history = chatService.history(sessionId);
-        Integer lastInput = null;
-        long chars = 0;
-        for (ChatConversation c : history) {
-            if (c.getContent() != null) {
-                chars += c.getContent().length();
-            }
-            if (ConversationRole.ASSISTANT.getCode().equalsIgnoreCase(c.getRole())
-                    && c.getLastInputTokens() != null && c.getLastInputTokens() > 0) {
-                lastInput = c.getLastInputTokens();
-            }
-        }
+        renderContext(sessionId, sessionId.equals(contextScanSessionId) ? contextScan : null);
+        scheduleContextScan(sessionId);
+    }
+
+    /**
+     * 按已扫好的历史估算画占用条与浮层（纯 FX 线程计算，不读库，除首次那一下的上限读取）。
+     *
+     * @param scan 该会话的历史扫描结果；{@code null} 表示还没扫过（会话首次进入），
+     *             此时先按「只算待发输入」画一版，等扫描回来再改正，免得为估算冻住输入
+     */
+    private void renderContext(String sessionId, HistoryScan scan) {
         int pending = estimateTokens(inputField.getText());
         int estimated;
+        int limit;
         if (compactedBaseTokens != null && sessionId.equals(compactedSessionId)) {
             // 手动压缩后的基准：压缩器回传的精确估算 + 待发输入估量
             estimated = compactedBaseTokens + pending;
-        } else if (lastInput != null && lastInput > 0) {
-            estimated = lastInput + pending;
+            limit = scan != null ? scan.tokenLimit() : contextTokenLimit();
+        } else if (scan == null) {
+            limit = contextTokenLimit();
+            estimated = pending;
+        } else if (scan.lastInputTokens() != null && scan.lastInputTokens() > 0) {
+            estimated = scan.lastInputTokens() + pending;
+            limit = scan.tokenLimit();
         } else {
-            estimated = (int) Math.round(chars / CHARS_PER_TOKEN) + pending;
+            estimated = (int) Math.round(scan.chars() / CHARS_PER_TOKEN) + pending;
+            limit = scan.tokenLimit();
         }
-        int limit = contextTokenLimit();
         double ratio = limit > 0 ? (double) estimated / limit : 0;
         ratio = Math.max(0.0, Math.min(1.0, ratio));
         boolean near = ratio >= CONTEXT_WARN_RATIO;
@@ -282,6 +302,58 @@ public final class ChatStatusBar {
         contextBar.setManaged(true);
         contextGauge.setVisible(true);
         contextGauge.setManaged(true);
+    }
+
+    /**
+     * 排一次历史扫描：输入连打时合帧，同一会话不排两轮。
+     * <p>扫描要把 {@code conversations} 整段读出来（无 LIMIT），留在 FX 线程上就是每敲一个字
+     * 卡一次窗口；结果回来后仅当用户仍停在那个会话才重绘。</p>
+     */
+    private void scheduleContextScan(String sessionId) {
+        if (sessionId.equals(contextScanInFlight)) {
+            return;
+        }
+        if (contextScanTimer == null) {
+            contextScanTimer = new PauseTransition(CONTEXT_SCAN_DEBOUNCE);
+            contextScanTimer.setOnFinished(e -> startContextScan(currentSessionId.get()));
+        }
+        contextScanTimer.playFromStart();
+    }
+
+    private void startContextScan(String sessionId) {
+        if (sessionId == null || sessionId.equals(contextScanInFlight)) {
+            return;
+        }
+        contextScanInFlight = sessionId;
+        Mono.fromCallable(() -> scanHistory(sessionId))
+                .subscribeOn(Schedulers.boundedElastic())
+                .subscribe(scan -> Platform.runLater(() -> {
+                    contextScanInFlight = null;
+                    contextScan = scan;
+                    contextScanSessionId = sessionId;
+                    if (sessionId.equals(currentSessionId.get())) {
+                        renderContext(sessionId, scan);
+                    }
+                }), err -> Platform.runLater(() -> {
+                    // 读库失败就沿用上一次估算：占用条不值得为此打断输入
+                    contextScanInFlight = null;
+                }));
+    }
+
+    /** 会话历史的估算原料：最后一条助手行回报的真实提示体量、全部历史字符数与上限设置。 */
+    private HistoryScan scanHistory(String sessionId) {
+        Integer lastInput = null;
+        long chars = 0;
+        for (ChatConversation c : chatService.history(sessionId)) {
+            if (c.getContent() != null) {
+                chars += c.getContent().length();
+            }
+            if (ConversationRole.ASSISTANT.getCode().equalsIgnoreCase(c.getRole())
+                    && c.getLastInputTokens() != null && c.getLastInputTokens() > 0) {
+                lastInput = c.getLastInputTokens();
+            }
+        }
+        return new HistoryScan(lastInput, chars, contextTokenLimit());
     }
 
     private void hideContextBar() {

@@ -19,9 +19,11 @@ package com.gettyio.gim.agent.ui.sync;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
+import com.gettyio.gim.agent.domain.backup.SqliteSnapshotValidator;
 import com.gettyio.gim.agent.domain.persist.SqliteConnectionProvider;
 import com.gettyio.gim.agent.domain.persist.SqlSchemaInitializer;
 import com.gettyio.gim.agent.domain.security.AesGcmSecretCipher;
+import com.gettyio.gim.agent.domain.security.SecretStore;
 import com.sun.net.httpserver.HttpServer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -35,7 +37,9 @@ import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -47,9 +51,9 @@ import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link WebDavSyncService} 单测：配置读写（密码/口令加密往返、URL 归一化）、同步上传
- * （明文与口令加密两类载荷、远端快照滚动清理）、云端恢复下载（校验后落 pending）。
- * 全部基于内嵌 HttpServer 模拟 WebDAV（PUT/PROPFIND/DELETE/GET），无外部依赖。
+ * {@link WebDavSyncServiceTest} 单测：配置读写（密码/口令加密往返、URL 归一化）、同步上传
+ * （载荷一律口令加密、远端快照滚动清理、缺口令即拒绝）、云端恢复下载（校验后落 pending、
+ * 待恢复项可见可撤销）。全部基于内嵌 HttpServer 模拟 WebDAV（PUT/PROPFIND/DELETE/GET），无外部依赖。
  *
  * @author gogym
  */
@@ -73,7 +77,8 @@ class WebDavSyncServiceTest {
         new SqlSchemaInitializer(cp).initialize();
         db = new GimDatabase(cp);
         paths = new GimPaths(tempDir);
-        service = new WebDavSyncService(db, new AesGcmSecretCipher(tempDir.resolve("secret.key")),
+        Path keyFile = tempDir.resolve("secret.key");
+        service = new WebDavSyncService(db, new SecretStore(new AesGcmSecretCipher(keyFile), keyFile),
                 paths, new DbBackupService(db, paths.backupsDir()));
         server = HttpServer.create(new InetSocketAddress("127.0.0.1", 0), 0);
         server.createContext("/dav/", exchange -> {
@@ -160,12 +165,42 @@ class WebDavSyncServiceTest {
         assertEquals(12, service.intervalHours());
         assertTrue(service.isConfigured());
 
-        // 无尾部斜杠自动补齐；空密码/口令表示清除
+        // 无尾部斜杠自动补齐；密码/口令留空表示沿用已存值，不是清除
         service.save(davUrl(), "bob", "", "", 0);
         assertEquals(davUrl(), service.url());
+        assertEquals("bob", service.username());
+        assertEquals("s3cret", service.passwordPlain(), "留空不该抹掉已存密码");
+        assertEquals("pass123", service.passphrasePlain(), "留空不该抹掉已存口令");
+        assertEquals(0, service.intervalHours());
+
+        // 撤销认证必须显式表达
+        service.clearPassword();
+        service.clearPassphrase();
         assertEquals("", service.passwordPlain());
         assertEquals("", service.passphrasePlain());
-        assertEquals(0, service.intervalHours());
+        assertEquals(SecretStore.State.EMPTY, service.passwordState());
+    }
+
+    @Test
+    @DisplayName("解不开的密文不回明文也不回密文：状态报 UNREADABLE")
+    void undecryptableSecretIsNotLeakedAsCiphertext() {
+        service.save(davUrl(), "alice", "s3cret", "pass123", 6);
+        // 换机器/换 Windows 用户后本机解不开的历史密文
+        db.settingDao().upsert(WebDavSyncService.KEY_PASSWORD, "dpapi:YW5vdGhlci1tYWNoaW5lLWJsb2I=", "脏数据");
+
+        assertEquals("", service.passwordPlain(), "绝不能把密文当明文交出去");
+        assertEquals(SecretStore.State.UNREADABLE, service.passwordState(), "界面要能区分「未配置」与「解不开」");
+    }
+
+    @Test
+    @DisplayName("同步口令解不开时拒绝同步：不静默降级成明文上传")
+    void syncRefusesWhenPassphraseUndecryptable() {
+        service.save(davUrl(), "alice", "s3cret", "pass123", 6);
+        db.settingDao().upsert(WebDavSyncService.KEY_PASSPHRASE, "dpapi:c29tZW90aGVyLXJvbGw=", "脏数据");
+
+        IOException e = assertThrows(IOException.class, service::syncNow);
+        assertTrue(e.getMessage().contains("口令"), "失败原因要指向日令无法解密: " + e.getMessage());
+        assertTrue(remote.isEmpty(), "解不开口令时一个字节都不该上传");
     }
 
     @Test
@@ -184,12 +219,12 @@ class WebDavSyncServiceTest {
     }
 
     @Test
-    @DisplayName("默认明文上传：快照与 workspace 压缩包按序 PUT，周期内 syncIfDue 不再触发")
-    void syncNowUploadsPlain() throws IOException {
+    @DisplayName("上传载荷一律加密：快照先传、压缩包后传，周期内 syncIfDue 不再触发")
+    void syncUploadsEncryptedPayloadsInOrder() throws IOException {
         Files.createDirectories(paths.workspaceDir());
         Files.writeString(paths.workspaceDir().resolve("note.md"), "hello sync", StandardCharsets.UTF_8);
 
-        service.save(davUrl(), "alice", "s3cret", "", 24);
+        service.save(davUrl(), "alice", "s3cret", "pass123", 24);
         assertTrue(service.lastSyncAt().isEmpty());
 
         Path snapshot = service.syncNow();
@@ -197,12 +232,18 @@ class WebDavSyncServiceTest {
 
         synchronized (putOrder) {
             assertEquals(2, putOrder.size());
-            assertEquals("/dav/" + snapshot.getFileName(), putOrder.get(0));
+            assertEquals("/dav/" + snapshot.getFileName() + WebDavSyncService.ENC_SUFFIX, putOrder.get(0));
+            assertEquals("/dav/jwork-workspace-latest.zip" + WebDavSyncService.ENC_SUFFIX, putOrder.get(1));
         }
-        assertTrue(new String(remote.get("/dav/" + snapshot.getFileName()), StandardCharsets.ISO_8859_1)
-                .startsWith("SQLite format 3"), "第一个 PUT 应为 SQLite 快照");
-        byte[] zip = remote.get("/dav/jwork-workspace-latest.zip");
-        assertTrue(zip != null && zip.length > 0 && zip[0] == 'P', "第二个 PUT 应为 zip 压缩包");
+        byte[] dbBody = remote.get("/dav/" + snapshot.getFileName() + WebDavSyncService.ENC_SUFFIX);
+        assertTrue(new String(dbBody, 0, SyncPayloadCipher.MAGIC.length, StandardCharsets.ISO_8859_1)
+                .equals(new String(SyncPayloadCipher.MAGIC, StandardCharsets.ISO_8859_1)), "远端快照应为加密容器而非明文库");
+        // 加密载荷解回明文才是 SQLite 头：往返跑得通，恢复侧才有的聊
+        Path cipher = Files.createTempFile("t-cipher-", ".db.enc");
+        Path plain = Files.createTempFile("t-plain-", ".db");
+        Files.write(cipher, dbBody);
+        SyncPayloadCipher.decrypt(cipher, plain, "pass123");
+        assertTrue(SqliteSnapshotValidator.hasValidHeader(plain), "解密后应为有效 SQLite 快照");
         assertTrue(service.lastSyncAt().isPresent());
         // 刚同步过：24h 周期内不应再触发
         assertTrue(service.syncIfDue().isEmpty());
@@ -232,7 +273,7 @@ class WebDavSyncServiceTest {
         for (int i = 1; i <= 12; i++) {
             remote.put("/dav/jwork-202601" + String.format("%02d", i) + "-000000.db", new byte[]{1, 2, 3});
         }
-        service.save(davUrl(), "alice", "s3cret", "", 0);
+        service.save(davUrl(), "alice", "s3cret", "pass123", 0);
         service.syncNow();
 
         List<WebDavSyncService.RemoteSnapshot> snapshots = service.listRemoteSnapshots();
@@ -242,21 +283,21 @@ class WebDavSyncServiceTest {
     }
 
     @Test
-    @DisplayName("从云端恢复：下载快照校验后落 pending 文件，展示名可读")
+    @DisplayName("从云端恢复：解密校验后落 pending 与来源信息，展示名可读")
     void restoreFromRemoteStagesPending() throws IOException {
-        service.save(davUrl(), "alice", "s3cret", "", 0);
+        service.save(davUrl(), "alice", "s3cret", "pass123", 0);
         Path snapshot = service.syncNow();
 
         List<WebDavSyncService.RemoteSnapshot> snapshots = service.listRemoteSnapshots();
         assertEquals(1, snapshots.size());
-        assertEquals(snapshot.getFileName().toString(), snapshots.get(0).name());
+        assertEquals(snapshot.getFileName() + WebDavSyncService.ENC_SUFFIX, snapshots.get(0).name());
         assertNotEquals(snapshots.get(0).name(), snapshots.get(0).display(), "展示名应为可读时间");
 
         Path pending = service.restoreFromRemote(snapshots.get(0).name());
         assertEquals(paths.pendingRestoreFile(), pending);
         assertTrue(Files.exists(pending));
-        assertTrue(new String(Files.readAllBytes(pending), 0, 15, StandardCharsets.ISO_8859_1)
-                .startsWith("SQLite format 3"), "pending 应为有效数据库快照");
+        assertTrue(SqliteSnapshotValidator.hasValidHeader(pending), "pending 应为有效数据库快照");
+        assertTrue(Files.exists(paths.pendingRestoreInfoFile()), "来源信息应与 pending 成对落下");
     }
 
     @Test
@@ -268,11 +309,73 @@ class WebDavSyncServiceTest {
 
         Path pending = service.restoreFromRemote(remoteName);
         assertTrue(Files.exists(pending));
-        // 清掉待恢复文件与口令后再试：无口令应拒绝加密快照
+        // 清掉待恢复文件与口令后再试：无口令应拒绝加密快照（留空是「不修改」，撤销须走显式清除）
         Files.deleteIfExists(pending);
-        service.save(davUrl(), "alice", "s3cret", "", 0);
+        service.clearPassphrase();
         IOException e = assertThrows(IOException.class, () -> service.restoreFromRemote(remoteName));
         assertTrue(e.getMessage().contains("口令"));
         assertFalse(Files.exists(pending), "失败时不应留下 pending 文件");
+    }
+
+    @Test
+    @DisplayName("未设置加密口令即拒绝同步：一个字节都不上传")
+    void syncRefusedWithoutPassphrase() throws IOException {
+        Files.createDirectories(paths.workspaceDir());
+        Files.writeString(paths.workspaceDir().resolve("note.md"), "hello", StandardCharsets.UTF_8);
+        service.save(davUrl(), "alice", "s3cret", "", 0);
+
+        IOException e = assertThrows(IOException.class, service::syncNow);
+        assertTrue(e.getMessage().contains("口令"), "失败原因要指向口令未设置: " + e.getMessage());
+        assertTrue(remote.isEmpty(), "缺口令时不该有任何上传（含明文快照）");
+        assertTrue(putOrder.isEmpty());
+    }
+
+    @Test
+    @DisplayName("缺口令的自动同步按「尚未配置」跳过，补齐口令后照常触发")
+    void autoSyncSkippedUntilPassphraseSet() throws IOException {
+        service.save(davUrl(), "alice", "s3cret", "", 24);
+        assertFalse(service.isSyncReady());
+        assertTrue(service.syncIfDue().isEmpty());
+        assertTrue(remote.isEmpty());
+
+        service.savePassphrase("pass123");
+        assertTrue(service.isSyncReady());
+        assertTrue(service.syncIfDue().isPresent());
+    }
+
+    @Test
+    @DisplayName("待恢复项可见可撤销：pending 与来源信息同生共死")
+    void pendingRestoreIsVisibleAndCancellable() throws IOException {
+        service.save(davUrl(), "alice", "s3cret", "pass123", 0);
+        Path snapshot = service.syncNow();
+        String remoteName = snapshot.getFileName() + WebDavSyncService.ENC_SUFFIX;
+        assertTrue(service.pendingRestore().isEmpty(), "还没下载就不该有待恢复");
+
+        service.restoreFromRemote(remoteName);
+        WebDavSyncService.PendingRestore staged = service.pendingRestore().orElseThrow();
+        assertEquals(remoteName, staged.source());
+        assertTrue(staged.at().isAfter(Instant.now().minusSeconds(60)), "下载时间应为刚才");
+
+        service.cancelPendingRestore();
+        assertTrue(service.pendingRestore().isEmpty());
+        assertFalse(Files.exists(paths.pendingRestoreFile()));
+        assertFalse(Files.exists(paths.pendingRestoreInfoFile()));
+    }
+
+    @Test
+    @DisplayName("远端快照尾部截断：完整性校验拦住，不排进恢复队列")
+    void truncatedRemoteSnapshotIsRejected() throws IOException {
+        // 明文书写的远端名：上传侧已强制加密，但历史遗留的明文快照仍须能下载，坏的则拦得住
+        Path snapshot = new DbBackupService(db, paths.backupsDir()).backupNow().orElseThrow();
+        byte[] bytes = Files.readAllBytes(snapshot);
+        assertTrue(bytes.length > 64, "样本快照太小，构造不出截断用例");
+        remote.put("/dav/jwork-20260101-000000.db", Arrays.copyOf(bytes, bytes.length / 2));
+        service.save(davUrl(), "alice", "s3cret", "pass123", 0);
+
+        IOException e = assertThrows(IOException.class,
+                () -> service.restoreFromRemote("jwork-20260101-000000.db"));
+        assertTrue(e.getMessage().contains("完整性"), "失败原因要指向完整性校验: " + e.getMessage());
+        assertFalse(Files.exists(paths.pendingRestoreFile()), "坏快照不该排进恢复队列");
+        assertFalse(Files.exists(paths.pendingRestoreInfoFile()));
     }
 }

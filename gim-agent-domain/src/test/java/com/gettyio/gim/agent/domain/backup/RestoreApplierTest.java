@@ -34,8 +34,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * {@link RestoreApplier} 单测：待恢复快照应用（替换 + 旧库备份）、非法快照拒绝（原库不变）、
- * 无待恢复文件时为空操作。全程真实 SQLite 文件，无外部依赖。
+ * {@link RestoreApplier} 单测：待恢复快照应用（替换 + 旧库备份 + 来源信息一并清理）、
+ * 头非法与完整性损坏的快照拒绝（原库不变）、无待恢复文件时为空操作。
+ * 全程真实 SQLite 文件，无外部依赖。
  *
  * @author gogym
  */
@@ -65,15 +66,18 @@ class RestoreApplierTest {
     }
 
     @Test
-    @DisplayName("存在待恢复快照：替换当前库并先备份旧库，pending 清理")
+    @DisplayName("存在待恢复快照：替换当前库并先备份旧库，pending 与来源信息一起清理")
     void appliesPendingWithBackup() throws Exception {
         Path db = createDb(tempDir.resolve("jwork.db"), "current");
         Path pending = createDb(tempDir.resolve("restore/pending.db"), "restored");
+        Path info = tempDir.resolve("restore/pending.info");
+        Files.writeString(info, "jwork-20260101-000000.db\t2026-01-01T00:00:00Z");
         Path backups = tempDir.resolve("backups");
 
-        assertTrue(RestoreApplier.applyIfPresent(db, pending, backups));
+        assertTrue(RestoreApplier.applyIfPresent(db, pending, info, backups));
 
         assertFalse(Files.exists(pending), "应用后 pending 应被清理");
+        assertFalse(Files.exists(info), "应用后来源信息应一并清理");
         assertEquals("restored", query(db, "SELECT v FROM t"), "当前库应变为快照内容");
         try (Stream<Path> s = Files.list(backups)) {
             List<Path> files = s.toList();
@@ -89,12 +93,31 @@ class RestoreApplierTest {
         Path pending = tempDir.resolve("restore/pending.db");
         Files.createDirectories(pending.getParent());
         Files.writeString(pending, "not a sqlite file");
+        Path info = tempDir.resolve("restore/pending.info");
         Path backups = tempDir.resolve("backups");
 
-        assertFalse(RestoreApplier.applyIfPresent(db, pending, backups));
+        assertFalse(RestoreApplier.applyIfPresent(db, pending, info, backups));
 
         assertEquals("current", query(db, "SELECT v FROM t"), "原库保持不变");
         assertTrue(Files.exists(pending), "非法 pending 不应被删除");
+        assertFalse(Files.exists(backups), "未应用时不应产生备份");
+    }
+
+    @Test
+    @DisplayName("头正确但正文损坏的快照：完整性校验拦住，原库不动")
+    void keepsOriginalWhenIntegrityCheckFails() throws Exception {
+        Path db = createDb(tempDir.resolve("jwork.db"), "current");
+        Path pending = createDb(tempDir.resolve("restore/pending.db"), "restored");
+        // 魔数在文件最前 16 字节，尾部截断仍算「像数据库」：头校验放行，正文页已丢
+        byte[] bytes = Files.readAllBytes(pending);
+        Files.write(pending, java.util.Arrays.copyOf(bytes, bytes.length / 2));
+        Path backups = tempDir.resolve("backups");
+
+        assertFalse(RestoreApplier.applyIfPresent(db, pending,
+                tempDir.resolve("restore/pending.info"), backups));
+
+        assertEquals("current", query(db, "SELECT v FROM t"), "原库保持不变");
+        assertTrue(Files.exists(pending), "损坏 pending 保留，交设置页展示与撤销");
         assertFalse(Files.exists(backups), "未应用时不应产生备份");
     }
 
@@ -104,6 +127,7 @@ class RestoreApplierTest {
         assertFalse(RestoreApplier.applyIfPresent(
                 tempDir.resolve("jwork.db"),
                 tempDir.resolve("restore/pending.db"),
+                tempDir.resolve("restore/pending.info"),
                 tempDir.resolve("backups")));
     }
 }

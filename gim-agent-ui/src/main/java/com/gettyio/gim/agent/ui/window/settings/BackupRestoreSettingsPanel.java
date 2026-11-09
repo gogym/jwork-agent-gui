@@ -20,6 +20,7 @@ import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.ui.control.CardKit;
+import com.gettyio.gim.agent.ui.control.SecretField;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.export.ExportService;
 import com.gettyio.gim.agent.ui.export.SessionImageExporter;
@@ -31,9 +32,9 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
-import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.FlowPane;
+import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.stage.FileChooser;
 
@@ -68,6 +69,12 @@ final class BackupRestoreSettingsPanel {
 
     /** 本页「最近同步」值标签：手动/自动同步回调后就地刷新（失败显示失败原因）。 */
     private final Label webDavLastSyncLabel = new Label("-");
+
+    /** 本页「待恢复」行：跨重启存活的恢复队列在此现形，附撤销入口。 */
+    private final Label pendingRestoreValueLabel = new Label("-");
+
+    /** 撤销待恢复按钮：无排队恢复时收起，避免点出一句「没什么可撤的」。 */
+    private Button pendingCancelBtn;
 
     /** WebDAV 卡片操作按钮：同步/恢复进行中统一禁用以防连点排队重复操作。 */
     private Button webDavTestButton;
@@ -146,7 +153,8 @@ final class BackupRestoreSettingsPanel {
     }
 
     /**
-     * WebDAV 云同步卡片：地址/账号/密码/加密口令（密码与口令经 SecretCipher 加密存 settings）、
+     * WebDAV 云同步卡片：地址/账号/密码/加密口令（密码与口令经 SecretStore 加密存 settings、
+     * 不回显也不因留空而清除）、
      * 自动同步周期、最近同步时间、测试连接 / 立即同步 / 从云端恢复。
      * 文本框失焦/回车即保存，避免额外确认步骤。
      */
@@ -156,27 +164,29 @@ final class BackupRestoreSettingsPanel {
         urlField.setMaxWidth(360);
         TextField userField = new TextField(webDavSyncService.username());
         userField.setMaxWidth(200);
-        PasswordField pwdField = new PasswordField();
-        pwdField.setText(webDavSyncService.passwordPlain());
-        pwdField.setMaxWidth(200);
-        PasswordField passField = new PasswordField();
-        passField.setText(webDavSyncService.passphrasePlain());
-        passField.setMaxWidth(200);
+        SecretField pwd = new SecretField(webDavSyncService::passwordState,
+                webDavSyncService::savePassword, webDavSyncService::clearPassword);
+        pwd.field().setPromptText(I18n.t("settings.secret.prompt"));
+        pwd.field().setMaxWidth(200);
+        SecretField pass = new SecretField(webDavSyncService::passphraseState,
+                webDavSyncService::savePassphrase, webDavSyncService::clearPassphrase);
+        pass.field().setPromptText(I18n.t("settings.secret.prompt"));
+        pass.field().setMaxWidth(200);
 
         String[] intervalOpts = {I18n.t("settings.sync.interval.off"), I18n.t("settings.sync.interval.6h"),
                 I18n.t("settings.sync.interval.12h"), I18n.t("settings.sync.interval.24h")};
         ComboBox<String> intervalCombo = SettingsLayout.pillCombo(intervalOpts);
         intervalCombo.setValue(intervalOpts[intervalIndex(webDavSyncService.intervalHours())]);
 
-        Runnable save = () -> webDavSyncService.save(urlField.getText(), userField.getText(),
-                pwdField.getText(), passField.getText(),
+        // 地址/账号/周期直接覆盖；两个密钥项由 SecretField 各自提交（留空不改动已存值）
+        Runnable saveBasics = () -> webDavSyncService.save(urlField.getText(), userField.getText(), "", "",
                 intervalHours(intervalCombo.getSelectionModel().getSelectedIndex()));
-        intervalCombo.setOnAction(e -> save.run());
-        for (TextField f : List.of(urlField, userField, pwdField, passField)) {
-            f.setOnAction(e -> save.run());
+        intervalCombo.setOnAction(e -> saveBasics.run());
+        for (TextField f : List.of(urlField, userField)) {
+            f.setOnAction(e -> saveBasics.run());
             f.focusedProperty().addListener((obs, was, now) -> {
                 if (!now) {
-                    save.run();
+                    saveBasics.run();
                 }
             });
         }
@@ -192,12 +202,13 @@ final class BackupRestoreSettingsPanel {
         rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.username"),
                 I18n.t("settings.sync.username.desc"), userField));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.password"),
-                I18n.t("settings.sync.password.desc"), pwdField));
+                I18n.t("settings.sync.password.desc"), pwd.control()));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.passphrase"),
-                I18n.t("settings.sync.passphrase.desc"), passField));
+                I18n.t("settings.sync.passphrase.desc"), pass.control()));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.interval"),
                 I18n.t("settings.sync.interval.desc"), intervalCombo));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.lastAt"), null, webDavLastSyncLabel));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.pending"), null, pendingRestoreControl()));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.actions"), null, buttons));
         return SettingsLayout.groupCard(I18n.t("settings.sync.group"), rows);
     }
@@ -295,6 +306,13 @@ final class BackupRestoreSettingsPanel {
                     host.notify("settings.sync.restore", I18n.t("settings.sync.restore.noPassphrase"));
                     return;
                 }
+                // 这一步只下载并排队，换库发生在下次启动：此刻必须讲清「换成哪份、现有数据怎么办」，
+                // 否则恢复成了用户自己埋下、启动时才炸的哑弹
+                if (!GimDialog.confirm(host.hostWindow(), I18n.t("settings.sync.restore"),
+                        I18n.t("settings.sync.restore.confirm", chosen.display()))) {
+                    setSyncBusy(false);
+                    return;
+                }
                 runInBackground("settings.sync.restore", () -> {
                     try {
                         webDavSyncService.restoreFromRemote(chosen.name());
@@ -302,7 +320,10 @@ final class BackupRestoreSettingsPanel {
                     } catch (Exception e) {
                         return Optional.of(I18n.t("settings.sync.restore.fail", String.valueOf(e.getMessage())));
                     }
-                }, () -> setSyncBusy(false));
+                }, () -> {
+                    setSyncBusy(false);
+                    refreshPendingRestoreRow();
+                });
             });
         }, "gim-webdav-restore");
         t.setDaemon(true);
@@ -329,6 +350,52 @@ final class BackupRestoreSettingsPanel {
                         DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
                 .orElse(I18n.t("settings.sync.never"));
         webDavLastSyncLabel.setText(text);
+    }
+
+    /**
+     * 「待恢复」行控件：待应用快照的说明 + 撤销按钮。
+     * <p>恢复是排队到下次启动才生效的，中间这段时间本页一关就看不见，用户容易在毫不知情的情况下
+     * 带着旧库启动、再被下次启动静默换掉。这里把它常驻呈现，并给一条反悔的路。</p>
+     */
+    private HBox pendingRestoreControl() {
+        pendingRestoreValueLabel.getStyleClass().add("row-value");
+        pendingCancelBtn = CardKit.iconTextButton("\uE711", I18n.t("settings.sync.pending.cancel"),
+                this::handleCancelPendingRestore);
+        pendingCancelBtn.setVisible(false);
+        refreshPendingRestoreRow();
+        return new HBox(8, pendingRestoreValueLabel, pendingCancelBtn);
+    }
+
+    /** 刷新「待恢复」行：无排队恢复时只留说明并收起按钮（重建页面与恢复排队/撤销后调用）。 */
+    private void refreshPendingRestoreRow() {
+        Optional<WebDavSyncService.PendingRestore> pending = webDavSyncService.pendingRestore();
+        if (pending.isEmpty()) {
+            pendingRestoreValueLabel.setText(I18n.t("settings.sync.pending.none"));
+            pendingCancelBtn.setVisible(false);
+            return;
+        }
+        WebDavSyncService.PendingRestore p = pending.get();
+        String at = p.at().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
+                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        pendingRestoreValueLabel.setText(I18n.t("settings.sync.pending.desc",
+                p.source().isBlank() ? "-" : p.source(), at));
+        pendingCancelBtn.setVisible(true);
+    }
+
+    /** 撤销待恢复的快照：确认后删掉 pending，下次启动保持当前库不变。 */
+    private void handleCancelPendingRestore() {
+        if (!GimDialog.confirm(host.hostWindow(), I18n.t("settings.sync.pending.cancel"),
+                I18n.t("settings.sync.pending.cancel.confirm"))) {
+            return;
+        }
+        try {
+            webDavSyncService.cancelPendingRestore();
+            host.notify("settings.sync.pending", I18n.t("settings.sync.pending.cancelled"));
+        } catch (Exception e) {
+            host.notify("settings.sync.pending",
+                    I18n.t("settings.data.fail", String.valueOf(e.getMessage())));
+        }
+        refreshPendingRestoreRow();
     }
 
     private String formatLastBackup() {
@@ -437,7 +504,7 @@ final class BackupRestoreSettingsPanel {
         t.start();
     }
 
-    /** 导出全库为 JSON。 */
+    /** 导出全库为 JSON（密钥类字段就地抹掉，导出件因此不是可回灌的备份）。 */
     private void handleExportFull() {
         FileChooser chooser = new FileChooser();
         chooser.setTitle(I18n.t("settings.export.full"));
@@ -449,7 +516,7 @@ final class BackupRestoreSettingsPanel {
         }
         Path target = file.toPath();
         runInBackground("settings.export.full",
-                () -> Optional.of(I18n.t("settings.export.done",
+                () -> Optional.of(I18n.t("settings.export.full.done",
                         exportService.exportFullJson(target).getFileName())),
                 null);
     }

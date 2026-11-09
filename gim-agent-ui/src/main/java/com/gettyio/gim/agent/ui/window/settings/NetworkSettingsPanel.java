@@ -21,8 +21,10 @@ import com.gettyio.gim.agent.core.model.AgentScopeModelFactory;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.ProxyManager;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
+import com.gettyio.gim.agent.ui.control.SecretField;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import javafx.scene.Node;
+import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
@@ -82,13 +84,25 @@ final class NetworkSettingsPanel {
         userField.setPromptText(I18n.t("settings.proxy.username.prompt"));
         userField.setMaxWidth(200);
         PasswordField pwdField = new PasswordField();
-        pwdField.setText(current.password());
+        // 已存密码不回显（留空即不修改）；「清除」才是撤销认证，避免瞬时解密失败 + 失焦抹掉凭据
+        Runnable refreshAuthHint = () -> pwdField.setPromptText(
+                SecretField.stateText(proxyManager.passwordState()));
+        refreshAuthHint.run();
         pwdField.setMaxWidth(200);
+        Button clearAuth = new Button(I18n.t("settings.secret.clear"));
+        clearAuth.getStyleClass().addAll("link-btn", "link-btn-danger");
+        clearAuth.setOnAction(e -> {
+            proxyManager.clearPassword();
+            pwdField.clear();
+            refreshAuthHint.run();
+            modelFactory.invalidate();
+            agentGateway.invalidateAll();
+        });
         TextField bypassField = new TextField(current.bypass());
         bypassField.setPromptText(I18n.t("settings.proxy.bypass.prompt"));
         bypassField.setMaxWidth(320);
 
-        Runnable save = () -> saveProxy(enabled, hostField, portField, userField, pwdField, bypassField);
+        Runnable save = () -> saveProxy(enabled, hostField, portField, userField, pwdField, bypassField, refreshAuthHint);
         for (TextField f : List.of(hostField, portField, userField, pwdField, bypassField)) {
             f.setOnAction(e -> save.run());
             f.focusedProperty().addListener((obs, was, now) -> {
@@ -104,7 +118,7 @@ final class NetworkSettingsPanel {
             }
         });
 
-        HBox authBox = new HBox(8, userField, pwdField);
+        HBox authBox = new HBox(8, userField, pwdField, clearAuth);
         List<Node> rows = new ArrayList<>();
         rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.enabled"), I18n.t("settings.proxy.enabled.desc"), enabled));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.host"), I18n.t("settings.proxy.host.desc"), hostField));
@@ -124,17 +138,10 @@ final class NetworkSettingsPanel {
                 I18n.t("settings.network.web.provider.searxng"));
         providerCombo.setValue(providerLabel(securityAdminService.getWebSearchProvider()));
 
-        PasswordField keyField = new PasswordField();
-        keyField.setText(securityAdminService.getWebSearchApiKeyPlain());
-        keyField.setPromptText(I18n.t("settings.network.web.key.prompt"));
-        keyField.setMaxWidth(360);
-        Runnable saveKey = () -> securityAdminService.setWebSearchApiKey(keyField.getText());
-        keyField.setOnAction(e -> saveKey.run());
-        keyField.focusedProperty().addListener((obs, was, now) -> {
-            if (!now) {
-                saveKey.run();
-            }
-        });
+        SecretField apiKey = new SecretField(securityAdminService::getWebSearchApiKeyState,
+                securityAdminService::setWebSearchApiKey, securityAdminService::clearWebSearchApiKey);
+        apiKey.field().setPromptText(I18n.t("settings.secret.prompt"));
+        apiKey.field().setMaxWidth(360);
 
         TextField instanceField = new TextField(securityAdminService.getWebSearchBaseUrl());
         instanceField.setPromptText(I18n.t("settings.network.web.baseurl.prompt"));
@@ -148,11 +155,11 @@ final class NetworkSettingsPanel {
         });
 
         Node keyRow = SettingsLayout.settingRow(I18n.t("settings.network.web.key"),
-                I18n.t("settings.network.web.key.desc"), keyField);
+                I18n.t("settings.network.web.key.desc"), apiKey.control());
         Node baseUrlRow = SettingsLayout.settingRow(I18n.t("settings.network.web.baseurl"),
                 I18n.t("settings.network.web.baseurl.desc"), instanceField);
 
-        // 切换提供方：仅显示其所需配置（SearXNG 免 Key 只看实例地址），并回填该提供方已存的 Key
+        // 切换提供方：仅显示其所需配置（SearXNG 免 Key 只看实例地址）
         Runnable refresh = () -> {
             boolean searxng = SecurityAdminService.WEB_PROVIDER_SEARXNG.equals(providerCode(providerCombo.getValue()));
             showRow(keyRow, !searxng);
@@ -160,15 +167,26 @@ final class NetworkSettingsPanel {
         };
         providerCombo.setOnAction(e -> {
             securityAdminService.setWebSearchProvider(providerCode(providerCombo.getValue()));
-            keyField.setText(securityAdminService.getWebSearchApiKeyPlain());
+            // 换提供方就是换存储键：输入框不带旧值过去，状态按新提供方现取
+            apiKey.field().clear();
+            apiKey.refresh();
             refresh.run();
         });
         refresh.run();
 
+        // 出网地址策略：默认拦住「模型写出来的内网/回环地址」；自建服务真放在局域网里时才由用户放开。
+        // 用户在本页填的实例地址不受这条影响，它本来就是用户自己写的
+        ToggleSwitch allowPrivate = new ToggleSwitch();
+        allowPrivate.setSelected(securityAdminService.isAllowPrivateAddresses());
+        allowPrivate.selectedProperty().addListener((obs, was, sel) ->
+                securityAdminService.setAllowPrivateAddresses(sel));
+
         VBox card = SettingsLayout.groupCard(I18n.t("settings.network.web.group"), List.of(
                 SettingsLayout.settingRow(I18n.t("settings.network.web.provider"),
                         I18n.t("settings.network.web.provider.desc"), providerCombo),
-                keyRow, baseUrlRow));
+                keyRow, baseUrlRow,
+                SettingsLayout.settingRow(I18n.t("settings.network.web.private"),
+                        I18n.t("settings.network.web.private.desc"), allowPrivate)));
 
         Label hint = new Label(I18n.t("settings.network.web.hint"));
         hint.getStyleClass().add("row-desc");
@@ -206,7 +224,8 @@ final class NetworkSettingsPanel {
 
     /** 校验并保存代理设置：启用时要求主机与 1-65535 端口齐备，否则回滚并提示；仅设置变化时失效运行体。 */
     private void saveProxy(ToggleSwitch enabled, TextField hostField, TextField portField,
-                           TextField userField, PasswordField pwdField, TextField bypassField) {
+                           TextField userField, PasswordField pwdField, TextField bypassField,
+                           Runnable refreshAuthHint) {
         String proxyHost = hostField.getText() == null ? "" : hostField.getText().trim();
         int port = parseProxyPort(portField.getText());
         boolean on = enabled.isSelected();
@@ -218,14 +237,21 @@ final class NetworkSettingsPanel {
             host.notify("settings.proxy.group", I18n.t("settings.proxy.invalid"));
             return;
         }
+        ProxyManager.Settings saved = proxyManager.settings();
+        String typed = pwdField.getText() == null ? "" : pwdField.getText();
+        // 密码框不回显明文：留空即沿用已存值，否则一次失焦就等于撤销认证
         ProxyManager.Settings next = new ProxyManager.Settings(on, proxyHost, port,
                 userField.getText() == null ? "" : userField.getText().trim(),
-                pwdField.getText() == null ? "" : pwdField.getText(),
+                typed.isEmpty() ? saved.password() : typed,
                 bypassField.getText() == null ? "" : bypassField.getText().trim());
-        if (next.equals(proxyManager.settings())) {
+        if (next.equals(saved)) {
             return;
         }
         proxyManager.save(next);
+        if (!typed.isEmpty()) {
+            pwdField.clear();
+            refreshAuthHint.run();
+        }
         // 已装配的模型实例与运行体持有旧出口：失效后下一轮对话按新传输重建
         modelFactory.invalidate();
         agentGateway.invalidateAll();

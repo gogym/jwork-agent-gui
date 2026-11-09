@@ -22,6 +22,7 @@ import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.util.UiFormat;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
+import com.gettyio.gim.agent.ui.control.SecretField;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -31,7 +32,6 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.OverrunStyle;
-import javafx.scene.control.PasswordField;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.control.Separator;
@@ -82,7 +82,8 @@ public class KnowledgeView {
     private final Label vectorHint = new Label();
     private final TextField baseUrlField = new TextField();
     private final TextField modelField = new TextField();
-    private final PasswordField apiKeyField = new PasswordField();
+    /** embedding API Key 输入行：已存密钥不回显，留空即不修改，撤销走「清除」。 */
+    private final SecretField apiKey;
     private Button reindexBtn;
     private HBox vectorHeadRow;
 
@@ -108,6 +109,9 @@ public class KnowledgeView {
     public KnowledgeView(KnowledgeService knowledgeService, SecurityAdminService securityAdminService) {
         this.knowledgeService = knowledgeService;
         this.securityAdminService = securityAdminService;
+        this.apiKey = new SecretField(securityAdminService::getKnowledgeEmbeddingKeyState,
+                securityAdminService::setKnowledgeEmbeddingKey,
+                securityAdminService::clearKnowledgeEmbeddingKey);
         buildUi();
         I18n.onChange(lang -> {
             applyI18n();
@@ -237,20 +241,21 @@ public class KnowledgeView {
 
         saveOnBlur(baseUrlField, () -> securityAdminService.setKnowledgeEmbeddingBaseUrl(baseUrlField.getText()));
         saveOnBlur(modelField, () -> securityAdminService.setKnowledgeEmbeddingModel(modelField.getText()));
-        saveOnBlur(apiKeyField, () -> securityAdminService.setKnowledgeEmbeddingKey(apiKeyField.getText()));
+        // Key 由 SecretField 自己接管失焦/回车提交（留空不写库），提交后补刷状态行
+        apiKey.addAfterCommit(this::refreshVectorStatus);
     }
 
-    /** 三字段横向配置栅格。 */
+    /** 三字段横向配置栅格（Key 那格带状态与「清除」）。 */
     private HBox configGrid() {
         baseUrlField.setPromptText("https://dashscope.aliyuncs.com/compatible-mode/v1");
         modelField.setPromptText("text-embedding-v4");
         baseUrlField.getStyleClass().add("vector-field");
         modelField.getStyleClass().add("vector-field");
-        apiKeyField.getStyleClass().add("vector-field");
+        apiKey.field().getStyleClass().add("vector-field");
         HBox.setHgrow(baseUrlField, Priority.ALWAYS);
         HBox.setHgrow(modelField, Priority.SOMETIMES);
-        HBox.setHgrow(apiKeyField, Priority.SOMETIMES);
-        HBox row = new HBox(8, baseUrlField, modelField, apiKeyField);
+        HBox.setHgrow(apiKey.control(), Priority.SOMETIMES);
+        HBox row = new HBox(8, baseUrlField, modelField, apiKey.control());
         row.setAlignment(Pos.CENTER_LEFT);
         return row;
     }
@@ -333,7 +338,8 @@ public class KnowledgeView {
         vectorHint.setText(I18n.t("knowledge.vector.hint"));
         baseUrlField.setPromptText(I18n.t("knowledge.vector.baseUrl"));
         modelField.setPromptText(I18n.t("knowledge.vector.model"));
-        apiKeyField.setPromptText(I18n.t("knowledge.vector.apiKey"));
+        apiKey.field().setPromptText(I18n.t("settings.secret.prompt"));
+        apiKey.applyI18n();
         reindexBtn.setText(I18n.t("knowledge.vector.reindex"));
         refreshVectorStatus();
     }

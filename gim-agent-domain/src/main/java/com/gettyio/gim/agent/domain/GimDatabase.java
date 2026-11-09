@@ -35,6 +35,7 @@ public class GimDatabase {
     private final ChatSessionDao sessionDao;
     private final SessionGroupDao sessionGroupDao;
     private final ChatConversationDao conversationDao;
+    private final TurnDraftDao draftDao;
     private final ModelProviderDao modelProviderDao;
     private final ModelConfigDao modelConfigDao;
     private final McpServerDao mcpServerDao;
@@ -53,6 +54,7 @@ public class GimDatabase {
         this.sessionDao = new ChatSessionDao(runner);
         this.sessionGroupDao = new SessionGroupDao(runner);
         this.conversationDao = new ChatConversationDao(runner);
+        this.draftDao = new TurnDraftDao(runner);
         this.modelProviderDao = new ModelProviderDao(runner);
         this.modelConfigDao = new ModelConfigDao(runner);
         this.mcpServerDao = new McpServerDao(runner);
@@ -68,6 +70,20 @@ public class GimDatabase {
     /** 幂等初始化表结构 */
     public void initSchema() {
         new SqlSchemaInitializer(connectionProvider).initialize();
+    }
+
+    /**
+     * 把一组 DAO 调用包成单个原子操作：全部成功才提交，中途抛异常则整体回滚。
+     * <p>用于「删父行 + 改子行计数」这类跨表成对写入——默认每语句一个连接，任一步失败都会留下
+     * 半套状态（消息删了、计数没回退；旧块删了、新块没写进）。</p>
+     */
+    public void runInTransaction(Runnable work) {
+        runner.runInTransaction(work);
+    }
+
+    /** {@link #runInTransaction(Runnable)} 的带返回值版。 */
+    public <T> T callInTransaction(java.util.function.Supplier<T> work) {
+        return runner.callInTransaction(work);
     }
 
     public SqlRunner getRunner() {
@@ -88,6 +104,11 @@ public class GimDatabase {
 
     public ChatConversationDao conversationDao() {
         return conversationDao;
+    }
+
+    /** 在途应答检查点（崩溃/被杀后重启时提升为一条助手消息）。 */
+    public TurnDraftDao draftDao() {
+        return draftDao;
     }
 
     public ModelProviderDao modelProviderDao() {

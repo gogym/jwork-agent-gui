@@ -23,6 +23,7 @@ import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.SessionArtifactDelivery;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.core.chat.ToolCallRecordCodec;
+import com.gettyio.gim.agent.core.fs.CanonicalPath;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatFile;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatImage;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
@@ -91,12 +92,18 @@ public final class ChatMessagePayload {
         }
     }
 
-    /** 桥接 DTO（消息/对比列头、页脚/文案包等）→ JSON 文本，供 executeScript 结构化参数。 */
+    /**
+     * 桥接 DTO（消息/对比列头、页脚/文案包等）→ JSON 文本，供 executeScript 结构化参数。
+     * <p>序列化失败返回 {@code null} 而不是字面量 {@code "null"}：拼进脚本后页面会抛
+     * {@code TypeError}（{@code ChatAPI.appendMessage(null)} 之类），一次脏数据会连累同批
+     * 下发的后续渲染。调用方见 {@code null} 即放弃本次调用。</p>
+     */
     public static String jsValue(Object o) {
         try {
             return MAPPER.writeValueAsString(o);
         } catch (Exception e) {
-            return "null";
+            log.warn("聊天载荷序列化失败，放弃该次桥下发: {}", o == null ? "null" : o.getClass().getSimpleName(), e);
+            return null;
         }
     }
 
@@ -220,6 +227,7 @@ public final class ChatMessagePayload {
             return out;
         }
         Path dir = SessionArtifactDelivery.dirOf(gimPaths.deliveriesDir(), sessionId);
+        Path deliveryDir = CanonicalPath.real(dir);
         List<String> seen = new ArrayList<>();
         for (ToolCallRecordCodec.ToolCallRecord r : records) {
             if (!DELIVER_TOOL.equals(r.name()) || !r.ok()) {
@@ -229,8 +237,10 @@ public final class ChatMessagePayload {
             if (fileName == null) {
                 continue;
             }
-            Path file = dir.resolve(fileName).normalize();
-            if (!file.startsWith(dir) || !Files.isRegularFile(file)) {
+            // 文件名出自模型写下的 deliver_artifact 参数：按规范形判归属，否则目录里一个链接
+            // 就能把「会话交付物」指到盘上任意文件，产物卡显示的却不是真正被打开的那个
+            Path file = CanonicalPath.real(dir.resolve(fileName));
+            if (!file.startsWith(deliveryDir) || !Files.isRegularFile(file)) {
                 continue;
             }
             String key = file.toString();

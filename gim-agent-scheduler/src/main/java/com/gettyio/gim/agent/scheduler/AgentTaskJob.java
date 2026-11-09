@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.scheduler;
 
+import org.quartz.DisallowConcurrentExecution;
 import org.quartz.Job;
 import org.quartz.JobExecutionContext;
 import org.slf4j.Logger;
@@ -30,9 +31,13 @@ import java.util.Date;
  * <p>执行语义（会话派生、授权档位、模型覆盖、执行历史、完成事件）全部由执行器承担，
  * 本类只负责从触发上下文取任务编码与触发/下次触发时刻。</p>
  * <p>执行器经 {@link AgentTaskJobFactory} 在实例化时注入（替代原 Spring 字段注入）。</p>
+ * <p>{@link DisallowConcurrentExecution}：一轮任务可跑几十分钟，短周期（如每 5 分钟）会让
+ * 同一个任务在 10 线程池上叠好几轮，而合并输出模式它们共用同一会话——两路同时往
+ * {@code task-{code}} 落盘，历史与授权状态就交织成一团。宁可不补触发也不并发跑同一任务。</p>
  *
  * @author gogym
  */
+@DisallowConcurrentExecution
 public class AgentTaskJob implements Job {
 
     private static final Logger log = LoggerFactory.getLogger(AgentTaskJob.class);

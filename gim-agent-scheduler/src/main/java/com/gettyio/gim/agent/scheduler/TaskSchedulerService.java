@@ -27,7 +27,6 @@ import org.quartz.SchedulerException;
 import org.quartz.SimpleScheduleBuilder;
 import org.quartz.Trigger;
 import org.quartz.TriggerBuilder;
-import org.quartz.impl.matchers.GroupMatcher;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -35,7 +34,6 @@ import java.time.LocalDateTime;
 import java.time.ZoneId;
 import java.util.Date;
 import java.util.List;
-import java.util.Set;
 
 /**
  * 任务调度服务：把 SQLite 任务表映射为 Quartz 作业，并支持启动时恢复。
@@ -126,11 +124,16 @@ public class TaskSchedulerService {
 
     /** 按任务编码删除调度器中的作业；不存在则为无操作。 */
     public void unschedule(String taskCode) throws SchedulerException {
-        Set<org.quartz.JobKey> keys = scheduler.getJobKeys(GroupMatcher.jobGroupEquals(JOB_GROUP));
-        for (org.quartz.JobKey key : keys) {
-            if (key.getName().equals(taskCode)) {
-                scheduler.deleteJob(key);
-            }
+        // 按 key 直删：整组枚举会让每次重调度都变成 O(任务数)，任务上百时白白排队
+        scheduler.deleteJob(jobKey(taskCode));
+    }
+
+    /** {@link #unschedule(String)} 的免抛版本，供 {@code Consumer<String>} 形态的下线钩子使用。 */
+    public void unscheduleQuietly(String taskCode) {
+        try {
+            unschedule(taskCode);
+        } catch (SchedulerException e) {
+            log.warn("注销调度失败: {}", taskCode, e);
         }
     }
 

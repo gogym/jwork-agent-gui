@@ -78,6 +78,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 
 /**
@@ -169,8 +170,15 @@ public class HarnessAgentGateway implements AutoCloseable {
      * 读先查工作区再回落项目目录，项目内绝对路径的写操作直接落在项目文件上。
      */
     private volatile Path projectDir;
-    /** 本轮是否自动通过确认（审批档位「自动」）：仍走拦截链评估，仅 ASK 时不弹窗 */
-    private volatile boolean autoApprove;
+    /**
+     * 各会话「本轮自动通过档」快照：只在轮次在途期间有值，收尾即摘除。
+     * <p>档位归轮次（{@link Turn#autoApprove}，一条流一份），这张表只是把它按会话 ID 透给
+     * 只认 sessionId 的工具侧——沙箱 Shell 要据此决定走一次性容器还是本地执行。</p>
+     * <p>曾经它是运行体上的一个 volatile 布尔，那是错的：运行体按「智能体+供应商+模型」复用，
+     * A 会话选了「自动」、B 会话选了「询问」，后写的那次会覆盖前者，B 的副作用工具就替 A 背了书；
+     * 无人值守的 {@link #ask} 更会继承上一次 UI 轮次残留的「自动」。</p>
+     */
+    private final Map<String, Boolean> autoApproveBySession = new ConcurrentHashMap<>();
     /**
      * 技能名白名单（由智能体定义的 skills_json 解析而来）。
      * {@code null} 表示不干预（沿用仓库内全部技能）；空集表示该智能体没有技能。
@@ -215,6 +223,13 @@ public class HarnessAgentGateway implements AutoCloseable {
      */
     private final Map<String, AtomicInteger> inflight = new ConcurrentHashMap<>();
 
+    /**
+     * 轮次串行队列：同一运行体（智能体+供应商+模型）上的轮次首尾相接，见 {@link TurnQueue}。
+     * <p>它的存在也是 {@link #autoApproveBySession} 能按会话取值的前提——只要有一轮在途，
+     * 就只有一轮在途。</p>
+     */
+    private final TurnQueue turnQueue;
+
     public HarnessAgentGateway(String agentId, String agentName, String sysPrompt,
                                Supplier<Model> modelSupplier, Path workspace) {
         this.agentId = agentId;
@@ -222,6 +237,7 @@ public class HarnessAgentGateway implements AutoCloseable {
         this.sysPrompt = sysPrompt;
         this.modelSupplier = modelSupplier;
         this.workspace = workspace;
+        this.turnQueue = new TurnQueue(agentId);
     }
 
     /** 运行期注入/更新工具确认回调（可空表示无 HITL 通道，敏感工具将被拒绝） */
@@ -368,11 +384,12 @@ public class HarnessAgentGateway implements AutoCloseable {
          * @param localFilesystem 框架本地档文件系统（与内置 Shell 工具同源，可委托其本地执行）
          * @param workspace       智能体工作区
          * @param project         授权项目目录（可空）
-         * @param autoApprove     按调用时刻读取的「本轮自动通过档」标记
+         * @param autoApprove     「该会话本轮是否自动通过档」查询，入参为 sessionId；
+         *                        会话不在途时返回 false。按会话查而不是拿一个布尔，是因为运行体跨会话复用
          * @return 替代工具宿主对象（含 {@code @Tool} 方法）；{@code null} 表示保持内置实现
          */
         Object create(AbstractSandboxFilesystem localFilesystem, Path workspace, Path project,
-                      BooleanSupplier autoApprove);
+                      Predicate<String> autoApprove);
     }
 
     /** 注入自定义 Shell 工具工厂；须在首次装配（或失效重建）前设置。 */
@@ -499,7 +516,7 @@ public class HarnessAgentGateway implements AutoCloseable {
                         if (fs instanceof AbstractSandboxFilesystem sandboxFs) {
                             try {
                                 Object replacement = shellFactory.create(sandboxFs, workspace,
-                                        this.projectDir, () -> this.autoApprove);
+                                        this.projectDir, this::isAutoApproveTurn);
                                 if (replacement != null) {
                                     local.getToolkit().registerTool(replacement);
                                     log.info("已替换内置 Shell 工具: agent={}", agentId);
@@ -557,7 +574,7 @@ public class HarnessAgentGateway implements AutoCloseable {
     public Mono<String> ask(String sessionId, String userText) {
         RuntimeContext ctx = RuntimeContext.builder().sessionId(sessionId).build();
         Msg input = Msg.builder().role(MsgRole.USER).textContent(userText).build();
-        return Mono.fromCallable(() -> {
+        Mono<String> turn = Mono.fromCallable(() -> {
             // 自主会话（无 UI）：只读档——读类工具可用，写/Shell 直接 DENY，不弹确认也不静默放行
             HarnessAgent a = agent();
             a.setPermissionMode(ctx, PermissionMode.EXPLORE);
@@ -565,6 +582,8 @@ public class HarnessAgentGateway implements AutoCloseable {
         }).map(Msg::getTextContent).subscribeOn(Schedulers.boundedElastic())
                 .doOnSubscribe(sig -> retainInflight(sessionId))
                 .doFinally(sig -> releaseInflight(sessionId));
+        // 它跑的是同一个 HarnessAgent 实例，与 UI 轮次一样要排队；不登记档位即天然落回询问档
+        return turnQueue.serialize(turn);
     }
 
     /**
@@ -702,13 +721,13 @@ public class HarnessAgentGateway implements AutoCloseable {
         Msg input = buildUserMsg(request.getText(), request.getImages());
         PermissionMode mode = request.getPermissionMode() == null
                 ? PermissionMode.ACCEPT_EDITS : request.getPermissionMode();
-        // 自动通过档：框架仍发确认事件，但本运行体收到 ASK 时不弹窗、直接放行（黑名单照旧）
-        this.autoApprove = request.isAutoApprove();
         // 规划轮：仅当请求标 planMode 且本智能体已装配计划模式时，进入/退出只读设计态
         boolean planTurn = request.isPlanMode() && this.planModeEnabled;
-        // 整条流（含 HITL 续跑、步数续跑的每一段）共享一份轮次状态
-        Turn turn = new Turn(ctx, sessionId);
-        return Flux.defer(() -> {
+        // 整条流（含 HITL 续跑、步数续跑的每一段）共享一份轮次状态；
+        // 自动通过档随之绑定到这一轮：它只对本条流生效，不写回运行体，别的会话抄不走
+        Turn turn = new Turn(ctx, sessionId, request.isAutoApprove());
+        Flux<StreamEvent> body = Flux.defer(() -> {
+                    autoApproveBySession.put(sessionId, turn.autoApprove);
                     HarnessAgent a = agent();
                     a.setPermissionMode(ctx, mode);
                     if (planTurn) {
@@ -736,7 +755,16 @@ public class HarnessAgentGateway implements AutoCloseable {
                 }))
                 // 在途计数覆盖整条链（含用量收尾段）：生成结束前拒绝手动压缩，避免并发改写上下文
                 .doOnSubscribe(sig -> retainInflight(sessionId))
-                .doFinally(sig -> releaseInflight(sessionId));
+                .doFinally(sig -> {
+                    releaseInflight(sessionId);
+                    autoApproveBySession.remove(sessionId);
+                });
+        return turnQueue.serialize(body);
+    }
+
+    /** 某会话本轮是否处于自动通过档；会话不在途（自主轮、后台任务、已收尾）时为 false。 */
+    boolean isAutoApproveTurn(String sessionId) {
+        return sessionId != null && Boolean.TRUE.equals(autoApproveBySession.get(sessionId));
     }
 
     /**
@@ -873,7 +901,7 @@ public class HarnessAgentGateway implements AutoCloseable {
             String toolInput = ToolCallsCodec.encode(calls);
             StreamEvent ask = StreamEvent.confirmRequest(sessionId, toolName, toolInput);
 
-            return confirmDecision(sessionId, toolName, toolInput)
+            return confirmDecision(turn, toolName, toolInput)
                     .map(outcome -> toResults(calls, outcome))
                     .flatMapMany(results -> {
                         Msg resume = buildConfirmMsg(rc, results);
@@ -928,6 +956,12 @@ public class HarnessAgentGateway implements AutoCloseable {
     private static final class Turn {
         private final RuntimeContext ctx;
         private final String sessionId;
+        /**
+         * 本轮的自动通过档（审批档位「自动」）：随请求进来，随这条流走到最后一滴。
+         * <p>曾经它是运行体上的一个布尔字段，两个会话共用同一运行体时后写覆盖前写，
+         * 询问档的会话会被自动档的会话代签放行；确认决策既然要按轮回喂模型，档位也必须按轮存。</p>
+         */
+        private final boolean autoApprove;
         /** 整条流共享的用量累加器；流结束时一次性下发累计用量 */
         private final AtomicReference<TokenUsage> usageAcc = new AtomicReference<>(TokenUsage.ZERO);
         /** 整条流共享的工具调用跟踪表（toolCallId → 入参/输出/起始时刻），收尾时合成 TOOL_END */
@@ -937,9 +971,10 @@ public class HarnessAgentGateway implements AutoCloseable {
         /** 本轮已自动续跑次数 */
         private final AtomicInteger iterContinues = new AtomicInteger();
 
-        private Turn(RuntimeContext ctx, String sessionId) {
+        private Turn(RuntimeContext ctx, String sessionId, boolean autoApprove) {
             this.ctx = ctx;
             this.sessionId = sessionId;
+            this.autoApprove = autoApprove;
         }
     }
 
@@ -966,15 +1001,20 @@ public class HarnessAgentGateway implements AutoCloseable {
         acc.updateAndGet(cur -> cur.plus(delta));
     }
 
-    private Mono<ConfirmOutcome> confirmDecision(String sessionId, String toolName, String toolInput) {
+    /**
+     * 取一次工具调用的放行裁决。
+     * <p>档位取自 {@code turn}，不取运行体字段：HITL 确认与续跑都发生在同一条流的任意时刻，
+     * 其间别的会话完全可能已经改写过「本轮档位」——按轮回喂模型的决策，就得按轮定档位。</p>
+     */
+    private Mono<ConfirmOutcome> confirmDecision(Turn turn, String toolName, String toolInput) {
         ToolConfirmCallback callback = this.confirmCallback;
         if (callback == null) {
             log.warn("无 HITL 通道，敏感工具被拒绝: tool={}", toolName);
             return Mono.just(ConfirmOutcome.deny("当前没有人工确认通道，敏感工具被默认拒绝"));
         }
-        boolean auto = this.autoApprove;
+        boolean auto = turn.autoApprove;
         return Mono.defer(() -> {
-            CompletableFuture<ConfirmOutcome> future = callback.confirm(sessionId, toolName, toolInput, auto);
+            CompletableFuture<ConfirmOutcome> future = callback.confirm(turn.sessionId, toolName, toolInput, auto);
             return Mono.fromFuture(future);
         }).onErrorResume(e -> {
             log.warn("工具确认流程异常，默认拒绝: tool={}", toolName, e);

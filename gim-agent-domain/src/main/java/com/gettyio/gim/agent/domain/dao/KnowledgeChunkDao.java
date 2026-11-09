@@ -55,15 +55,21 @@ public class KnowledgeChunkDao {
         return c;
     }
 
-    /** 整文档替换：先删该文档旧块，再按序写入新块（导入/重建索引共用）。 */
+    /**
+     * 整文档替换：先删该文档旧块，再按序写入新块（导入/重建索引共用）。
+     * <p>删与写必须同进同退：中途失败（嵌入维度不符、进程被杀）若只落下删除，
+     * 这份文档就从向量索引里静默消失，检索时再也召回不到，而界面上仍显示已索引。</p>
+     */
     public void replaceDoc(String agentCode, String docName, List<KnowledgeChunk> chunks) {
-        deleteDoc(agentCode, docName);
-        LocalDateTime now = LocalDateTime.now();
-        for (KnowledgeChunk c : chunks) {
-            runner.update("INSERT INTO knowledge_chunks (agent_code, doc_name, chunk_idx, content, embedding, created_at) "
-                            + "VALUES (?,?,?,?,?,?)",
-                    agentCode, docName, c.getChunkIdx(), c.getContent(), toBytes(c.getEmbedding()), now);
-        }
+        runner.runInTransaction(() -> {
+            deleteDoc(agentCode, docName);
+            LocalDateTime now = LocalDateTime.now();
+            for (KnowledgeChunk c : chunks) {
+                runner.update("INSERT INTO knowledge_chunks (agent_code, doc_name, chunk_idx, content, embedding, created_at) "
+                                + "VALUES (?,?,?,?,?,?)",
+                        agentCode, docName, c.getChunkIdx(), c.getContent(), toBytes(c.getEmbedding()), now);
+            }
+        });
     }
 
     /** 某智能体的全部向量块（按文档名、块序稳定排列）。 */

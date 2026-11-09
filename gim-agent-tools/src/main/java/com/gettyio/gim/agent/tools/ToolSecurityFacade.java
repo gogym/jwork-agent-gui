@@ -24,6 +24,8 @@ import com.gettyio.gim.agent.tools.guard.GuardContext;
 import com.gettyio.gim.agent.tools.guard.GuardDecision;
 import com.gettyio.gim.agent.tools.guard.GuardResult;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -36,6 +38,8 @@ import java.util.concurrent.CompletableFuture;
  * @author gogym
  */
 public class ToolSecurityFacade {
+
+    private static final Logger log = LoggerFactory.getLogger(ToolSecurityFacade.class);
 
     private final GuardChain guardChain;
     private final HitlConfirmHandler confirmHandler;
@@ -56,6 +60,10 @@ public class ToolSecurityFacade {
     /**
      * 执行前置检查（含自动通过档）：DENY 照旧带理由拒绝；ASK 时若 {@code autoApprove}
      * 则不弹窗直接放行（审批档位「自动」，黑名单等硬拦截仍然生效）。
+     *
+     * <p>自动档有一道下限：结论带 {@code floored} 的调用（解释器命令、CRITICAL 级风险）不因档位
+     * 而免确认——用户点了「自动」是要少打断，不是要把任意代码的执行权交出去。这类调用仍可被
+     * 用户本人的决策越过（确认弹窗里选「本会话允许／总是允许」即写入记忆），只是开关不行。</p>
      */
     public CompletableFuture<ConfirmOutcome> check(String sessionId, String toolName, String toolInput,
                                                   boolean autoApprove) {
@@ -69,8 +77,11 @@ public class ToolSecurityFacade {
             return CompletableFuture.completedFuture(ConfirmOutcome.deny(result.reason()));
         }
         // ASK
-        if (autoApprove) {
+        if (autoApprove && !result.floored()) {
             return CompletableFuture.completedFuture(ConfirmOutcome.allow());
+        }
+        if (autoApprove) {
+            log.info("自动通过档下限生效：高危类调用仍需确认（{}）", result.reason());
         }
         if (confirmHandler == null) {
             // 无确认通道时，高危默认拒绝

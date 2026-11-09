@@ -16,6 +16,12 @@
 
 package com.gettyio.gim.agent.tools.guard;
 
+import com.gettyio.gim.agent.core.chat.ToolCallsCodec;
+import com.gettyio.gim.agent.core.chat.ToolCallsCodec.ToolCallView;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -34,6 +40,8 @@ import java.util.regex.PatternSyntaxException;
  */
 public class DangerousCommandPolicy implements ToolGuard {
 
+    private static final Logger log = LoggerFactory.getLogger(DangerousCommandPolicy.class);
+
     /** 内置默认规则：迁移自旧版硬编码黑名单，附展示元数据；「重置」即还原这份。 */
     public static final List<DangerousRule> DEFAULT_RULES = List.of(
             new DangerousRule("rm_rf", "\\brm\\s+-[rf]{1,2}\\b",
@@ -44,6 +52,15 @@ public class DangerousCommandPolicy implements ToolGuard {
                     DangerousRule.SEVERITY_HIGH, "数据破坏", true),
             new DangerousRule("rmdir_s", "\\brmdir\\s+/s\\b",
                     "检测递归删除目录的 rmdir /s 命令",
+                    DangerousRule.SEVERITY_HIGH, "数据破坏", true),
+            new DangerousRule("rd_s", "\\brd\\s+/s\\b",
+                    "检测递归删除目录的 rd /s /q 命令",
+                    DangerousRule.SEVERITY_HIGH, "数据破坏", true),
+            new DangerousRule("remove_item_recurse", "(?i)\\bremove-item\\b[^\\r\\n]*-recurse",
+                    "检测递归删除的 PowerShell Remove-Item -Recurse 命令",
+                    DangerousRule.SEVERITY_HIGH, "数据破坏", true),
+            new DangerousRule("git_clean_force", "(?i)\\bgit\\s+clean\\b[^\\r\\n]*-{1,2}[a-z]*f",
+                    "检测清除未跟踪文件的 git clean -f/-fdx 命令",
                     DangerousRule.SEVERITY_HIGH, "数据破坏", true),
             new DangerousRule("format", "\\bformat\\b",
                     "检测格式化磁盘的 format 命令",
@@ -93,11 +110,20 @@ public class DangerousCommandPolicy implements ToolGuard {
         return DEFAULT_RULES;
     }
 
-    /** 按当前规则快照逐条正则匹配工具入参；命中任一危险模式即拒绝，否则不表态（返回 {@code null}）。 */
+    /**
+     * 按当前规则快照逐条正则匹配工具入参；命中任一危险模式即拒绝，否则不表态（返回 {@code null}）。
+     *
+     * <p>匹配文本不止入参原文：解释器载荷（{@code cmd /c "…"}、{@code bash -c '…'}、
+     * {@code powershell -EncodedCommand <base64>}）会被 {@link CommandPayloads} 逐层展开后一并比对，
+     * 否则黑名单只能看见解释器的名字，看不见它要干的活。</p>
+     *
+     * <p>黑名单的结论是 DENY，而 {@link GuardChain} 让 DENY 先于一切记忆授权与「自动」审批档返回，
+     * 因此 CRITICAL 规则不可能被自动放行——严重度元数据决定的是 UI 徽标与排序，不是放行与否。</p>
+     */
     @Override
     public GuardResult inspect(GuardContext ctx) {
-        String input = ctx.toolInput();
-        if (input == null || input.isBlank()) {
+        List<String> haystack = haystacks(ctx);
+        if (haystack.isEmpty()) {
             return null;
         }
         for (DangerousRule rule : rulesSupplier.get()) {
@@ -105,13 +131,47 @@ public class DangerousCommandPolicy implements ToolGuard {
                 continue;
             }
             Pattern p = compile(rule.pattern());
-            if (p != null && p.matcher(input).find()) {
+            if (p == null) {
+                continue;
+            }
+            for (int i = 0; i < haystack.size(); i++) {
+                if (!p.matcher(haystack.get(i)).find()) {
+                    continue;
+                }
                 String label = rule.description() == null || rule.description().isBlank()
                         ? rule.pattern() : rule.description();
-                return GuardResult.deny("命中危险命令黑名单：" + label);
+                // i>0：命中的是解释器载荷里的脚本，而不是入参原文
+                boolean nested = i > 0;
+                if (nested) {
+                    log.warn("危险命令黑名单命中解释器载荷: rule={} session={}", rule.id(), ctx.sessionId());
+                }
+                return GuardResult.deny("命中危险命令黑名单：" + label
+                        + (nested ? "（载荷来自解释器再执行的那段脚本）" : ""));
             }
         }
         return null;
+    }
+
+    /** 待比对文本：入参原文打底，shell 工具再补上各命令字段与其展开出的解释器载荷。 */
+    private static List<String> haystacks(GuardContext ctx) {
+        String input = ctx.toolInput();
+        if (input == null || input.isBlank()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        out.add(input);
+        if (!ExecutableAllowlistPolicy.SHELL_TOOL.equalsIgnoreCase(ctx.toolName())) {
+            return out;
+        }
+        for (ToolCallView call : ToolCallsCodec.decode(input)) {
+            String command = call.text("command");
+            if (command == null || command.isBlank() || out.contains(command)) {
+                continue;
+            }
+            out.add(command);
+            out.addAll(CommandPayloads.expand(command));
+        }
+        return out;
     }
 
     /** 编译并缓存正则；语法错误返回 {@code null} 表示跳过该规则。 */

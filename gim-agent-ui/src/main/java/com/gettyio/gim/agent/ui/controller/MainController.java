@@ -44,6 +44,7 @@ import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.export.ExportService;
+import com.gettyio.gim.agent.ui.desktop.LocalOpenPolicy;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatTool;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TerminalView;
@@ -447,6 +448,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
      */
     private final com.gettyio.gim.agent.ui.chat.TurnReplayBuffer streamingReplay =
             new com.gettyio.gim.agent.ui.chat.TurnReplayBuffer();
+    /**
+     * 等整页重放上屏后要做的一次事（搜索命中跳转的消息主键；0 表示没有）。
+     * <p>重放改到池线程构建、FX 上屏，DOM 何时换新不再由调用点决定，故这类「这页画完之后」的
+     * 动作统一交 {@link #afterPagePainted(String)} 执行。</p>
+     */
+    private long pendingRevealId;
     /** 模板下拉菜单：复用单一实例，避免反复点击累积弹出 */
     private ContextMenu templateMenu;
     /** 消息右键菜单：复用单一实例，右键换目标时先收再弹，不叠出多个弹窗 */
@@ -509,7 +516,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
                     }
                 });
         historyPager = new com.gettyio.gim.agent.ui.chat.ChatHistoryPager(
-                chatService, chatView, payload, statusBar, chatEmpty, this::currentSessionId, this::isBusy);
+                chatService, chatView, payload, statusBar, chatEmpty, this::currentSessionId, this::isBusy,
+                this::afterPagePainted);
         sessionExporter = new com.gettyio.gim.agent.ui.chat.SessionExporter(exportService, this::ownerWindow);
         compareRunner = new com.gettyio.gim.agent.ui.chat.CompareRunner(this,
                 toolbar, providerAdminService, rateGovernor, agentGateway, chatService, chatView,
@@ -1179,6 +1187,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
                 .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         batch -> Platform.runLater(() -> {
+                            // 批量是「先投进 FX 队列、后执行」：取消订阅只挡得住之后的批量，
+                            // 已在队列里的那一帧仍会在 handleStop 之后落地。streamingBubbleId 由
+                            // exitStreamingUi 归零，据此把死轮的尾巴拦掉，不再改写已定格的气泡，
+                            // 也不把已落盘之外的增量塞回重放缓冲（切页重挂会把它当成在途内容）。
+                            if (streamId != streamingBubbleId) {
+                                return;
+                            }
                             streamingReplay.record(batch);
                             applyBatchToChat(batch, streamId, acc);
                             statusBar.updateUsageFromBatch(batch);
@@ -1202,7 +1217,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
                             // 仅当用户还停在这轮所属会话——他可能已切到别的会话或另起新任务，
                             // 那时把旧会话刷到眼前等于抢走他正在看的页面。
                             if (Objects.equals(sessionId, currentSessionId)) {
-                                renderConversation(sessionId);
+                                historyPager.render(sessionId);
                             }
                             // 本轮新落的产物就地可见（面板收起时由展开时刷新兜底）
                             refreshWorkspaceAfterTurn(sessionId, turnStart);
@@ -1229,50 +1244,74 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
      */
     private void applyBatchToChat(List<StreamEvent> batch, long id, StringBuilder acc) {
         StringBuilder frame = new StringBuilder();
+        // 一帧 33ms 里可能挤进几十个思考 token：逐个交出去就是前端跑几十遍重排，攒成一次调用
+        StringBuilder think = new StringBuilder();
         for (StreamEvent e : batch) {
-            if (e.getType() == StreamEventType.TEXT_DELTA && e.getText() != null) {
+            StreamEventType type = e.getType();
+            if (type == StreamEventType.THINKING_DELTA) {
+                if (e.getText() != null) {
+                    think.append(e.getText());
+                }
+                continue;
+            }
+            // 其余事件在前端都会结束当前思考段：先把攒下的增量交出去，段序才与落盘分段一致
+            flushThinking(think, id);
+            if (type == StreamEventType.TEXT_DELTA && e.getText() != null) {
                 frame.append(e.getText());
-            } else if (e.getType() == StreamEventType.THINKING_DELTA && e.getText() != null) {
-                chatView.streamThinking(id, e.getText());
-            } else if (e.getType() == StreamEventType.TOOL_START && e.getToolName() != null && e.getToolInput() != null) {
+            } else if (type == StreamEventType.TOOL_START && e.getToolName() != null && e.getToolInput() != null) {
                 // 带真实入参的这次 TOOL_START 才是「即将执行」：先在过程区亮一行在途记录，长耗时工具不至于整块静默
                 chatView.streamToolStart(id, new WebChatTool(e.getToolName(), e.getToolInput(), null, false, 0L));
-            } else if (e.getType() == StreamEventType.TOOL_END && e.getToolName() != null) {
+            } else if (type == StreamEventType.TOOL_END && e.getToolName() != null) {
                 chatView.streamToolEnd(id, new WebChatTool(e.getToolName(), e.getToolInput(),
                         e.getToolOutput(), e.isToolOk(), e.getToolDurationMillis()));
-            } else if (e.getType() == StreamEventType.CONFIRM_REQUEST && e.getToolName() != null) {
+            } else if (type == StreamEventType.CONFIRM_REQUEST && e.getToolName() != null) {
                 // 授权请求只在实时呈现（弹窗当场已处理完），不并入助手正文落盘
                 chatView.streamNotice(id, I18n.t("chat.toolConfirm", e.getToolName()));
-            } else if (e.getType() == StreamEventType.NOTICE && e.getToolName() != null) {
+            } else if (type == StreamEventType.NOTICE && e.getToolName() != null) {
                 // 运行体旁白（步数触顶自动续跑、子代理启停等）：随分段落盘，重放不再丢
                 chatView.streamNotice(id, UiFormat.notice(e));
             }
         }
+        flushThinking(think, id);
         if (frame.length() > 0) {
             acc.append(frame);
             chatView.streamDelta(id, frame.toString());
         }
     }
 
-    /** 整页重放会话历史，再把仍在跑的那轮接回同一临时气泡：切页返回不该等本轮落库才看到过程。 */
-    private void renderConversation(String sessionId) {
-        historyPager.render(sessionId);
-        reattachRunningTurn(sessionId);
+    /** 交出一段攒下的思考增量；空段不发脚本调用。 */
+    private void flushThinking(StringBuilder think, long id) {
+        if (think.length() > 0) {
+            chatView.streamThinking(id, think.toString());
+            think.setLength(0);
+        }
     }
 
     /**
      * 重放在途轮：按已记录的事件走与实时完全相同的分派通道，重建同主键临时气泡后增量继续写进这一轮，
      * 收尾时再由正常的整页重放换成带真实主键的正式气泡。
+     * <p>由 {@link com.gettyio.gim.agent.ui.chat.ChatHistoryPager} 在整页上屏后回调：{@code renderHistory}
+     * 清掉了临时气泡，而重放是池线程构建、异步上屏的，回调点就是唯一可靠的「页面已换新」时刻。
+     * 缓冲还空着（刚发起、事件未到）也要重开气泡，否则第一条增量会写进一个不存在的气泡。</p>
      *
-     * @param sessionId 即将上屏的会话；与在途会话不符则不动（用户在别看的那页不该被抢）
+     * @param sessionId 刚上屏的会话；与在途会话不符则不动（用户在别看的那页不该被抢）
      */
     private void reattachRunningTurn(String sessionId) {
-        if (streamingBubbleId == 0L || sessionId == null || !sessionId.equals(streamingSessionId)
-                || streamingReplay.isEmpty()) {
+        if (streamingBubbleId == 0L || sessionId == null || !sessionId.equals(streamingSessionId)) {
             return;
         }
         chatView.streamStart(streamingBubbleId);
         applyBatchToChat(streamingReplay.snapshot(), streamingBubbleId, new StringBuilder());
+    }
+
+    /** 整页重放上屏后的接线（由分页器回调）：接回在途轮，再做等这页画完才成立的一次性动作。 */
+    private void afterPagePainted(String sessionId) {
+        reattachRunningTurn(sessionId);
+        long revealId = pendingRevealId;
+        pendingRevealId = 0L;
+        if (revealId > 0) {
+            chatView.reveal(revealId);
+        }
     }
 
     /**
@@ -1348,6 +1387,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         return activeStream != null || compareRunner.isRunning();
     }
 
+    /** 侧栏「删除/分支会话」的前置判定：只有正被本轮改写的那条会话不能动，别的会话照常可管。 */
+    @Override
+    public boolean generating(String sessionId) {
+        String sid = streamingSessionId;
+        return activeStream != null && sid != null && sid.equals(sessionId);
+    }
+
     /** 停止生成：对比在途时停对比；否则先打断网关侧的模型/工具循环，再取消订阅（doOnCancel 落盘半截应答）。 */
     private void handleStop() {
         if (compareRunner.isRunning()) {
@@ -1359,9 +1405,15 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             chatService.stop(agentOfSession(session), session);
         }
         Disposable stream = activeStream;
+        long bubbleId = streamingBubbleId;
         exitStreamingUi();
         if (stream != null) {
             stream.dispose();
+        }
+        // 半截应答已由 doOnCancel 落盘，但临时气泡还停在「思考中」的呼吸态——补一次定格，
+        // 把已收到的正文/思考/工具收成普通消息。bubbleId 必须在 exitStreamingUi 前取。
+        if (bubbleId != 0L) {
+            chatView.streamEnd(bubbleId);
         }
     }
 
@@ -1424,7 +1476,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     private void switchToSession(String sessionId) {
         currentSessionId = sessionId;
         hidePlanBanner();
-        renderConversation(sessionId);
+        historyPager.render(sessionId);
         // 高亮当前会话行
         sidebar.renderSessions();
         updateHeaderTitle();
@@ -1795,21 +1847,21 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             allowed.add(s.getSessionId());
         }
         SessionSearchDialog.show(currentWindow(), scoped,
-                keyword -> chatService.searchContent(keyword, 200).stream()
+                // 面板在池线程上调用本检索：多取几倍再按当前智能体过滤，展示条数由面板自己截
+                keyword -> chatService.searchContent(keyword, SessionSearchDialog.MESSAGE_FETCH_LIMIT).stream()
                         .filter(h -> allowed.contains(h.sessionId()))
-                        .limit(50)
                         .toList(),
                 s -> openSessionById(s.getSessionId()),
                 this::openMessageHit);
     }
 
-    /** 打开命中的消息：先切到其所属会话，再在重放完成后滚动并短暂高亮该条。 */
+    /** 打开命中的消息：切到其所属会话，滚动与短暂高亮等这页上屏后由 {@link #afterPagePainted} 执行。 */
     private void openMessageHit(com.gettyio.gim.agent.domain.entity.MessageHit hit) {
         if (hit == null) {
             return;
         }
+        pendingRevealId = hit.conversationId();
         openSessionById(hit.sessionId());
-        Platform.runLater(() -> chatView.reveal(hit.conversationId()));
     }
 
     // ===================== 输入框工具条：附件 / 模型 / 审批 =====================
@@ -1896,6 +1948,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
      * 归一为本地文件后交系统程序打开。
      * <p>此前 {@code file:///} 一律走 {@code Desktop.browse}，产物路径点不开（且 href 早被前端消毒抹掉），
      * 「模型报了路径用户却拿不到文件」的最后一环就断在这里；越出工作区的绝对路径直接拒绝。</p>
+     * <p>外链侧由 {@link LocalOpenPolicy#browse} 只放过 http(s)：链接文本同样出自模型，
+     * {@code javascript:}／自定义 scheme 交给 {@code Desktop.browse} 之后做什么取决于本机注册了什么处理器。</p>
      */
     @Override
     public void chatLink(String url) {
@@ -1908,14 +1962,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             Platform.runLater(() -> openLocalFile(local));
             return;
         }
-        try {
-            if (java.awt.Desktop.isDesktopSupported()
-                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.BROWSE)) {
-                java.awt.Desktop.getDesktop().browse(java.net.URI.create(raw));
-            }
-        } catch (Exception e) {
-            log.warn("打开外链失败: {}", url, e);
-        }
+        LocalOpenPolicy.browse(raw);
     }
 
     /** 点击本地图片附件：在系统文件管理器中定位所在目录；data URI 无路径忽略。 */
@@ -1942,7 +1989,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             switch (action == null ? "open" : action) {
                 case "preview" -> previewArtifact(file);
                 case "reveal" -> revealInFolder(file.toString());
-                default -> openLocalFile(file);
+                // 「打开即执行」那类扩展名（脚本/批处理）不交回系统，改为应用内阅读：
+                // 产物卡上的 .py 是常见的交付物，点了没反应比点了看到源码更让人怀疑程序坏了
+                default -> {
+                    if (!LocalOpenPolicy.openFile(file, "产物")) {
+                        previewArtifact(file);
+                    }
+                }
             }
         });
     }
@@ -1965,8 +2018,11 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     }
 
     /**
-     * 把 {@code file:} URI、工作区相对路径与本机绝对路径归一为工作区内的真实文件；
-     * 非本地写法（http/mailto 等）、越出工作区根或文件不存在时返回 {@code null}。
+     * 把 {@code file:} URI、工作区相对路径与本机绝对路径归一为授权目录内的真实文件；
+     * 非本地写法（http/mailto 等）、越界或文件不存在时返回 {@code null}。
+     * <p>边界判定用 {@link LocalOpenPolicy#allowedPath}（跟随符号链接求规范形）：
+     * 早先的 {@code normalize()+startsWith} 只比字符串，工作区里一个指向别处的链接就能把
+     * 「越出工作区直接拒绝」变成一句空话。</p>
      */
     private java.nio.file.Path localArtifactTarget(String raw) {
         if (raw == null || raw.isBlank()) {
@@ -1986,23 +2042,13 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         } catch (Exception e) {
             return null;
         }
-        java.nio.file.Path abs = candidate.toAbsolutePath().normalize();
-        if (!abs.startsWith(workspaceRoot) || !java.nio.file.Files.isRegularFile(abs)) {
-            return null;
-        }
-        return abs;
+        java.nio.file.Path allowed = LocalOpenPolicy.allowedPath(candidate);
+        return allowed != null && java.nio.file.Files.isRegularFile(allowed) ? allowed : null;
     }
 
-    /** 交系统默认程序打开工作区内的产物文件；失败仅记日志（文件类型未关联是常态）。 */
+    /** 交系统默认程序打开授权目录内的产物文件；越界与「打开即执行」类由策略拒绝。 */
     private void openLocalFile(java.nio.file.Path file) {
-        try {
-            if (java.awt.Desktop.isDesktopSupported()
-                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
-                java.awt.Desktop.getDesktop().open(file.toFile());
-            }
-        } catch (Exception e) {
-            log.warn("打开产物文件失败: {}", file, e);
-        }
+        LocalOpenPolicy.openFile(file, "产物");
     }
 
     @Override
@@ -2020,15 +2066,16 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         chatEmpty.set(empty);
     }
 
-    /** 在系统文件管理器中定位附件/本地图片所在目录（内联 data URI 无路径，跳过）。 */
+    /**
+     * 在系统文件管理器中定位附件/本地图片所在目录（内联 data URI 无路径，跳过）。
+     * <p>越出授权目录时回落附件目录：这里的输入同样来自渲染出来的文本，让它拉起任意位置的文件夹
+     * 等于给模型一个「用 Explorer 打开我指定的目录」的原语；回落至少说明动作发生了，不至于点了没反应。</p>
+     */
     private void revealInFolder(String path) {
         try {
-            java.nio.file.Path file = java.nio.file.Paths.get(path);
-            java.nio.file.Path dir = java.nio.file.Files.exists(file)
-                    ? file.getParent() : gimPaths.attachmentsDir();
-            if (dir != null && java.awt.Desktop.isDesktopSupported()
-                    && java.awt.Desktop.getDesktop().isSupported(java.awt.Desktop.Action.OPEN)) {
-                java.awt.Desktop.getDesktop().open(dir.toFile());
+            java.nio.file.Path dir = java.nio.file.Paths.get(path).getParent();
+            if (dir == null || !LocalOpenPolicy.revealDirectory(dir, "附件目录")) {
+                LocalOpenPolicy.revealDirectory(gimPaths.attachmentsDir(), "附件目录");
             }
         } catch (Exception e) {
             log.warn("打开附件目录失败: {}", path, e);

@@ -42,6 +42,7 @@ import javafx.stage.DirectoryChooser;
 
 import java.io.File;
 import java.time.Duration;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -268,7 +269,7 @@ final class SecuritySettingsPanel {
             groups.computeIfAbsent(cat, k -> new ArrayList<>()).add(r);
         }
         for (Map.Entry<String, List<DangerousRule>> g : groups.entrySet()) {
-            Label gt = new Label(g.getKey() + "  " + g.getValue().size() + " 条");
+            Label gt = new Label(g.getKey() + "  " + I18n.t("settings.security.category.count", g.getValue().size()));
             gt.getStyleClass().add("dangerous-category");
             VBox card = new VBox();
             card.getStyleClass().add("settings-group");
@@ -357,14 +358,29 @@ final class SecuritySettingsPanel {
             return;
         }
         for (ToolPermissionRule r : list) {
-            String scope = r.getRuleContent() == null || r.getRuleContent().isBlank()
-                    ? I18n.t("settings.security.wholeTool") : r.getRuleContent();
+            String scope = scopeOf(r);
             String label = r.getToolName() + " · " + scope + " · " + r.getDecision();
             grantBox.getChildren().add(SettingsLayout.listRow(label, null, () -> {
                 securityAdminService.delete(r.getId());
                 renderGrants();
             }));
         }
+    }
+
+    /**
+     * 规则作用域文案：窄规则（程序/命令指纹/目录）直接显示键，工具级通配额外标出有效期状态。
+     * <p>通配意味着「这个工具整个都放过」，用户必须能一眼看出它管多大、还能管多久；
+     * 到期时间缺失的行是旧版本写的，本程序已不再认账，界面如实显示「已过期」。</p>
+     */
+    private static String scopeOf(ToolPermissionRule r) {
+        boolean toolLevel = r.getRuleContent() == null || r.getRuleContent().isBlank();
+        if (!toolLevel) {
+            return r.getRuleContent();
+        }
+        String whole = I18n.t("settings.security.wholeTool");
+        LocalDateTime expiresAt = r.getExpiresAt();
+        boolean live = expiresAt != null && expiresAt.isAfter(LocalDateTime.now());
+        return whole + I18n.t(live ? "settings.security.grant.timed" : "settings.security.grant.expired");
     }
 
     /** 安全页动态列表随数据刷新（宿主整表刷新时调用）。 */

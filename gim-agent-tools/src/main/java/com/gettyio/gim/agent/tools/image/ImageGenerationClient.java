@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.tools.image;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.gettyio.gim.agent.core.net.AddressPolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -57,6 +58,8 @@ public class ImageGenerationClient {
 
     /** 生成与下载的超时：生图普遍较慢，给足 120s。 */
     private static final Duration GENERATE_TIMEOUT = Duration.ofSeconds(120);
+    /** 取回已生成图片的超时：文件已在服务端，120s 是生成用的额度，不该顺手套在下载上。 */
+    private static final Duration DOWNLOAD_TIMEOUT = Duration.ofSeconds(30);
 
     /** 当前生效配置：地址/模型空视为未配置；Key 可空（兼容本地免鉴权服务）。 */
     public record Config(String baseUrl, String model, String apiKey) {
@@ -168,8 +171,15 @@ public class ImageGenerationClient {
     }
 
     private byte[] download(String url) throws IOException, InterruptedException {
+        // 下载地址出自服务端的响应 JSON：Key 被中间人或劫持时，一句 data[0].url 指向
+        // http://169.254.169.254/ 就能让本机替访问者把元数据读回来再落盘成「图片」
+        String refusal = AddressPolicy.refusal(url).orElse(null);
+        if (refusal != null) {
+            log.warn("图像结果下载地址被拒绝: {} — {}", url, refusal);
+            throw new IllegalStateException("图像结果下载地址不可用：" + refusal);
+        }
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .timeout(GENERATE_TIMEOUT)
+                .timeout(DOWNLOAD_TIMEOUT)
                 .GET()
                 .build();
         HttpResponse<byte[]> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofByteArray());

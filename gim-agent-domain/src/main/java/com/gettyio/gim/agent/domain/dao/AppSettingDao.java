@@ -55,14 +55,17 @@ public class AppSettingDao {
                 rs -> rs.getString("setting_value"), key);
     }
 
-    /** 幂等写入：键存在则更新值/描述/时间，不存在则插入。 */
+    /**
+     * 幂等写入：一条 {@code INSERT ... ON CONFLICT DO UPDATE} 同时覆盖值/描述/时间。
+     * <p>不用「先 UPDATE，影响 0 行再 INSERT」：两条语句各开连接时既不原子（中途失败键可能整个消失），
+     * 也会给同一次写入记下两个 {@code updated_at}。</p>
+     */
     public void upsert(String key, String value, String description) {
-        int updated = runner.update("UPDATE settings SET setting_value=?, description=?, updated_at=? WHERE setting_key=?",
-                value, description, LocalDateTime.now(), key);
-        if (updated == 0) {
-            runner.insert("INSERT INTO settings (setting_key, setting_value, description, updated_at) VALUES (?,?,?,?)",
-                    key, value, description, LocalDateTime.now());
-        }
+        LocalDateTime now = LocalDateTime.now();
+        runner.update("INSERT INTO settings (setting_key, setting_value, description, updated_at) VALUES (?,?,?,?) "
+                        + "ON CONFLICT(setting_key) DO UPDATE SET setting_value=excluded.setting_value, "
+                        + "description=excluded.description, updated_at=excluded.updated_at",
+                key, value, description, now);
     }
 
     /** 删除指定键（知识索引指纹等内部键的定点清理）；返回删除行数。 */

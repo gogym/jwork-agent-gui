@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.ui.chat.render;
 
 import com.gettyio.gim.agent.ui.chat.workspace.ArtifactPreviewWindow;
+import com.gettyio.gim.agent.ui.desktop.LocalOpenPolicy;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import javafx.animation.PauseTransition;
 import javafx.geometry.Insets;
@@ -62,7 +63,6 @@ import org.commonmark.node.Text;
 import org.commonmark.node.ThematicBreak;
 import org.commonmark.parser.Parser;
 
-import java.awt.Desktop;
 import java.net.URI;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -225,15 +225,14 @@ public final class MarkdownRenderer {
         return view;
     }
 
-    /** 点击图片用系统默认程序打开；无桌面支持时静默（悬停提示里已有路径可自行打开）。 */
+    /**
+     * 点击图片用系统默认程序打开；不合格路径由 {@link LocalOpenPolicy} 拒绝并记日志
+     * （悬停提示里已有绝对路径，用户可自行处理）。
+     * <p>图片目标出自模型文本，这里原先是裸 {@code Desktop.open}：把「渲染一张图」的最后一步
+     * 变成「在用户机器上打开任意位置的文件」，指向 {@code .bat}/{@code .lnk} 时更是直接执行。</p>
+     */
     private static void openExternally(Path path) {
-        try {
-            if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.OPEN)) {
-                Desktop.getDesktop().open(path.toFile());
-            }
-        } catch (Exception e) {
-            // 打不开就保持静默：绝对路径已在悬停提示中给出
-        }
+        LocalOpenPolicy.openFile(path, "内联图片");
     }
 
     /**

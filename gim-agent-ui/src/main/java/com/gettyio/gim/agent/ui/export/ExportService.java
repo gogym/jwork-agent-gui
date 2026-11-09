@@ -22,8 +22,14 @@ import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec;
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec.ToolCallView;
 import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.entity.AppSetting;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
+import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
+import com.gettyio.gim.agent.domain.security.SecretStore;
+import com.gettyio.gim.agent.ui.i18n.I18n;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import org.apache.fontbox.ttf.TrueTypeCollection;
 import org.apache.fontbox.ttf.TrueTypeFont;
@@ -48,7 +54,9 @@ import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -56,19 +64,36 @@ import java.util.Optional;
  * 会话与全库导出：单会话导出为可读 Markdown（角色/时间/工具行）或「话题卡片」式独立 HTML
  * （{@link SessionHtmlRenderer}，.html 文件与长图快照共用同一份内容），全库导出为结构化 JSON。
  * <p>纯数据渲染，无 JavaFX 依赖，便于在设置页后台线程调用与后续测试。</p>
+ * <p>全库 JSON 导出会抹掉密钥类字段：导出件常被人贴进聊天、工单或网盘，而 {@code settings}
+ * 里的值是密文，与随数据目录同放的 {@code secret.key} 配对即可还原——等于连带钥匙一起送人。</p>
  *
  * @author gogym
  */
 public class ExportService {
 
+    private static final Logger log = LoggerFactory.getLogger(ExportService.class);
+
+    /** 密钥字段在导出件里的替身值：保留「这项配过」这一事实，抹掉可用于认证的内容。 */
+    static final String REDACTED = "[redacted]";
+
+    /**
+     * 键名（去掉 {@code .}/{@code _} 等分隔符后）含这些片段即按密钥处理，即便值是历史遗留的明文
+     * （未经密钥库封存，前缀规则认不出）。必须先去分隔符：真实键名写的是 {@code web.search.api.key}，
+     * 按原样匹配 "api_key" 会整类漏掉。
+     */
+    private static final List<String> SECRET_KEY_HINTS =
+            List.of("apikey", "password", "passphrase", "secret", "token");
+
     private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
 
     private final GimDatabase db;
+    private final SecretStore secrets;
     private final ObjectMapper json;
 
-    public ExportService(GimDatabase db) {
+    public ExportService(GimDatabase db, SecretStore secrets) {
         this.db = db;
+        this.secrets = secrets;
         this.json = new ObjectMapper()
                 .registerModule(new JavaTimeModule())
                 .enable(SerializationFeature.INDENT_OUTPUT)
@@ -89,16 +114,18 @@ public class ExportService {
                 ? sessionId : session.getTitle().trim();
         sb.append("# ").append(title).append("\n\n");
         if (session != null) {
-            sb.append("- 会话：`").append(sessionId).append("`\n");
+            sb.append("- ").append(I18n.t("export.meta.session", "`" + sessionId + "`")).append("\n");
             if (session.getAgentCode() != null) {
-                sb.append("- 智能体：`").append(session.getAgentCode()).append("`\n");
+                sb.append("- ").append(I18n.t("export.meta.agent", "`" + session.getAgentCode() + "`")).append("\n");
             }
             if (session.getModelCode() != null) {
-                sb.append("- 模型：`").append(session.getModelCode()).append("`\n");
+                sb.append("- ").append(I18n.t("export.meta.model", "`" + session.getModelCode() + "`")).append("\n");
             }
-            sb.append("- 消息数：").append(messages.size()).append("\n");
+            sb.append("- ").append(I18n.t("export.meta.messageCount", String.valueOf(messages.size())))
+                    .append("\n");
         }
-        sb.append("- 导出时间：").append(LocalDateTime.now().format(TS)).append("\n\n---\n\n");
+        sb.append("- ").append(I18n.t("export.meta.exportedAt", LocalDateTime.now().format(TS)))
+                .append("\n\n---\n\n");
         for (ChatConversation c : messages) {
             sb.append(renderMessage(c));
         }
@@ -125,7 +152,7 @@ public class ExportService {
         }
         sb.append("\n\n");
         String content = c.getContent() == null ? "" : c.getContent().trim();
-        sb.append(content.isEmpty() ? "_（空）_" : content).append("\n");
+        sb.append(content.isEmpty() ? "_" + I18n.t("export.body.empty") + "_" : content).append("\n");
         // 工具调用行
         List<ToolCallView> calls = ToolCallsCodec.decode(c.getToolCalls());
         for (ToolCallView call : calls) {
@@ -203,7 +230,7 @@ public class ExportService {
             doc.save(target.toFile());
             return target.toAbsolutePath();
         } catch (IOException e) {
-            throw new UncheckedIOException("导出 PDF 失败: " + target, e);
+            throw new UncheckedIOException(I18n.t("export.error.pdf", target), e);
         }
     }
 
@@ -237,7 +264,7 @@ public class ExportService {
             doc.write(out);
             return target.toAbsolutePath();
         } catch (IOException e) {
-            throw new UncheckedIOException("导出 DOCX 失败: " + target, e);
+            throw new UncheckedIOException(I18n.t("export.error.docx", target), e);
         }
     }
 
@@ -257,16 +284,16 @@ public class ExportService {
                 ? sessionId : session.getTitle().trim();
         out.add(new Line(title, Kind.TITLE));
         if (session != null) {
-            out.add(new Line("会话：" + sessionId, Kind.META));
+            out.add(new Line(I18n.t("export.meta.session", sessionId), Kind.META));
             if (session.getAgentCode() != null) {
-                out.add(new Line("智能体：" + session.getAgentCode(), Kind.META));
+                out.add(new Line(I18n.t("export.meta.agent", session.getAgentCode()), Kind.META));
             }
             if (session.getModelCode() != null) {
-                out.add(new Line("模型：" + session.getModelCode(), Kind.META));
+                out.add(new Line(I18n.t("export.meta.model", session.getModelCode()), Kind.META));
             }
-            out.add(new Line("消息数：" + messages.size(), Kind.META));
+            out.add(new Line(I18n.t("export.meta.messageCount", String.valueOf(messages.size())), Kind.META));
         }
-        out.add(new Line("导出时间：" + LocalDateTime.now().format(TS), Kind.META));
+        out.add(new Line(I18n.t("export.meta.exportedAt", LocalDateTime.now().format(TS)), Kind.META));
         for (ChatConversation c : messages) {
             StringBuilder head = new StringBuilder(ExportFormats.rolePlain(c.getRole()));
             if (c.getCreatedAt() != null) {
@@ -274,9 +301,9 @@ public class ExportService {
             }
             out.add(new Line(head.toString(), Kind.HEAD));
             String content = c.getContent() == null ? "" : c.getContent().trim();
-            out.add(new Line(content.isEmpty() ? "（空）" : content, Kind.BODY));
+            out.add(new Line(content.isEmpty() ? I18n.t("export.body.empty") : content, Kind.BODY));
             for (ToolCallView call : ToolCallsCodec.decode(c.getToolCalls())) {
-                StringBuilder t = new StringBuilder("工具 · ").append(call.name());
+                StringBuilder t = new StringBuilder(I18n.t("export.line.tool", call.name()));
                 Map<String, Object> input = call.input();
                 if (input != null && !input.isEmpty()) {
                     t.append(' ').append(ExportFormats.summarizeInput(input));
@@ -415,24 +442,74 @@ public class ExportService {
                 Files.createDirectories(parent);
             }
         } catch (IOException e) {
-            throw new UncheckedIOException("创建导出目录失败: " + target, e);
+            throw new UncheckedIOException(I18n.t("export.error.dir", target), e);
         }
     }
 
-    /** 导出全库为 JSON（会话+消息+智能体+任务+技能+模型+设置），返回落盘路径。 */
+    /**
+     * 导出全库为 JSON（会话+消息+智能体+任务+技能+模型+设置），返回落盘路径。
+     * <p>密钥字段就地抹掉，被抹项列在 {@code redactedSecrets} 里——导出件因此<b>不是</b>可回灌的
+     * 备份，模型 Key 与 WebDAV 凭据需在导入后重新录入。</p>
+     */
     public Path exportFullJson(Path target) {
-        Map<String, Object> dump = Map.of(
-                "exportedAt", LocalDateTime.now().format(TS),
-                "sessions", db.sessionDao().findAll(),
-                "conversations", db.conversationDao().findBySessions(
-                        db.sessionDao().findAll().stream().map(ChatSession::getSessionId).toList()),
-                "agents", db.agentDao().findAll(),
-                "tasks", db.taskDao().findAll(),
-                "skills", db.skillDao().findAll(),
-                "modelProviders", db.modelProviderDao().findAll(),
-                "models", db.modelConfigDao().findAll(),
-                "settings", db.settingDao().findAll());
+        List<AppSetting> settings = db.settingDao().findAll();
+        List<ModelProviderConfig> providers = db.modelProviderDao().findAll();
+        List<String> redactedSettingKeys = redactSettings(settings);
+        List<String> redactedProviders = redactProviderKeys(providers);
+        if (!redactedSettingKeys.isEmpty() || !redactedProviders.isEmpty()) {
+            log.info("全库导出抹去 {} 项设置密钥、{} 个提供商 API Key: {}",
+                    redactedSettingKeys.size(), redactedProviders.size(), redactedSettingKeys);
+        }
+        Map<String, Object> dump = new LinkedHashMap<>();
+        dump.put("exportedAt", LocalDateTime.now().format(TS));
+        dump.put("sessions", db.sessionDao().findAll());
+        dump.put("conversations", db.conversationDao().findBySessions(
+                db.sessionDao().findAll().stream().map(ChatSession::getSessionId).toList()));
+        dump.put("agents", db.agentDao().findAll());
+        dump.put("tasks", db.taskDao().findAll());
+        dump.put("skills", db.skillDao().findAll());
+        dump.put("modelProviders", providers);
+        dump.put("models", db.modelConfigDao().findAll());
+        dump.put("settings", settings);
+        dump.put("redactedSecrets", Map.of("settings", redactedSettingKeys,
+                "modelProviders", redactedProviders));
         return write(target, renderJson(dump));
+    }
+
+    /** 就地抹掉设置行的密钥值：密文一律抹（配着本机 secret.key 就能解开），明文只抹键名像密钥的。 */
+    private List<String> redactSettings(List<AppSetting> settings) {
+        List<String> keys = new ArrayList<>();
+        for (AppSetting s : settings) {
+            String value = s.getSettingValue();
+            if (value == null || value.isBlank()) {
+                continue;
+            }
+            if (secrets.canHandle(value) || looksSecret(s.getSettingKey())) {
+                s.setSettingValue(REDACTED);
+                keys.add(s.getSettingKey());
+            }
+        }
+        return keys;
+    }
+
+    /** 就地抹掉各提供商的 API Key。 */
+    private static List<String> redactProviderKeys(List<ModelProviderConfig> providers) {
+        List<String> codes = new ArrayList<>();
+        for (ModelProviderConfig p : providers) {
+            if (p.getApiKey() != null && !p.getApiKey().isBlank()) {
+                p.setApiKey(REDACTED);
+                codes.add(p.getProviderCode());
+            }
+        }
+        return codes;
+    }
+
+    private static boolean looksSecret(String key) {
+        if (key == null) {
+            return false;
+        }
+        String flat = key.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]", "");
+        return SECRET_KEY_HINTS.stream().anyMatch(flat::contains);
     }
 
     /** 渲染全库 JSON 文本。 */
@@ -440,7 +517,7 @@ public class ExportService {
         try {
             return json.writeValueAsString(value);
         } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
-            throw new IllegalStateException("序列化导出内容失败", e);
+            throw new IllegalStateException(I18n.t("export.error.json"), e);
         }
     }
 
@@ -465,7 +542,7 @@ public class ExportService {
             Files.writeString(target, content, StandardCharsets.UTF_8);
             return target.toAbsolutePath();
         } catch (IOException e) {
-            throw new UncheckedIOException("写入导出文件失败: " + target, e);
+            throw new UncheckedIOException(I18n.t("export.error.write", target), e);
         }
     }
 

@@ -23,8 +23,10 @@ import java.util.List;
 import java.util.function.Supplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
  * {@link DangerousCommandPolicy} 单测：命中拒绝、良性放行、停用规则跳过、非法正则不致中断。
@@ -65,6 +67,43 @@ class DangerousCommandPolicyTest {
         DangerousCommandPolicy policy = new DangerousCommandPolicy();
         assertNull(policy.inspect(ctx(null)));
         assertNull(policy.inspect(ctx("   ")));
+    }
+
+    @Test
+    @DisplayName("补齐的递归删除形态：rd /s、Remove-Item -Recurse、git clean -fdx")
+    void newlyFilledBlacklistHits() {
+        DangerousCommandPolicy policy = new DangerousCommandPolicy();
+        assertEquals(GuardDecision.DENY, policy.inspect(ctx("rd /s /q C:\\Users\\dev\\Documents")).decision());
+        assertEquals(GuardDecision.DENY,
+                policy.inspect(ctx("Remove-Item -Recurse -Force .\\out")).decision());
+        assertEquals(GuardDecision.DENY,
+                policy.inspect(ctx("remove-item .\\out -recurse")).decision(), "大小写与参数顺序都要命中");
+        assertEquals(GuardDecision.DENY, policy.inspect(ctx("git clean -fdx")).decision());
+        // 预览用的 git clean -nd 不该命中
+        assertNull(policy.inspect(ctx("git clean -nd")));
+    }
+
+    @Test
+    @DisplayName("解释器载荷解码后仍被拦：base64 的 -EncodedCommand 不再是盲区")
+    void interpreterPayloadIsUnwrappedBeforeMatching() {
+        DangerousCommandPolicy policy = new DangerousCommandPolicy();
+        String b64 = java.util.Base64.getEncoder().encodeToString(
+                "rd /s /q D:\\backup".getBytes(java.nio.charset.StandardCharsets.UTF_16LE));
+        // 入参原文里没有 "rd /s"，只有解码出来的载荷里有
+        GuardContext hidden = jsonCtx("powershell -NoProfile -EncodedCommand " + b64);
+        assertFalse(java.util.regex.Pattern.compile("rd\\s+/s").matcher(hidden.toolInput()).find(),
+                "前置条件：原文确实看不含危险片段");
+        GuardResult result = policy.inspect(hidden);
+        assertNotNull(result);
+        assertEquals(GuardDecision.DENY, result.decision());
+        assertTrue(result.reason().contains("载荷"), result.reason());
+    }
+
+    /** shell 工具入参（ToolCallsCodec 的 JSON 形态），命令文本经编码后原文不可读。 */
+    private static GuardContext jsonCtx(String command) {
+        String escaped = command.replace("\\", "\\\\").replace("\"", "\\\"");
+        return new GuardContext("s1", "execute",
+                "[{\"name\":\"execute\",\"input\":{\"command\":\"" + escaped + "\"}}]");
     }
 
     @Test

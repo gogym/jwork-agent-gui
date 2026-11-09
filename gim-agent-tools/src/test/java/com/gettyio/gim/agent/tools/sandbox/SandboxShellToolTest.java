@@ -102,7 +102,7 @@ class SandboxShellToolTest {
         fs = mock(AbstractSandboxFilesystem.class);
         when(fs.execute(any(), anyString(), any())).thenReturn(new ExecuteResponse("local out", 0, false));
         return new SandboxShellTool(fs, tempDir, project,
-                () -> autoApprove, () -> dockerEnabled, () -> "python:3.12-slim",
+                sid -> autoApprove, () -> dockerEnabled, () -> "python:3.12-slim",
                 probe, image -> executor);
     }
 
@@ -120,6 +120,26 @@ class SandboxShellToolTest {
 
         assertEquals("Exit code: 0\n\nlocal out", out);
         assertEquals(0, executor.calls);
+    }
+
+    @Test
+    @DisplayName("档位按会话解析：自动档会话的选择不外溢到同实例的询问档会话")
+    void approvalTierIsResolvedPerSession() {
+        RecordingExecutor executor = new RecordingExecutor();
+        executor.result = new SandboxExecutor.ExecResult(0, "ok", "", true, 1L);
+        fs = mock(AbstractSandboxFilesystem.class);
+        when(fs.execute(any(), anyString(), any())).thenReturn(new ExecuteResponse("local out", 0, false));
+        // 只有 auto-session 处在「自动」档：工具实例是跨会话共用的，档位必须按 sessionId 现取
+        SandboxShellTool tool = new SandboxShellTool(fs, tempDir, null,
+                sid -> "auto-session".equals(sid), () -> true, () -> "python:3.12-slim",
+                () -> true, image -> executor);
+
+        tool.execute(ctx("auto-session"), "echo hi", null, null, null);
+        assertEquals(1, executor.calls, "自动档会话走容器隔离");
+
+        String out = tool.execute(ctx("ask-session"), "echo hi", null, null, null);
+        assertEquals(1, executor.calls, "询问档会话不该被别的会话的档位代签");
+        assertEquals("Exit code: 0\n\nlocal out", out);
     }
 
     @Test

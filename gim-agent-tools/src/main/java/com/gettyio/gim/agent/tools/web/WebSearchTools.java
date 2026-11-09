@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.tools.web;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.gettyio.gim.agent.core.net.AddressPolicy;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
 import org.slf4j.Logger;
@@ -34,6 +35,8 @@ import java.nio.charset.Charset;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Locale;
+import java.util.Optional;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -57,6 +60,16 @@ public class WebSearchTools {
             .followRedirects(HttpClient.Redirect.NORMAL)
             .build();
 
+    /**
+     * {@code web_fetch} 专用客户端：不自动跟随重定向。
+     * <p>透明跳转会让地址策略只看得见第一跳，「公网入口 302 到 169.254.169.254」就是这么绕过去的；
+     * 抓取循环因此自己逐跳校验（见 {@link #fetchFollowing}）。搜索提供方用的是固定端点，继续走 {@link #HTTP}。</p>
+     */
+    private static final HttpClient FETCH = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(8))
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build();
+
     /** 提供方编码：Tavily——AI 原生搜索、海外主流，需 API Key。 */
     public static final String PROVIDER_TAVILY = "tavily";
     /** 提供方编码：博查——国内合规（数据不出境），需 API Key。 */
@@ -72,6 +85,8 @@ public class WebSearchTools {
     private static final int MAX_FETCH_CHARS = 100_000;
     /** 单次抓取最多读多少字节：防住把几十兆的下载文件读进内存。 */
     private static final int MAX_PAGE_BYTES = 4_000_000;
+    /** 自己跟随的重定向跳数上限：再多的跳转链一般是撞球，不是在给用户读网页。 */
+    private static final int MAX_REDIRECT_HOPS = 5;
     /** 单条搜索结果的摘要截断上限（字符）。 */
     private static final int SNIPPET_CHARS = 400;
 
@@ -81,12 +96,24 @@ public class WebSearchTools {
     private final Supplier<String> apiKeySupplier;
     /** 提供自定义实例地址（当前仅 SearXNG 使用；空白表示未配置）；由装配方注入。 */
     private final Supplier<String> baseUrlSupplier;
+    /**
+     * 地址判定入口，默认 {@link AddressPolicy#refusal(String)}。
+     * <p>留成实例字段只为可测：单测的本地测试服务器本身就落在回环段，逐跳校验要覆盖就必须能换桩。
+     * 生产装配不传第 4 个参数，走的仍是全局策略与设置里的开关。</p>
+     */
+    private final Function<String, Optional<String>> addressPolicy;
 
     public WebSearchTools(Supplier<String> providerSupplier, Supplier<String> apiKeySupplier,
                           Supplier<String> baseUrlSupplier) {
+        this(providerSupplier, apiKeySupplier, baseUrlSupplier, AddressPolicy::refusal);
+    }
+
+    WebSearchTools(Supplier<String> providerSupplier, Supplier<String> apiKeySupplier,
+                   Supplier<String> baseUrlSupplier, Function<String, Optional<String>> addressPolicy) {
         this.providerSupplier = providerSupplier;
         this.apiKeySupplier = apiKeySupplier;
         this.baseUrlSupplier = baseUrlSupplier;
+        this.addressPolicy = addressPolicy;
     }
 
     /** 工具入口（{@code web_search}）：校验入参后按当前提供方分派搜索，返回标题/URL/摘要清单；失败信息以文本返回。 */
@@ -231,36 +258,15 @@ public class WebSearchTools {
             return "url 不能为空。";
         }
         String target = url.trim();
-        if (!target.startsWith("http://") && !target.startsWith("https://")) {
-            return "仅支持 http/https 地址：" + target;
+        String refusal = addressPolicy.apply(target).orElse(null);
+        if (refusal != null) {
+            log.warn("web_fetch 地址被拒绝: {} — {}", target, refusal);
+            return "抓取被拒绝：" + refusal;
         }
         int limit = maxChars != null && maxChars > 0
                 ? Math.min(maxChars, MAX_FETCH_CHARS) : DEFAULT_FETCH_CHARS;
         try {
-            HttpRequest req = HttpRequest.newBuilder(URI.create(target))
-                    .timeout(Duration.ofSeconds(20))
-                    .header("User-Agent", "Mozilla/5.0 (Jwork Desktop)")
-                    .header("Accept", "text/html,application/xhtml+xml,text/plain,application/json")
-                    .GET()
-                    .build();
-            HttpResponse<InputStream> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofInputStream());
-            String finalUrl = resp.uri().toString();
-            int status = resp.statusCode();
-            try (InputStream in = resp.body()) {
-                if (status >= 400) {
-                    return "抓取失败：HTTP " + status + "（" + finalUrl + "）";
-                }
-                if (status >= 300) {
-                    // JDK 客户端不做 https→http 降级跳转：如实给出Location，别让模型以为抓到了正文
-                    String location = resp.headers().firstValue("location").orElse("");
-                    return "未跟随的重定向（HTTP " + status + "）：" + (location.isBlank() ? finalUrl : location)
-                            + "\n请改用该地址重试。";
-                }
-                byte[] raw = in.readNBytes(MAX_PAGE_BYTES);
-                String contentType = resp.headers().firstValue("content-type").orElse("");
-                return renderFetch(decode(raw, contentType), contentType, target, finalUrl,
-                        prompt, limit, raw.length >= MAX_PAGE_BYTES);
-            }
+            return fetchFollowing(target, prompt, limit);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return "抓取被中断。";
@@ -268,6 +274,93 @@ public class WebSearchTools {
             log.warn("web_fetch 异常: {}", target, e);
             return "抓取失败：" + e.getMessage();
         }
+    }
+
+    /**
+     * 逐跳抓取：每一跳都先过 {@link AddressPolicy} 再发请求，正文只从最后一跳读。
+     * <p>目标地址出自模型（常被搜索结果或网页正文里的链接牵着走），所以既拦第一跳的内网地址，
+     * 也拦「公网页面 302 到内网」这种借道；https→http 降级与超出跳数上限都不自动跟随，
+     * 如实把 Location 交回模型，让它自己决定要不要再发一次工具调用。</p>
+     */
+    private String fetchFollowing(String target, String prompt, int limit) throws Exception {
+        String current = target;
+        for (int hop = 0; ; hop++) {
+            HttpResponse<InputStream> resp = FETCH.send(request(current), HttpResponse.BodyHandlers.ofInputStream());
+            int status = resp.statusCode();
+            String finalUrl = resp.uri().toString();
+            if (status >= 400) {
+                resp.body().close();
+                return "抓取失败：HTTP " + status + "（" + finalUrl + "）";
+            }
+            if (status < 300) {
+                try (InputStream in = resp.body()) {
+                    byte[] raw = in.readNBytes(MAX_PAGE_BYTES);
+                    String contentType = resp.headers().firstValue("content-type").orElse("");
+                    return renderFetch(decode(raw, contentType), contentType, target, finalUrl,
+                            prompt, limit, raw.length >= MAX_PAGE_BYTES);
+                }
+            }
+            String location = resp.headers().firstValue("location").orElse("");
+            resp.body().close();
+            if (!isFollowable(status)) {
+                return "未跟随的重定向（HTTP " + status + "）：" + (location.isBlank() ? finalUrl : location)
+                        + "\n这类状态要显式指定目标，请改用该地址重试。";
+            }
+            URI next = resolveLocation(current, location);
+            if (next == null) {
+                return "重定向没有给出可用目标（HTTP " + status + "）：" + finalUrl;
+            }
+            if (isDowngrade(current, next)) {
+                return "未跟随的重定向（HTTP " + status + "）：" + next
+                        + "\n不做 https→http 降级，请改用该地址重试。";
+            }
+            String hopRefusal = addressPolicy.apply(next.toString()).orElse(null);
+            if (hopRefusal != null) {
+                log.warn("web_fetch 跳转目标被拒绝: {} — {}", next, hopRefusal);
+                return "重定向被拒绝：" + hopRefusal;
+            }
+            if (hop == MAX_REDIRECT_HOPS) {
+                return "未跟随的重定向（HTTP " + status + "）：" + next
+                        + "\n跳转已超过 " + MAX_REDIRECT_HOPS + " 次，请改用该地址重试。";
+            }
+            current = next.toString();
+        }
+    }
+
+    /**
+     * 只自动跟随规范的跳转语义。
+     * <p>300 是「多个候选，由发起方选」，静默挑一个等于替用户决定；304 属缓存，本就没有正文。</p>
+     */
+    private static boolean isFollowable(int status) {
+        return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
+    }
+
+    /** 抓取用的 GET 请求（统一 UA 与 Accept，服务端据此返回正文而非图片占位）。 */
+    private static HttpRequest request(String url) {
+        return HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(20))
+                .header("User-Agent", "Mozilla/5.0 (Jwork Desktop)")
+                .header("Accept", "text/html,application/xhtml+xml,text/plain,application/json")
+                .GET()
+                .build();
+    }
+
+    /** 把 {@code Location} 按当前地址解析成绝对 URI；缺失、畸形或非层级地址返回 {@code null}。 */
+    private static URI resolveLocation(String current, String location) {
+        if (location == null || location.isBlank()) {
+            return null;
+        }
+        try {
+            URI resolved = URI.create(current).resolve(location.strip());
+            return resolved.isAbsolute() && resolved.getHost() != null ? resolved : null;
+        } catch (RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** https 页面跳回 http：降级由用户（或模型显式再调一次）决定，不静默跟随。 */
+    private static boolean isDowngrade(String current, URI next) {
+        return current.regionMatches(true, 0, "https://", 0, 8) && "http".equalsIgnoreCase(next.getScheme());
     }
 
     /**

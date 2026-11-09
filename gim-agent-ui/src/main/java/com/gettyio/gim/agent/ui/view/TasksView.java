@@ -462,7 +462,12 @@ public class TasksView {
             menu.getItems().add(pause);
         }
         MenuItem runNow = new MenuItem(I18n.t("tasks.action.runNow"));
-        runNow.setOnAction(e -> taskAdminService.runNow(t.getTaskCode()));
+        runNow.setOnAction(e -> {
+            // 提交失败只有一种情况：上一轮还没跑完。不给回执的话，用户会以为点了没反应而连点
+            if (!taskAdminService.runNow(t.getTaskCode())) {
+                GimDialog.message(owner(), I18n.t("tasks.action.runNow"), null, I18n.t("tasks.runNow.busy"));
+            }
+        });
         MenuItem history = new MenuItem(I18n.t("tasks.action.history"));
         history.setOnAction(e -> openHistory(t));
         MenuItem edit = new MenuItem(I18n.t("tasks.action.edit"));

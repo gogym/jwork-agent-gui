@@ -34,16 +34,20 @@ import reactor.core.scheduler.Schedulers;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 /**
  * 对话服务：在流式网关两侧补齐 SQLite 落盘（会话 + 消息），实现重启不丢历史。
@@ -80,10 +84,33 @@ public class ChatService {
     /** 全文注入：抽到的正文整份进上下文（小文档、需要逐字对照时用）。 */
     public static final String ATTACHMENT_MODE_FULL = "full";
 
+    /** 自主运行静默上限（分钟）设置键：定时任务无人可中断，连接卡死时必须有界限。 */
+    public static final String SETTING_PROACTIVE_IDLE_TIMEOUT = "agent.task.idleTimeoutMinutes";
+
+    /**
+     * 自主运行缺省静默上限（分钟）：计时口径是「两次事件之间的间隔」而非整轮总时长，
+     * 所以长任务照常跑，只有真正断流才判卡死。
+     */
+    public static final long DEFAULT_PROACTIVE_IDLE_TIMEOUT_MINUTES = 15;
+
+    /**
+     * 在途应答写检查点的间隔：进程被杀或崩溃后，一轮生成最多丢这一段间隔里的产出
+     * （原先只有收到终态信号才落盘，进程没了整轮就没了）。
+     * <p>每次覆盖写的是整段已生成内容，所以取「够小以少丢、够大以不挡流式」的折中；
+     * SQLite WAL 下这条写入不在界面线程上。</p>
+     */
+    private static final Duration DRAFT_CHECKPOINT_INTERVAL = Duration.ofSeconds(3);
+
     private final AgentGateway gateway;
     private final GimDatabase db;
     private final GimPaths gimPaths;
     private final EffectiveModelResolver modelResolver;
+
+    /**
+     * 检查点间隔的实例副本：默认取 {@link #DRAFT_CHECKPOINT_INTERVAL}，
+     * 单测把它调小才能在毫秒级观察到「跑到一半落了草稿」（见 {@link #setDraftCheckpointInterval}）。
+     */
+    private volatile Duration draftCheckpointInterval = DRAFT_CHECKPOINT_INTERVAL;
 
     /**
      * 会话销毁时的附带清理（组合根注入）：核心模块不反向依赖工具层，
@@ -104,6 +131,11 @@ public class ChatService {
         this.sessionCleanup = sessionCleanup;
     }
 
+    /** 调检查点间隔（仅供单测把「跑到一半落草稿」压到毫秒级观察；传 null 回退默认）。 */
+    void setDraftCheckpointInterval(Duration interval) {
+        this.draftCheckpointInterval = interval == null ? DRAFT_CHECKPOINT_INTERVAL : interval;
+    }
+
     /**
      * 主动消息运行（默认只读档）：等价于 {@code proactiveRun(sessionId, agentCode, prompt, EXPLORE, false, null, null)}。
      *
@@ -119,6 +151,9 @@ public class ChatService {
      * <p>自主会话无 UI：{@code permissionMode} 传 {@code EXPLORE}（只读档）时读类工具正常、
      * 副作用工具被明确拒绝；传 {@code ACCEPT_EDITS} 且 {@code autoApprove=true} 时（无人值守）
      * 确认事件仍然触发拦截链评估，但 ASK 不弹窗直接放行。</p>
+     * <p>整轮按「两次事件之间的间隔」计静默上限（缺省
+     * {@value #DEFAULT_PROACTIVE_IDLE_TIMEOUT_MINUTES} 分钟，经 {@value #SETTING_PROACTIVE_IDLE_TIMEOUT} 调整）：
+     * 断流即中断抛错，已生成的半截应答照常落盘。</p>
      *
      * @param providerCode 模型覆盖-提供方编码（与 modelCode 成对生效，空则用智能体默认）
      * @param modelCode    模型覆盖-模型编码（与 providerCode 成对生效，空则用智能体默认）
@@ -142,8 +177,9 @@ public class ChatService {
         StringBuilder thinkingBuf = new StringBuilder();
         AtomicReference<TokenUsage> usage = new AtomicReference<>(TokenUsage.ZERO);
         List<ToolCallRecordCodec.ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
+        Duration idleLimit = Duration.ofMinutes(proactiveIdleTimeoutMinutes());
         try {
-            gateway.stream(req)
+            withIdleLimit(gateway.stream(req), idleLimit)
                     .doOnNext(event -> {
                         if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
                             buf.append(event.getText());
@@ -168,21 +204,54 @@ public class ChatService {
     }
 
     /**
+     * 给没有 UI 的一轮加静默上限：两次事件之间超过 {@code idleLimit} 即中断（Reactor 顺带取消上游，
+     * 不会让这条后台线程永远等下去，定时任务的调度线程池就是这样被一个个占死的），
+     * 并把 {@link java.util.concurrent.TimeoutException} 换成一句人话。
+     * <p>只包自主运行这一条链：交互对话有停止按钮，套上限反而会把用户自己的长任务掐断。</p>
+     */
+    static Flux<StreamEvent> withIdleLimit(Flux<StreamEvent> source, Duration idleLimit) {
+        return source.timeout(idleLimit)
+                .onErrorMap(java.util.concurrent.TimeoutException.class, e -> new IllegalStateException(
+                        "本轮超过 " + (idleLimit.toMinutes() >= 1
+                                ? idleLimit.toMinutes() + " 分钟" : idleLimit.toSeconds() + " 秒")
+                                + "无响应，已中断", e));
+    }
+
+    /** 自主运行的静默上限（分钟）：设置键非正数或不可解析时回退 {@value #DEFAULT_PROACTIVE_IDLE_TIMEOUT_MINUTES}。 */
+    private long proactiveIdleTimeoutMinutes() {
+        Optional<String> raw = db.settingDao().getValue(SETTING_PROACTIVE_IDLE_TIMEOUT);
+        if (raw.isPresent()) {
+            try {
+                long minutes = Long.parseLong(raw.get().trim());
+                if (minutes > 0) {
+                    return minutes;
+                }
+            } catch (NumberFormatException ignored) {
+                // 脏值按缺省处理，不让一次手改设置打断所有定时任务
+            }
+        }
+        return DEFAULT_PROACTIVE_IDLE_TIMEOUT_MINUTES;
+    }
+
+    /**
      * 直插一轮本地合成的对话（图像生成等不经过模型链路的产物）：用户消息 + 助手消息各落一条，
      * 不触发模型调用；返回助手消息主键。调用方随后按会话重放即带真实主键上屏。
      */
     public long insertLocalExchange(String sessionId, String agentCode, String userText, String assistantMarkdown) {
         ensureSession(sessionId, agentCode, userText);
-        persistMessage(sessionId, agentCode, ConversationRole.USER, userText == null ? "" : userText);
-        ChatConversation c = new ChatConversation();
-        c.setSessionId(sessionId);
-        c.setAgentCode(agentCode);
-        c.setRole(ConversationRole.ASSISTANT.getCode());
-        c.setContent(assistantMarkdown == null ? "" : assistantMarkdown);
-        c.setCreatedAt(LocalDateTime.now());
-        db.conversationDao().insert(c);
-        db.sessionDao().incrementMessageCount(sessionId, 1);
-        return c.getId();
+        // 一问一答同事务：中途失败只留半个来回的话，会话里会出现没有回应、或回应没有提问的气泡
+        return db.callInTransaction(() -> {
+            persistMessage(sessionId, agentCode, ConversationRole.USER, userText == null ? "" : userText);
+            ChatConversation c = new ChatConversation();
+            c.setSessionId(sessionId);
+            c.setAgentCode(agentCode);
+            c.setRole(ConversationRole.ASSISTANT.getCode());
+            c.setContent(assistantMarkdown == null ? "" : assistantMarkdown);
+            c.setCreatedAt(LocalDateTime.now());
+            db.conversationDao().insert(c);
+            db.sessionDao().incrementMessageCount(sessionId, 1);
+            return c.getId();
+        });
     }
 
     /**
@@ -212,8 +281,7 @@ public class ChatService {
         String agentCode = req.getAgentCode();
         Long lastAssistantId = db.conversationDao().findLastAssistantId(sessionId);
         if (lastAssistantId != null) {
-            db.conversationDao().deleteById(lastAssistantId);
-            db.sessionDao().incrementMessageCount(sessionId, -1);
+            truncate(sessionId, () -> db.conversationDao().deleteById(lastAssistantId));
         }
         return streamAssistant(req, sessionId, agentCode, effectiveModelCode(req));
     }
@@ -225,20 +293,29 @@ public class ChatService {
      */
     public Flux<StreamEvent> editAndResend(ChatRequest req, long userConversationId) {
         String sessionId = req.getSessionId();
-        int removed = db.conversationDao().deleteFromId(sessionId, userConversationId);
-        if (removed > 0) {
-            db.sessionDao().incrementMessageCount(sessionId, -removed);
-        }
+        truncate(sessionId, () -> db.conversationDao().deleteFromId(sessionId, userConversationId));
         return chat(req);
     }
 
-    /** 删除单条消息，并同步回退会话的消息计数（best-effort）。 */
+    /** 删除单条消息，并同步回退会话的消息计数。 */
     public void deleteMessage(String sessionId, long conversationId) {
-        int removed = db.conversationDao().deleteById(conversationId);
-        if (removed > 0) {
-            db.sessionDao().incrementMessageCount(sessionId, -removed);
-        }
+        truncate(sessionId, () -> db.conversationDao().deleteById(conversationId));
         log.info("删除消息: session={} id={}", sessionId, conversationId);
+    }
+
+    /**
+     * 删消息与回退计数同事务：默认每语句一个连接，删成功而计数没回退（或反之）就把
+     * {@code message_count} 永久写歪——侧栏会话列表、用量统计都读它。
+     *
+     * @param delete 删除动作，返回实际删除行数
+     */
+    private void truncate(String sessionId, Supplier<Integer> delete) {
+        db.runInTransaction(() -> {
+            int removed = delete.get();
+            if (removed > 0) {
+                db.sessionDao().incrementMessageCount(sessionId, -removed);
+            }
+        });
     }
 
     /** 对已落盘用户消息的会话发起流式应答并落盘助手消息；{@code chat}/{@code regenerate} 共用的流式主体。 */
@@ -251,9 +328,15 @@ public class ChatService {
         List<ToolCallRecordCodec.ToolCallRecord> toolCalls = Collections.synchronizedList(new ArrayList<>());
         // 时序分段：本轮真相的唯一来源，流式与重放共用同一段序（见 Segments）
         Segments segs = new Segments();
-        // 三路终态（完成/出错/取消）都会尝试落盘，settled 保证只落一次；
+        // 三路终态（完成/出错/取消）都会尝试落盘，settled 保证只落一次（取消与完成可能竞速）；
         // 出错与取消（用户停止）都带 interrupted 标记，半截应答不再丢失
         AtomicBoolean settled = new AtomicBoolean();
+        // 下一次检查点的墙钟：事件串行到达，用 AtomicLong 只为在 lambda 里可写，不承担并发语义
+        Duration interval = draftCheckpointInterval;
+        AtomicLong nextDraftNs = new AtomicLong(System.nanoTime() + interval.toNanos());
+        Consumer<Boolean> settle = interrupted -> persistAssistant(sessionId, agentCode, effectiveModel,
+                assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), interrupted, settled,
+                toolCalls, segs.finish());
         return gateway.stream(req)
                 .doOnNext(event -> {
                     if (event.getType() == StreamEventType.TEXT_DELTA && event.getText() != null) {
@@ -271,13 +354,67 @@ public class ChatService {
                     } else if (event.getType() == StreamEventType.NOTICE) {
                         segs.notice(event.getToolName(), event.getText());
                     }
+                    long now = System.nanoTime();
+                    if (now >= nextDraftNs.get()) {
+                        nextDraftNs.set(now + interval.toNanos());
+                        draft(sessionId, agentCode, effectiveModel, assistantBuf.toString(),
+                                thinkingBuf.toString(), usageRef.get(), toolCalls, segs.peek());
+                    }
                 })
-                .doOnComplete(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), false, settled, toolCalls, segs.finish()))
-                .doOnError(e -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls, segs.finish()))
-                .doOnCancel(() -> persistAssistant(sessionId, agentCode, effectiveModel,
-                        assistantBuf.toString(), thinkingBuf.toString(), usageRef.get(), true, settled, toolCalls, segs.finish()));
+                .doOnComplete(() -> settle.accept(false))
+                .doOnError(e -> settle.accept(true))
+                .doOnCancel(() -> settle.accept(true));
+    }
+
+    /**
+     * 把在途应答的当前半截覆盖写进草稿表，供进程被杀/崩溃后重启时提升为一条中断消息。
+     * <p>写失败只记日志：检查点是保险，不能反过来打断正在跑的这轮应答。</p>
+     */
+    private void draft(String sessionId, String agentCode, String modelCode, String text, String thinking,
+                       TokenUsage usage, List<ToolCallRecordCodec.ToolCallRecord> toolCalls,
+                       List<ChatSegmentCodec.ChatSegment> segments) {
+        if (text.isEmpty() && thinking.isBlank() && toolCalls.isEmpty()) {
+            // 还没产出可恢复的东西，别在库里留一条空气泡的草稿
+            return;
+        }
+        try {
+            db.draftDao().save(assistantRow(sessionId, agentCode, modelCode, text, thinking, usage,
+                    true, toolCalls, segments));
+        } catch (RuntimeException e) {
+            log.warn("在途应答检查点写入失败: session={}", sessionId, e);
+        }
+    }
+
+    /**
+     * 提升上次未跑完的在途应答：每条草稿变成一条 {@code interrupted} 助手消息，接在它所在会话的
+     * 历史末尾。须在启动工序里调用——那时不可能还有正在生成的轮次，提升不会与实时缓冲撞车。
+     *
+     * @return 实际提升的条数
+     */
+    public int recoverInterruptedDrafts() {
+        int recovered = 0;
+        for (ChatConversation item : db.draftDao().findAll()) {
+            String sessionId = item.getSessionId();
+            try {
+                if (db.sessionDao().findBySessionId(sessionId).isEmpty()) {
+                    // 会话已被删除：半截应答无人认领，清掉草稿别让它每启动都重来一遍
+                    db.draftDao().delete(sessionId);
+                    continue;
+                }
+                db.runInTransaction(() -> {
+                    db.conversationDao().insert(item);
+                    db.sessionDao().incrementMessageCount(sessionId, 1);
+                    db.draftDao().delete(sessionId);
+                });
+                recovered++;
+            } catch (RuntimeException e) {
+                log.warn("在途应答提升失败: session={}", sessionId, e);
+            }
+        }
+        if (recovered > 0) {
+            log.info("上次未跑完的应答已恢复为中断消息: {} 条", recovered);
+        }
+        return recovered;
     }
 
     /**
@@ -320,6 +457,22 @@ public class ChatService {
         List<ChatSegmentCodec.ChatSegment> finish() {
             closeThinking();
             return List.copyOf(list);
+        }
+
+        /**
+         * 在途快照（写检查点用）：段序与 {@link #finish()} 一致，但<b>不结束</b>在途思考段——
+         * 本轮还在跑，不能因为一次落盘就把同一段思考断开重计。
+         * <p>末段若还是正在累积的思考（{@code thinkingStartNs != 0} 时必然如此），
+         * 按已用时补一个时长再快照，免得提升上来的半截露出一条无耗时的思考条。</p>
+         */
+        List<ChatSegmentCodec.ChatSegment> peek() {
+            if (thinkingStartNs == 0 || list.isEmpty()) {
+                return List.copyOf(list);
+            }
+            int last = list.size() - 1;
+            List<ChatSegmentCodec.ChatSegment> copy = new ArrayList<>(list);
+            copy.set(last, copy.get(last).withDuration((System.nanoTime() - thinkingStartNs) / 1_000_000L));
+            return List.copyOf(copy);
         }
 
         /** 结束在途思考段：思考总是紧邻其后的那一段，故只需回看末段。 */
@@ -414,8 +567,10 @@ public class ChatService {
         c.setRole(role.getCode());
         c.setContent(content);
         c.setCreatedAt(LocalDateTime.now());
-        db.conversationDao().insert(c);
-        db.sessionDao().incrementMessageCount(sessionId, 1);
+        db.runInTransaction(() -> {
+            db.conversationDao().insert(c);
+            db.sessionDao().incrementMessageCount(sessionId, 1);
+        });
     }
 
     /** 落盘用户消息：正文入 content（不含抽取的文档块），生效模型入 model_code，图片+文档附件清单入 metadata。 */
@@ -432,8 +587,10 @@ public class ChatService {
         c.setModelCode(effectiveModel != null ? effectiveModel : req.getModelCode());
         c.setMetadata(MessageMetadataCodec.write(stored, false, null));
         c.setCreatedAt(LocalDateTime.now());
-        db.conversationDao().insert(c);
-        db.sessionDao().incrementMessageCount(req.getSessionId(), 1);
+        db.runInTransaction(() -> {
+            db.conversationDao().insert(c);
+            db.sessionDao().incrementMessageCount(req.getSessionId(), 1);
+        });
     }
 
     /** 一轮文档附件的预处理结果：落盘后的引用清单，以及拼给模型的抽取文本块。 */
@@ -673,13 +830,32 @@ public class ChatService {
         if (settled != null && !settled.compareAndSet(false, true)) {
             return;
         }
-        List<ToolCallRecordCodec.ToolCallRecord> toolSnapshot =
-                toolCalls == null ? List.of() : new ArrayList<>(toolCalls);
+        boolean hasTools = toolCalls != null && !toolCalls.isEmpty();
         boolean hasThinking = thinking != null && !thinking.isBlank();
-        if ((assistantText == null || assistantText.isEmpty()) && toolSnapshot.isEmpty() && !hasThinking) {
+        if ((assistantText == null || assistantText.isEmpty()) && !hasTools && !hasThinking) {
             // 一个字都没生成就被中断且无工具调用、无思考：不落空行，会话里不出现空气泡
             return;
         }
+        ChatConversation c = assistantRow(sessionId, agentCode, modelCode, assistantText, thinking, usage,
+                interrupted, toolCalls, segments);
+        db.runInTransaction(() -> {
+            db.conversationDao().insert(c);
+            db.sessionDao().incrementMessageCount(sessionId, 1);
+            // 草稿与正式行同事务消失：只提交行而草稿没删掉，下次启动会把这轮再提升一遍，气泡重复
+            db.draftDao().delete(sessionId);
+        });
+    }
+
+    /**
+     * 助手轮的行对象：终态正式行与在途检查点共用一套构造，重启提升上来的半截才和正常收尾长得不差。
+     * <p>{@code interrupted} 在检查点路径上恒为 true——草稿按定义就是没跑完的一轮。</p>
+     */
+    private ChatConversation assistantRow(String sessionId, String agentCode, String modelCode, String assistantText,
+                                          String thinking, TokenUsage usage, boolean interrupted,
+                                          List<ToolCallRecordCodec.ToolCallRecord> toolCalls,
+                                          List<ChatSegmentCodec.ChatSegment> segments) {
+        List<ToolCallRecordCodec.ToolCallRecord> toolSnapshot =
+                toolCalls == null ? List.of() : new ArrayList<>(toolCalls);
         ChatConversation c = new ChatConversation();
         c.setSessionId(sessionId);
         c.setAgentCode(agentCode);
@@ -705,8 +881,7 @@ public class ChatService {
         // 分段有多少存多少：单段轮次同样要落，否则重放与流式各画一套布局，收尾一瞬间整块跳位。
         List<ChatSegmentCodec.ChatSegment> segmentsToStore = segments == null ? List.of() : List.copyOf(segments);
         c.setMetadata(MessageMetadataCodec.write(List.of(), interrupted, thinking, segmentsToStore));
-        db.conversationDao().insert(c);
-        db.sessionDao().incrementMessageCount(sessionId, 1);
+        return c;
     }
 
     private static String deriveTitle(String text) {
@@ -763,8 +938,12 @@ public class ChatService {
 
     /** 删除会话及其全部消息，并连带清理其图片附件目录（best-effort） */
     public void deleteSession(String sessionId) {
-        db.conversationDao().deleteBySession(sessionId);
-        db.sessionDao().deleteBySessionId(sessionId);
+        // 消息、会话、在途草稿同事务：只删掉一半会留下无主的半截应答，下次启动被提升进气泡列表
+        db.runInTransaction(() -> {
+            db.conversationDao().deleteBySession(sessionId);
+            db.draftDao().delete(sessionId);
+            db.sessionDao().deleteBySessionId(sessionId);
+        });
         deleteAttachments(sessionId);
         Consumer<String> cleanup = this.sessionCleanup;
         if (cleanup != null) {
@@ -868,23 +1047,36 @@ public class ChatService {
         copy.setStatus(SessionStatus.ACTIVE.name());
         copy.setMessageCount(0);
         copy.setParentSessionId(sessionId);
-        db.sessionDao().insert(copy);
 
         List<ChatConversation> messages = db.conversationDao().findBySession(sessionId);
-        int copied = 0;
-        for (ChatConversation m : messages) {
-            copyMessage(newId, m);
-            copied++;
-            if (messageId > 0 && m.getId() != null && m.getId() == messageId) {
-                break;
+        List<ChatConversation> carried = prefixThrough(messages, messageId);
+        // 会话头、逐条消息、计数同事务：中途失败留下半条分支（缺头、或消息数与内容不符）比失败更难收拾
+        db.runInTransaction(() -> {
+            db.sessionDao().insert(copy);
+            for (ChatConversation m : carried) {
+                copyMessage(newId, m);
+            }
+            if (!carried.isEmpty()) {
+                db.sessionDao().incrementMessageCount(newId, carried.size());
+            }
+        });
+        log.info("分支会话: {} -> {}（复制 {}/{} 条消息，截止 id={}）",
+                sessionId, newId, carried.size(), messages.size(), messageId);
+        return newId;
+    }
+
+    /** 源会话消息里截止到 {@code messageId}（含）的前缀；非正数或找不到该主键即全量复制。 */
+    private static List<ChatConversation> prefixThrough(List<ChatConversation> messages, long messageId) {
+        if (messageId <= 0) {
+            return messages;
+        }
+        for (int i = 0; i < messages.size(); i++) {
+            Long id = messages.get(i).getId();
+            if (id != null && id == messageId) {
+                return messages.subList(0, i + 1);
             }
         }
-        if (copied > 0) {
-            db.sessionDao().incrementMessageCount(newId, copied);
-        }
-        log.info("分支会话: {} -> {}（复制 {}/{} 条消息，截止 id={}）",
-                sessionId, newId, copied, messages.size(), messageId);
-        return newId;
+        return messages;
     }
 
     /** 单条消息跨会话复制：只拷会话内容与用量/元数据，主键与原时间戳不随行。 */
