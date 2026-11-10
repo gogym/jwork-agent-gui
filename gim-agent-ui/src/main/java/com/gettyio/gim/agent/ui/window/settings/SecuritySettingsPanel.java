@@ -146,7 +146,7 @@ final class SecuritySettingsPanel {
         Button addProg = SettingsLayout.newButton(I18n.t("settings.security.shell.add"), this::handleAddShellProgram);
         addProg.getStyleClass().add("btn-primary");
         renderShellAllowlist();
-        tab.getChildren().add(SettingsLayout.sectionBlockCentered(I18n.t("settings.security.shell.group"),
+        tab.getChildren().add(SettingsLayout.sectionBlock(I18n.t("settings.security.shell.group"),
                 I18n.t("settings.security.shell.desc"), List.of(addProg), shellAllowBox));
         tab.getChildren().add(buildSandboxSection());
         return tab;
@@ -228,7 +228,7 @@ final class SecuritySettingsPanel {
         Button addDir = SettingsLayout.newButton(I18n.t("settings.security.path.add"), this::handleAddPathRoot);
         addDir.getStyleClass().add("btn-primary");
         renderPathRoots();
-        tab.getChildren().add(SettingsLayout.sectionBlockCentered(I18n.t("settings.security.path.group"),
+        tab.getChildren().add(SettingsLayout.sectionBlock(I18n.t("settings.security.path.group"),
                 I18n.t("settings.security.path.desc"), List.of(addDir), pathRootsBox));
 
         Label builtin = new Label(I18n.t("settings.security.path.builtin",
@@ -248,7 +248,7 @@ final class SecuritySettingsPanel {
         Button clearAll = SettingsLayout.newButton(I18n.t("settings.security.clear"), this::handleClearPermissions);
         clearAll.getStyleClass().add("link-btn");
         renderGrants();
-        tab.getChildren().add(SettingsLayout.sectionBlockCentered(I18n.t("settings.security.grant.group"),
+        tab.getChildren().add(SettingsLayout.sectionBlock(I18n.t("settings.security.grant.group"),
                 I18n.t("settings.security.hint"), List.of(clearAll), grantBox));
         return tab;
     }

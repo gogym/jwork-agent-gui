@@ -20,7 +20,6 @@ import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import javafx.collections.FXCollections;
-import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -166,41 +165,6 @@ public final class SettingsLayout {
         content.setMaxWidth(Double.MAX_VALUE);
         VBox card = new VBox(6, header, content);
         card.getStyleClass().add("settings-group");
-        return new VBox(6, gt, card);
-    }
-
-    /**
-     * 分组块（按钮整体垂直居中）：适用于描述 + 短列表的分区（Shell 白名单、文件授权目录、授权管理）。
-     * <p>卡片左侧为「描述 + 内容」列，右侧操作按钮相对整列垂直居中，避免按钮只贴首行而右下方留白。
-     * 危险命令区因下方是长列表不适用此布局（仍用 {@link #sectionBlock}）。</p>
-     */
-    static VBox sectionBlockCentered(String title, String desc, List<Node> actions, Region content) {
-        Label gt = new Label(title);
-        gt.getStyleClass().add("settings-group-title");
-
-        Label d = new Label(desc);
-        d.getStyleClass().add("row-desc");
-        d.setWrapText(true);
-        d.setMaxWidth(560);
-
-        content.setMaxWidth(Double.MAX_VALUE);
-        VBox body = new VBox(6, d, content);
-        body.setPadding(new Insets(14, 0, 14, 0));
-        body.setMaxWidth(Double.MAX_VALUE);
-        HBox.setHgrow(body, Priority.ALWAYS);
-
-        HBox actionsBox = new HBox(8);
-        actionsBox.setAlignment(Pos.CENTER);
-        for (Node a : actions) {
-            if (a instanceof Region r) {
-                r.setMinWidth(Region.USE_PREF_SIZE);
-            }
-            actionsBox.getChildren().add(a);
-        }
-
-        HBox card = new HBox(12, body, actionsBox);
-        card.getStyleClass().add("settings-group");
-        card.setAlignment(Pos.CENTER_LEFT);
         return new VBox(6, gt, card);
     }
 
