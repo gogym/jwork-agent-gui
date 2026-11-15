@@ -40,6 +40,8 @@ import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
+import javafx.scene.layout.StackPane;
+import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextAlignment;
 import javafx.stage.Window;
@@ -63,7 +65,9 @@ public class McpView {
     private final MarketService marketService;
 
     private final VBox root = new VBox();
-    private final VBox cardsBox = new VBox(12);
+    private final TilePane grid = new TilePane();
+    private final StackPane body = new StackPane();
+    private ScrollPane scroller;
     private final Label titleLabel = new Label();
     private final Label subtitleLabel = new Label();
     private final Button addBtn = new Button();
@@ -140,18 +144,21 @@ public class McpView {
         transportCombo.getItems().setAll(
                 McpTransportType.STDIO.name(), McpTransportType.HTTP.name(), McpTransportType.SSE.name());
 
-        cardsBox.getStyleClass().add("provider-cards");
-        cardsBox.setFillWidth(false);
-        ScrollPane scroller = new ScrollPane(cardsBox);
+        grid.getStyleClass().add("card-grid");
+        grid.setHgap(14);
+        grid.setVgap(14);
+        grid.setPrefColumns(2);
+        grid.setTileAlignment(Pos.TOP_LEFT);
+        scroller = new ScrollPane(grid);
         scroller.setFitToWidth(true);
         scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
-        scroller.setFitToHeight(true);
-        VBox.setVgrow(scroller, Priority.ALWAYS);
+        body.getChildren().add(scroller);
+        VBox.setVgrow(body, Priority.ALWAYS);
 
         statusLabel.getStyleClass().add("status-label");
         statusLabel.setPadding(new Insets(6, 0, 0, 0));
 
-        root.getChildren().addAll(header, scroller, statusLabel);
+        root.getChildren().addAll(header, body, statusLabel);
         applyI18n();
         reload();
     }
@@ -165,16 +172,15 @@ public class McpView {
 
     /** 依据库中数据重绘 MCP 服务信息卡片。 */
     public void reload() {
-        cardsBox.getChildren().clear();
+        grid.getChildren().clear();
         List<McpServerConfig> servers = mcpAdminService.list();
         if (servers.isEmpty()) {
-            cardsBox.setAlignment(Pos.CENTER);
-            cardsBox.getChildren().add(emptyState());
+            body.getChildren().setAll(scroller, emptyState());
             return;
         }
-        cardsBox.setAlignment(Pos.TOP_LEFT);
+        body.getChildren().setAll(scroller);
         for (McpServerConfig m : servers) {
-            cardsBox.getChildren().add(card(m));
+            grid.getChildren().add(card(m));
         }
     }
 
@@ -206,11 +212,21 @@ public class McpView {
         name.getStyleClass().add("provider-card-title");
         Label badge = new Label(I18n.t(enabled ? "settings.mcp.enabled" : "settings.mcp.disabled"));
         badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
-        // 测试连接：手动重试入口；结果显示在卡片底部的工具清单行
-        Label toolsLabel = new Label(I18n.t("settings.mcp.tools.hint"));
-        toolsLabel.getStyleClass().addAll("card-meta", "status-unknown");
-        toolsLabel.setWrapText(true);
-        toolsLabel.setMaxWidth(CARD_WIDTH - 24);
+        // 测试连接：手动重试入口；结果摘要行常显，工具清单点「详情」弹窗查看（参考技能页）
+        Label probeSummary = new Label(I18n.t("settings.mcp.tools.hint"));
+        probeSummary.getStyleClass().addAll("card-meta", "status-unknown");
+        probeSummary.setWrapText(true);
+        probeSummary.setMinWidth(0);
+        Button probeDetail = new Button(I18n.t("settings.mcp.tools.show"));
+        probeDetail.getStyleClass().add("link-btn");
+        probeDetail.setMinWidth(Region.USE_PREF_SIZE);
+        probeDetail.setVisible(false);
+        probeDetail.setManaged(false);
+        HBox probeRow = new HBox(8, probeSummary, probeDetail);
+        probeRow.setAlignment(Pos.CENTER_LEFT);
+        HBox.setHgrow(probeSummary, Priority.ALWAYS);
+        ProbeFeedback probe = new ProbeFeedback(probeSummary, probeDetail);
+        probeDetail.setOnAction(e -> openToolDetail(m, probe.tools));
         // 状态行值单独持有引用：探测后即时同步，避免与工具清单反馈不一致
         Label statusVal = new Label(m.getStatus() == null || m.getStatus().isBlank() ? "-" : m.getStatus());
         statusVal.getStyleClass().add("provider-card-val");
@@ -220,7 +236,7 @@ public class McpView {
         Label testIcon = new Label("\uE72C");
         testIcon.getStyleClass().add("icon");
         test.setGraphic(testIcon);
-        test.setOnAction(e -> handleProbe(m, toolsLabel, statusVal, test));
+        test.setOnAction(e -> handleProbe(m, probe, statusVal, test));
 
         Button edit = CardKit.iconTextButton("\uE70F", I18n.t("common.edit"), () -> openDialog(m));
         edit.getStyleClass().add("link-btn");
@@ -235,9 +251,9 @@ public class McpView {
                 CardKit.kvLine(I18n.t("settings.mcp.baseUrl"), m.getBaseUrl()),
                 CardKit.kvLine(I18n.t("settings.mcp.timeout"), String.valueOf(m.getTimeout())),
                 CardKit.kvNodeLine(I18n.t("common.status"), statusVal),
-                toolsLabel);
+                probeRow);
         card.getStyleClass().add("provider-card");
-        card.setPrefWidth(CARD_WIDTH);
+        card.setMinWidth(340);
         card.setMaxWidth(CARD_WIDTH);
         return card;
     }
@@ -365,16 +381,17 @@ public class McpView {
     // ---- 测试连接 ----
 
     /** 后台探测连接：成功后展示工具清单并回写状态；连接恢复时让引用它的智能体运行时失效（手动重试生效）。 */
-    private void handleProbe(McpServerConfig m, Label toolsLabel, Label statusVal, Button trigger) {
+    private void handleProbe(McpServerConfig m, ProbeFeedback probe, Label statusVal, Button trigger) {
         trigger.setDisable(true);
-        setProbeTone(toolsLabel, "status-unknown");
-        toolsLabel.setText(I18n.t("settings.mcp.testing"));
+        setProbeTone(probe.summary(), "status-unknown");
+        probe.summary().setText(I18n.t("settings.mcp.testing"));
+        collapseProbe(probe);
         String code = m.getServerCode();
         Thread worker = new Thread(() -> {
             McpConnectionProbe.ProbeResult result = McpConnectionProbe.probe(m);
             Platform.runLater(() -> {
                 trigger.setDisable(false);
-                renderProbeResult(toolsLabel, result);
+                renderProbeResult(probe, result);
                 boolean wasConnected = "CONNECTED".equalsIgnoreCase(m.getStatus());
                 mcpAdminService.recordStatus(code, result.success());
                 String nextStatus = result.success() ? "CONNECTED" : "DISCONNECTED";
@@ -390,16 +407,51 @@ public class McpView {
         worker.start();
     }
 
-    private void renderProbeResult(Label toolsLabel, McpConnectionProbe.ProbeResult result) {
+    private void renderProbeResult(ProbeFeedback probe, McpConnectionProbe.ProbeResult result) {
         if (!result.success()) {
-            setProbeTone(toolsLabel, "status-bad");
-            toolsLabel.setText(I18n.t("settings.mcp.test.fail", result.error()));
+            setProbeTone(probe.summary(), "status-bad");
+            probe.summary().setText(I18n.t("settings.mcp.test.fail", result.error()));
+            collapseProbe(probe);
             return;
         }
-        setProbeTone(toolsLabel, "status-ok");
-        toolsLabel.setText(result.tools().isEmpty()
-                ? I18n.t("settings.mcp.test.ok.none")
-                : I18n.t("settings.mcp.test.ok", result.tools().size()) + "\n" + formatTools(result.tools()));
+        setProbeTone(probe.summary(), "status-ok");
+        if (result.tools().isEmpty()) {
+            probe.summary().setText(I18n.t("settings.mcp.test.ok.none"));
+            collapseProbe(probe);
+            return;
+        }
+        // 成功且有工具：摘要行只显示数量，完整清单点「详情」弹窗查看（参考技能页）
+        probe.summary().setText(I18n.t("settings.mcp.test.ok", result.tools().size()));
+        probe.tools = result.tools();
+        probe.detail().setVisible(true);
+        probe.detail().setManaged(true);
+    }
+
+    /** 隐藏「详情」按钮并清空缓存工具（失败/无工具/测试中时回到单行摘要）。 */
+    private static void collapseProbe(ProbeFeedback probe) {
+        probe.tools = List.of();
+        probe.detail().setVisible(false);
+        probe.detail().setManaged(false);
+    }
+
+    /** 测试连接反馈：摘要行（常显）+「详情」按钮（弹窗查看工具清单）+ 最近一次探测到的工具。 */
+    private static final class ProbeFeedback {
+        private final Label summary;
+        private final Button detail;
+        private List<McpConnectionProbe.ToolInfo> tools = List.of();
+
+        ProbeFeedback(Label summary, Button detail) {
+            this.summary = summary;
+            this.detail = detail;
+        }
+
+        Label summary() {
+            return summary;
+        }
+
+        Button detail() {
+            return detail;
+        }
     }
 
     private static void setProbeTone(Label label, String tone) {
@@ -407,21 +459,38 @@ public class McpView {
         label.getStyleClass().add(tone);
     }
 
-    /** 工具清单展示：每行「• 名称 — 描述」，描述压空白并截断防撑高卡片。 */
-    private static String formatTools(List<McpConnectionProbe.ToolInfo> tools) {
-        StringBuilder sb = new StringBuilder();
+    /** 工具清单详情弹窗：逐条「名称 + 描述」，参考技能页 openDetail 的对话框呈现。 */
+    private void openToolDetail(McpServerConfig m, List<McpConnectionProbe.ToolInfo> tools) {
+        Window owner = root.getScene() == null ? null : root.getScene().getWindow();
+        GimDialog.Shell shell = GimDialog.shell(owner, I18n.t("market.tools.title"));
+        String name = m.getServerName() == null || m.getServerName().isBlank()
+                ? m.getServerCode() : m.getServerName();
+        Label head = new Label(name + " · " + I18n.t("settings.mcp.test.ok", tools.size()));
+        head.getStyleClass().add("dialog-header");
+        VBox list = new VBox(8);
+        list.setPrefWidth(520);
         for (McpConnectionProbe.ToolInfo t : tools) {
-            sb.append("• ").append(t.name());
-            String desc = t.description() == null ? "" : t.description().replaceAll("\\s+", " ").strip();
-            if (desc.length() > 80) {
-                desc = desc.substring(0, 80) + "…";
+            Label tn = new Label(t.name());
+            tn.getStyleClass().add("provider-card-title");
+            list.getChildren().add(tn);
+            String desc = t.description() == null ? "" : t.description().replaceAll("\\s+", " ").trim();
+            if (!desc.isBlank()) {
+                Label d = new Label(desc);
+                d.getStyleClass().add("card-desc");
+                d.setWrapText(true);
+                list.getChildren().add(d);
             }
-            if (!desc.isEmpty()) {
-                sb.append(" — ").append(desc);
-            }
-            sb.append('\n');
         }
-        return sb.toString().strip();
+        ScrollPane sp = new ScrollPane(list);
+        sp.setFitToWidth(true);
+        sp.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        sp.setPrefHeight(360);
+        Button close = new Button(I18n.t("common.close"));
+        close.setOnAction(e -> shell.stage().close());
+        HBox btns = new HBox(8, close);
+        btns.setAlignment(Pos.CENTER_RIGHT);
+        shell.body().getChildren().addAll(head, sp, btns);
+        shell.show();
     }
 
     // ---- 小工具 ----

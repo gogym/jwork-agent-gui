@@ -308,7 +308,7 @@ public final class AppContext implements AutoCloseable {
         this.backupService = new DbBackupService(db, paths.backupsDir());
         this.exportService = new ExportService(db, secrets);
         this.updateChecker = new UpdateChecker(db, trayNotifier);
-        this.marketService = new MarketService(updateChecker, skillService, mcpAdmin);
+        this.marketService = new MarketService(updateChecker, skillService, mcpAdmin, db);
         this.webDavSync = new WebDavSyncService(db, secrets, paths, backupService);
 
         // ---- 语音/限流 ----

@@ -38,7 +38,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class MarketServiceTest {
 
     /** 不注入协作服务：被测方法（版本比较/指引映射/探测/入参校验）均不需要它们。 */
-    private final MarketService service = new MarketService(null, null, null);
+    private final MarketService service = new MarketService(null, null, null, null);
 
     @Test
     @DisplayName("可更新判定：市场版本为空不可更新，本地未装或版本为空视为可安装")

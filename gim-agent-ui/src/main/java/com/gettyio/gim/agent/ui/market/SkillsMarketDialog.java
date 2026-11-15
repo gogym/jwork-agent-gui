@@ -29,6 +29,7 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.OverrunStyle;
+import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.HBox;
@@ -109,7 +110,6 @@ public class SkillsMarketDialog {
 
         statusLabel.getStyleClass().add("status-label");
         statusLabel.setPadding(new Insets(6, 0, 0, 0));
-        statusLabel.setText(I18n.t("market.loading"));
 
         shell.body().getChildren().addAll(toolbar, content, statusLabel);
         shell.show();
@@ -120,8 +120,7 @@ public class SkillsMarketDialog {
 
     /** 后台拉取全量索引。 */
     private void reload() {
-        statusLabel.setText(I18n.t("market.loading"));
-        setContentMessage(I18n.t("market.loading"), null);
+        setContentMessage(Placeholder.LOADING, I18n.t("market.loading"), null);
         Thread t = new Thread(() -> {
             try {
                 List<MarketService.MarketSkill> items = marketService.fetchSkills("");
@@ -133,7 +132,8 @@ public class SkillsMarketDialog {
             } catch (Exception e) {
                 Platform.runLater(() -> {
                     statusLabel.setText("");
-                    setContentMessage(I18n.t("market.error", message(e)), true);
+                    setContentMessage(Placeholder.ERROR, I18n.t("market.state.failed"),
+                            I18n.t("market.state.error.desc"));
                 });
             }
         }, "jwork-market-skills");
@@ -153,7 +153,11 @@ public class SkillsMarketDialog {
                         || s.tags().stream().anyMatch(tag -> contains(tag, kw)))
                 .toList();
         if (visible.isEmpty()) {
-            setContentMessage(loaded.isEmpty() ? I18n.t("market.empty") : I18n.t("market.emptyMatch"), null);
+            if (loaded.isEmpty()) {
+                setContentMessage(Placeholder.EMPTY, I18n.t("market.empty"), I18n.t("market.state.empty.desc"));
+            } else {
+                setContentMessage(Placeholder.EMPTY, I18n.t("market.emptyMatch"), I18n.t("market.state.nomatch.desc"));
+            }
             return;
         }
         list.getChildren().clear();
@@ -276,25 +280,59 @@ public class SkillsMarketDialog {
 
     // ===================== 小工具 =====================
 
-    /** 内容区占位（加载/空/错误）；{@code error} 非空时附「重试」按钮。 */
-    private void setContentMessage(String message, Boolean error) {
-        VBox box = new VBox(10);
-        box.getStyleClass().add("empty-state");
-        box.setMaxWidth(Double.MAX_VALUE);
+    /** 内容区占位态种类，决定图标与配色。 */
+    private enum Placeholder { LOADING, EMPTY, ERROR }
+
+    /**
+     * 内容区占位（加载/空/错误）：圆形图标徽章 + 标题 + 弱化副标题，整体垂直居中；
+     * {@link Placeholder#ERROR} 额外附「重试」按钮。
+     */
+    private void setContentMessage(Placeholder kind, String title, String desc) {
+        Node anchor;
+        if (kind == Placeholder.LOADING) {
+            ProgressIndicator spinner = new ProgressIndicator();
+            spinner.setPrefSize(46, 46);
+            spinner.getStyleClass().add("market-state-spinner");
+            anchor = spinner;
+        } else {
+            Label glyph = new Label(kind == Placeholder.ERROR ? "\uE711" : "\uE71B");
+            glyph.getStyleClass().add("market-state-glyph");
+            if (kind == Placeholder.ERROR) {
+                glyph.getStyleClass().add("market-state-glyph-error");
+            }
+            anchor = glyph;
+        }
+
+        Label titleLabel = new Label(title);
+        titleLabel.getStyleClass().add("market-state-title");
+        titleLabel.setWrapText(true);
+        titleLabel.setTextAlignment(TextAlignment.CENTER);
+        titleLabel.setMaxWidth(420);
+
+        VBox text = new VBox(6, titleLabel);
+        text.setAlignment(Pos.CENTER);
+        if (desc != null && !desc.isBlank()) {
+            Label descLabel = new Label(desc);
+            descLabel.getStyleClass().add("market-state-desc");
+            descLabel.setWrapText(true);
+            descLabel.setTextAlignment(TextAlignment.CENTER);
+            descLabel.setMaxWidth(420);
+            text.getChildren().add(descLabel);
+        }
+
+        VBox box = new VBox(16, anchor, text);
+        box.getStyleClass().add("market-state");
+        box.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         box.setAlignment(Pos.CENTER);
-        Label t = new Label(message);
-        t.getStyleClass().add("empty-title");
-        t.setWrapText(true);
-        t.setTextAlignment(TextAlignment.CENTER);
-        t.setMaxWidth(460);
-        box.getChildren().add(t);
-        if (Boolean.TRUE.equals(error)) {
+        box.setFillWidth(false);
+        if (kind == Placeholder.ERROR) {
             Button retry = new Button(I18n.t("market.retry"));
+            Label retryIcon = new Label("\uE72C");
+            retryIcon.getStyleClass().add("icon");
+            retry.setGraphic(retryIcon);
             retry.getStyleClass().add("btn-primary");
             retry.setOnAction(e -> reload());
-            HBox row = new HBox(retry);
-            row.setAlignment(Pos.CENTER);
-            box.getChildren().add(row);
+            box.getChildren().add(retry);
         }
         content.getChildren().setAll(box);
     }

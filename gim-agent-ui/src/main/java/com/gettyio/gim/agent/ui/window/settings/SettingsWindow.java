@@ -454,6 +454,7 @@ public class SettingsWindow {
         addMenu(extension, "\uE945", I18n.t("skills.title"), buildSkillsPage());
         addMenu(extension, "\uE73A", I18n.t("settings.menu.templates"), buildTemplatesPage());
         addMenu(extension, "\uE71B", I18n.t("settings.menu.mcp"), buildMcpPage());
+        addMenu(extension, "\uE71B", I18n.t("settings.menu.market"), buildMarketPage());
         addMenu(extension, "\uE72E", I18n.t("settings.menu.security"), buildSecurityPage());
 
         Region spacer = new Region();
@@ -580,6 +581,33 @@ public class SettingsWindow {
     private VBox buildMcpPage() {
         mcpView = new McpView(mcpAdminService, marketService);
         return mcpView.getNode();
+    }
+
+    /** 市场设置页：配置 MCP 市场读取的公共目录源地址（留空回退系统属性/官方默认），改完即时生效。 */
+    private VBox buildMarketPage() {
+        VBox box = SettingsLayout.page(I18n.t("settings.menu.market"), I18n.t("settings.market.subtitle"));
+
+        TextField registryField = new TextField(marketService.getRegistryUrlConfigured());
+        registryField.setPromptText(marketService.defaultRegistryUrl());
+        registryField.setMaxWidth(420);
+        Label effectiveLabel = SettingsLayout.valueLabel(marketService.registryBaseUrl());
+        Runnable save = () -> {
+            marketService.setRegistryUrl(registryField.getText());
+            effectiveLabel.setText(marketService.registryBaseUrl());
+        };
+        registryField.setOnAction(e -> save.run());
+        registryField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                save.run();
+            }
+        });
+
+        List<Node> rows = new ArrayList<>();
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.market.mcpRegistry"),
+                I18n.t("settings.market.mcpRegistry.desc"), registryField));
+        rows.add(SettingsLayout.settingRow(I18n.t("settings.market.mcpRegistry.effective"), null, effectiveLabel));
+        box.getChildren().add(SettingsLayout.groupCard(null, rows));
+        return box;
     }
 
     private VBox buildTemplatesPage() {

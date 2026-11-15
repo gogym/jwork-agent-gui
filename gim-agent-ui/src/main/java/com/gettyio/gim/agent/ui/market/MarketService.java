@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.ui.market;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gettyio.gim.agent.core.net.AddressPolicy;
+import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
@@ -57,21 +58,19 @@ import java.util.stream.Stream;
 /**
  * 在线市场服务：从 gim-server-ai 拉取技能 / MCP 市场索引，下载技能包并校验后安装。
  *
- * <p><b>接口契约</b>（服务端实现见 gim-server-ai / gim-server-admin 市场管理模块）：</p>
+ * <p><b>技能市场接口契约</b>（服务端实现见 gim-server-ai / gim-server-admin 市场管理模块）：</p>
  * <pre>
  * GET {base}/ai/market/skills?keyword=可选
  * → {"code":"200","msg":"ok","data":{"items":[{
  *       "skillCode","skillName","description","version","author",
  *       "tags":[],"downloadUrl","fileHash","fileSize","updatedAt","downloadCount","homepage"}]}}
- *
- * GET {base}/ai/market/mcp?keyword=可选
- * → {"code":"200","msg":"ok","data":{"items":[{
- *       "serverCode","serverName","description","transportType","command","args":[],
- *       "env":{},"baseUrl","headers":{},"tools":[{"name","description"}],
- *       "requires":[],"tags":[],"official":true,"homepage"}]}}
  * </pre>
  *
- * <p>基地址复用更新服务的 gim-server-ai 地址（{@code 设置 &gt; 更新} 同一配置项）；
+ * <p><b>MCP 市场</b>直连公共 MCP 目录（默认官方 MCP Registry {@code /v0/servers}），把社区标准
+ * 条目（{@code remotes} / {@code packages}）翻译为配置模板，不再依赖 gim-server-ai；源地址可用
+ * 系统属性 {@code -Dgim.market.mcp.registry=<baseUrl>} 覆盖为自建/兼容服务。</p>
+ *
+ * <p>技能基地址复用更新服务的 gim-server-ai 地址（{@code 设置 &gt; 更新} 同一配置项）；
  * 技能包下载沿用 {@link UpdateChecker} 的校验口径：fileHash 64 位十六进制按 SHA-256、32 位按 MD5，
  * 其余长度无法识别则跳过校验。安装链路完全复用 {@link SkillService#importFromMarket(Path)}。</p>
  *
@@ -82,9 +81,16 @@ public class MarketService {
     private static final Logger log = LoggerFactory.getLogger(MarketService.class);
 
     private static final String SKILLS_PATH = "/ai/market/skills";
-    private static final String MCP_PATH = "/ai/market/mcp";
     /** 服务端统一成功码（com.gettyio.common.enums.ResultCode.SUCCESS）。 */
     private static final String CODE_SUCCESS = "200";
+
+    /** MCP 市场公共目录默认源：官方 MCP Registry 服务器列表接口，可用系统属性覆盖。 */
+    private static final String REGISTRY_DEFAULT_URL = "https://registry.modelcontextprotocol.io/v0/servers";
+    private static final int REGISTRY_PAGE_SIZE = 50;
+    private static final int REGISTRY_MAX_PAGES = 5;
+
+    /** MCP 市场源地址设置键（留空回退系统属性/内置默认）。 */
+    public static final String KEY_REGISTRY_URL = "app.market.mcp.registryUrl";
 
     /** 常见 MCP 运行依赖的内置获取指引（依赖检测引导用）。 */
     private static final Map<String, String> DEPENDENCY_HOMEPAGES = Map.ofEntries(
@@ -100,6 +106,7 @@ public class MarketService {
     private final UpdateChecker updateChecker;
     private final SkillService skillService;
     private final McpAdminService mcpAdminService;
+    private final GimDatabase db;
     private final ObjectMapper mapper = new ObjectMapper();
     private final HttpClient http = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(8))
@@ -108,10 +115,12 @@ public class MarketService {
     /** 依赖探测结果缓存：进程生命周期内可执行文件位置变化极少，探测一次即可。 */
     private final Map<String, Boolean> dependencyCache = new ConcurrentHashMap<>();
 
-    public MarketService(UpdateChecker updateChecker, SkillService skillService, McpAdminService mcpAdminService) {
+    public MarketService(UpdateChecker updateChecker, SkillService skillService, McpAdminService mcpAdminService,
+                         GimDatabase db) {
         this.updateChecker = updateChecker;
         this.skillService = skillService;
         this.mcpAdminService = mcpAdminService;
+        this.db = db;
     }
 
     // ===================== 数据模型 =====================
@@ -130,7 +139,8 @@ public class MarketService {
     public record MarketMcp(String serverCode, String serverName, String description, String transportType,
                             String command, List<String> args, Map<String, String> env, String baseUrl,
                             Map<String, String> headers, List<MarketMcpTool> tools, List<String> requires,
-                            List<String> tags, boolean official, String homepage) {
+                            List<String> tags, boolean official, String homepage,
+                            String version, String repoUrl, String updatedAt) {
     }
 
     // ===================== 配置 =====================
@@ -176,40 +186,237 @@ public class MarketService {
         return out;
     }
 
+    /** 一页 MCP 目录结果：翻译去重后的条目 + 下一页游标（空表示到底）。 */
+    public record McpPage(List<MarketMcp> items, String nextCursor) {
+    }
+
     /**
-     * 拉取 MCP 市场索引。
-     *
-     * @param keyword 搜索词，空则全量
-     * @throws IOException 未配置地址、网络或解析失败
+     * 拉取 MCP 市场索引（全量，最多 {@code REGISTRY_MAX_PAGES} 页）：逐页调用
+     * {@link #fetchMcpPage} 并按服务器名去重累积。用于一次性取全表的场景；
+     * 交互式加载优先用 {@link #fetchMcpPage} 分页。
      */
     public List<MarketMcp> fetchMcp(String keyword) throws IOException {
-        JsonNode data = get(MCP_PATH, keyword);
-        List<MarketMcp> out = new ArrayList<>();
-        for (JsonNode n : data.path("items")) {
-            List<MarketMcpTool> tools = new ArrayList<>();
-            for (JsonNode t : n.path("tools")) {
-                tools.add(new MarketMcpTool(t.path("name").asText(""), t.path("description").asText("")));
+        Map<String, MarketMcp> acc = new LinkedHashMap<>();
+        String cursor = "";
+        for (int page = 0; page < REGISTRY_MAX_PAGES; page++) {
+            McpPage p = fetchMcpPage(keyword, cursor);
+            for (MarketMcp m : p.items()) {
+                acc.putIfAbsent(m.serverCode(), m);
             }
-            MarketMcp m = new MarketMcp(
-                    n.path("serverCode").asText(""),
-                    n.path("serverName").asText(""),
-                    n.path("description").asText(""),
-                    n.path("transportType").asText("STDIO"),
-                    n.path("command").asText(""),
-                    textList(n.path("args")),
-                    textMap(n.path("env")),
-                    n.path("baseUrl").asText(""),
-                    textMap(n.path("headers")),
-                    tools,
-                    textList(n.path("requires")),
-                    textList(n.path("tags")),
-                    n.path("official").asBoolean(false),
-                    n.path("homepage").asText(""));
-            if (!m.serverCode().isBlank()) {
-                out.add(m);
+            cursor = p.nextCursor();
+            if (cursor.isBlank()) {
+                break;
             }
         }
+        List<MarketMcp> out = new ArrayList<>(acc.values());
+        out.sort(Comparator.comparing(MarketMcp::serverName, String.CASE_INSENSITIVE_ORDER));
         return out;
+    }
+
+    /**
+     * 拉取 MCP 目录的一页：直连公共目录（默认官方 MCP Registry），把社区标准条目翻译成本应用的
+     * {@link MarketMcp} 配置模板，同名多版本去重保留最新，并回传下一页游标供懒加载。
+     *
+     * @param keyword 搜索词，非空时透传注册表 {@code search} 参数
+     * @param cursor  分页游标，空表示第一页
+     * @throws IOException 网络或解析失败
+     */
+    public McpPage fetchMcpPage(String keyword, String cursor) throws IOException {
+        String base = registryBaseUrl();
+        StringBuilder url = new StringBuilder(base)
+                .append(base.contains("?") ? "&" : "?")
+                .append("limit=").append(REGISTRY_PAGE_SIZE);
+        if (keyword != null && !keyword.isBlank()) {
+            url.append("&search=").append(URLEncoder.encode(keyword.trim(), StandardCharsets.UTF_8));
+        }
+        if (cursor != null && !cursor.isBlank()) {
+            url.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+        }
+        JsonNode root = registryGet(url.toString());
+        // 服务器名 → 已保留条目：同名仅保留 isLatest 或语义版本最高的一条
+        Map<String, RegistryEntry> best = new LinkedHashMap<>();
+        for (JsonNode wrapper : root.path("servers")) {
+            JsonNode server = wrapper.path("server");
+            String name = server.path("name").asText("");
+            if (name.isBlank()) {
+                continue;
+            }
+            MarketMcp mcp = toMarketMcp(wrapper, server);
+            if (mcp == null) {
+                continue;
+            }
+            String version = server.path("version").asText("");
+            boolean latest = wrapper.path("_meta")
+                    .path("io.modelcontextprotocol.registry/official").path("isLatest").asBoolean(false);
+            RegistryEntry prev = best.get(name);
+            if (prev == null || preferNewer(latest, version, prev.latest(), prev.version())) {
+                best.put(name, new RegistryEntry(mcp, version, latest));
+            }
+        }
+        List<MarketMcp> items = new ArrayList<>();
+        for (RegistryEntry e : best.values()) {
+            items.add(e.mcp());
+        }
+        items.sort(Comparator.comparing(MarketMcp::serverName, String.CASE_INSENSITIVE_ORDER));
+        String next = root.path("metadata").path("nextCursor").asText("");
+        return new McpPage(items, next);
+    }
+
+    /** 注册表条目：MarketMcp 加去重所需的版本号与 isLatest 标记。 */
+    private record RegistryEntry(MarketMcp mcp, String version, boolean latest) {
+    }
+
+    /** 同名多版本择优：{@code isLatest} 优先，其次语义版本更高者。 */
+    private static boolean preferNewer(boolean newLatest, String newVersion, boolean oldLatest, String oldVersion) {
+        if (newLatest != oldLatest) {
+            return newLatest;
+        }
+        return UpdateChecker.compareVersions(newVersion, oldVersion) > 0;
+    }
+
+    /** MCP 公共目录生效地址：优先级——设置页配置 &gt; 系统属性 {@code gim.market.mcp.registry} &gt; 内置默认。 */
+    public String registryBaseUrl() {
+        String base = getRegistryUrlConfigured();
+        if (base.isEmpty()) {
+            base = System.getProperty("gim.market.mcp.registry", "").trim();
+        }
+        if (base.isEmpty()) {
+            base = REGISTRY_DEFAULT_URL;
+        }
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base;
+    }
+
+    /** 内置默认源（官方 MCP Registry），供设置页占位提示。 */
+    public String defaultRegistryUrl() {
+        return REGISTRY_DEFAULT_URL;
+    }
+
+    /** 设置页存储的原始配置值（可能为空）；未配置或无库时返回空串。 */
+    public String getRegistryUrlConfigured() {
+        return db == null ? "" : db.settingDao().getValue(KEY_REGISTRY_URL).orElse("").trim();
+    }
+
+    /** 写入 MCP 市场源地址；留空即回退系统属性/内置默认。 */
+    public void setRegistryUrl(String url) {
+        if (db != null) {
+            db.settingDao().upsert(KEY_REGISTRY_URL, url == null ? "" : url.trim(), "MCP 市场源地址");
+        }
+    }
+
+    /** GET 注册表接口返回原始 JSON 根（公共目录无本应用的 code/data 信封）。 */
+    private JsonNode registryGet(String url) throws IOException {
+        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                .timeout(Duration.ofSeconds(15))
+                .header("Accept", "application/json")
+                .header("User-Agent", "Jwork/" + UpdateChecker.appVersion())
+                .GET()
+                .build();
+        try {
+            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() / 100 != 2) {
+                throw new IOException("HTTP " + resp.statusCode());
+            }
+            return mapper.readTree(resp.body());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("请求被中断", e);
+        }
+    }
+
+    /**
+     * 把注册表 server 节点翻译为配置模板：有 {@code remotes} 走远程（{@code sse}→SSE，其余→HTTP，
+     * 取 url 作 baseUrl）；否则取 {@code packages[0]} 生成 STDIO 命令（npm→npx、oci/docker→docker、
+     * 其余→uvx）并抽 environmentVariables 作 env 模板。两者皆缺失或不可用时返回 null。
+     */
+    private static MarketMcp toMarketMcp(JsonNode wrapper, JsonNode server) {
+        String name = server.path("name").asText("");
+        if (name.isBlank()) {
+            return null;
+        }
+        String title = server.path("title").asText("");
+        String serverName = title.isBlank() ? name : title;
+        String description = server.path("description").asText("");
+        String version = server.path("version").asText("");
+        String websiteUrl = server.path("websiteUrl").asText("");
+        String repoUrl = server.path("repository").path("url").asText("");
+        String updatedAt = wrapper.path("_meta")
+                .path("io.modelcontextprotocol.registry/official").path("updatedAt").asText("");
+        if (updatedAt.length() >= 10) {
+            updatedAt = updatedAt.substring(0, 10);
+        }
+        // 发布者补充的分类标签（最多 3 个），用于卡片展示与本地搜索
+        List<String> tags = new ArrayList<>();
+        for (JsonNode c : server.path("_meta")
+                .path("io.modelcontextprotocol.registry/publisher-provided").path("categories")) {
+            String t = c.asText("");
+            if (!t.isBlank() && tags.size() < 3 && !tags.contains(t)) {
+                tags.add(t);
+            }
+        }
+
+        String transportType = "STDIO";
+        String command = "";
+        List<String> args = new ArrayList<>();
+        Map<String, String> env = new LinkedHashMap<>();
+        String baseUrl = "";
+        List<String> requires = new ArrayList<>();
+
+        JsonNode remotes = server.path("remotes");
+        JsonNode packages = server.path("packages");
+        if (remotes.isArray() && !remotes.isEmpty()) {
+            JsonNode r = remotes.get(0);
+            String type = r.path("type").asText("").toLowerCase(Locale.ROOT);
+            transportType = type.contains("sse") ? "SSE" : "HTTP";
+            baseUrl = r.path("url").asText("");
+            if (baseUrl.isBlank()) {
+                return null;
+            }
+        } else if (packages.isArray() && !packages.isEmpty()) {
+            JsonNode p = packages.get(0);
+            String registryType = p.path("registryType").asText("").toLowerCase(Locale.ROOT);
+            // 包名在注册表里是 identifier（旧数据可能用 name）
+            String pkgName = p.path("identifier").asText(p.path("name").asText(""));
+            String pkgVersion = p.path("version").asText("");
+            if (pkgName.isBlank()) {
+                return null;
+            }
+            switch (registryType) {
+                case "npm" -> {
+                    command = "npx";
+                    args.add("-y");
+                    args.add(pkgVersion.isBlank() ? pkgName : pkgName + "@" + pkgVersion);
+                    requires.add("npx");
+                }
+                case "oci", "docker" -> {
+                    command = "docker";
+                    args.add("run");
+                    args.add("-i");
+                    args.add("--rm");
+                    args.add(pkgVersion.isBlank() ? pkgName : pkgName + ":" + pkgVersion);
+                    requires.add("docker");
+                }
+                default -> {
+                    command = "uvx";
+                    args.add(pkgVersion.isBlank() ? pkgName : pkgName + "==" + pkgVersion);
+                    requires.add("uvx");
+                }
+            }
+            for (JsonNode e : p.path("environmentVariables")) {
+                String key = e.path("name").asText("");
+                if (!key.isBlank()) {
+                    env.put(key, e.path("default").asText(""));
+                }
+            }
+        } else {
+            return null;
+        }
+
+        return new MarketMcp(name, serverName, description, transportType, command, args, env,
+                baseUrl, new LinkedHashMap<>(), new ArrayList<>(), requires, tags,
+                false, websiteUrl, version, repoUrl, updatedAt);
     }
 
     // ===================== 技能安装 =====================
@@ -459,14 +666,6 @@ public class MarketService {
                     out.add(t);
                 }
             }
-        }
-        return out;
-    }
-
-    private static Map<String, String> textMap(JsonNode node) {
-        Map<String, String> out = new LinkedHashMap<>();
-        if (node.isObject()) {
-            node.fields().forEachRemaining(e -> out.put(e.getKey(), e.getValue().asText("")));
         }
         return out;
     }

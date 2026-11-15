@@ -1518,6 +1518,20 @@
 .empty-title { -fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: -gim-text-3; -fx-text-alignment: center; }
 .empty-desc  { -fx-font-size: 12px; -fx-text-fill: -gim-text-5; -fx-text-alignment: center; }
 
+/* 市场对话框占位态：裸图标 + 标题 + 弱化副标题 + 操作按钮 */
+.market-state { -fx-alignment: center; -fx-padding: 44 24 44 24; }
+.market-state-glyph {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 44px;
+    -fx-text-fill: -gim-tint-fg;
+}
+.market-state-glyph-error { -fx-text-fill: #e8a33d; }
+/* 加载态：原生不确定进指示器作旋转弧，主色与主题一致 */
+.market-state-spinner { -fx-progress-color: -gim-tint-fg; }
+.market-state-spinner > .indicator { -fx-background-color: transparent; }
+.market-state-title { -fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; -fx-text-alignment: center; }
+.market-state-desc { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; -fx-text-alignment: center; }
+
 .skill-avatar {
     -fx-background-color: -gim-tint-3;
     -fx-background-radius: 10;

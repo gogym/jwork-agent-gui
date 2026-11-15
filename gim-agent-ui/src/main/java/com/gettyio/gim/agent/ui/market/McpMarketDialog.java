@@ -25,8 +25,11 @@ import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.OverrunStyle;
+import javafx.scene.control.ProgressIndicator;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.TextField;
+import javafx.scene.layout.ColumnConstraints;
+import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.layout.Region;
@@ -38,6 +41,7 @@ import javafx.stage.Window;
 import java.awt.Desktop;
 import java.net.URI;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -54,8 +58,10 @@ import java.util.Set;
  */
 public class McpMarketDialog {
 
-    private static final double CONTENT_WIDTH = 620;
-    private static final double CONTENT_HEIGHT = 430;
+    private static final double CONTENT_WIDTH = 900;
+    private static final double CONTENT_HEIGHT = 620;
+    private static final int GRID_COLUMNS = 3;
+    private static final double GRID_GAP = 14;
 
     private final Window owner;
     private final MarketService marketService;
@@ -65,13 +71,18 @@ public class McpMarketDialog {
     private final TextField searchField = new TextField();
     private final Button refreshButton = new Button();
     private final Label statusLabel = new Label();
-    private final VBox list = new VBox(10);
+    private final GridPane grid = new GridPane();
     private final ScrollPane scroller = new ScrollPane();
     private final StackPane content = new StackPane();
+    private final Button loadMore = new Button();
 
     private List<MarketService.MarketMcp> loaded = new ArrayList<>();
     /** 依赖名 → 本机是否就绪（全量索引聚合后一次探测） */
     private Map<String, Boolean> depStatus = Map.of();
+    /** 下一页游标，空表示已到底 */
+    private String nextCursor = "";
+    /** 正在加载下一页 */
+    private boolean loadingMore = false;
 
     public McpMarketDialog(Window owner, MarketService marketService, Runnable onChanged) {
         this.owner = owner;
@@ -99,47 +110,103 @@ public class McpMarketDialog {
         HBox toolbar = new HBox(8, searchField, refreshButton);
         toolbar.setAlignment(Pos.CENTER_LEFT);
 
-        list.setFillWidth(true);
-        scroller.setContent(list);
+        grid.setHgap(GRID_GAP);
+        grid.setVgap(GRID_GAP);
+        grid.setPadding(new Insets(2, 2, 8, 2));
+        for (int c = 0; c < GRID_COLUMNS; c++) {
+            ColumnConstraints col = new ColumnConstraints();
+            col.setPercentWidth(100.0 / GRID_COLUMNS);
+            col.setHgrow(Priority.ALWAYS);
+            grid.getColumnConstraints().add(col);
+        }
+        scroller.setContent(grid);
         scroller.setFitToWidth(true);
         scroller.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
         content.setPrefSize(CONTENT_WIDTH, CONTENT_HEIGHT);
         content.setMinSize(CONTENT_WIDTH, CONTENT_HEIGHT);
         content.getChildren().setAll(scroller);
 
+        loadMore.getStyleClass().add("link-btn");
+        loadMore.setVisible(false);
+        loadMore.setManaged(false);
+        loadMore.setOnAction(e -> loadPage(true));
+        HBox moreRow = new HBox(loadMore);
+        moreRow.setAlignment(Pos.CENTER);
+        moreRow.setPadding(new Insets(8, 0, 0, 0));
+
         statusLabel.getStyleClass().add("status-label");
         statusLabel.setPadding(new Insets(6, 0, 0, 0));
-        statusLabel.setText(I18n.t("market.loading"));
 
-        shell.body().getChildren().addAll(toolbar, content, statusLabel);
+        shell.body().getChildren().addAll(toolbar, content, moreRow, statusLabel);
         shell.show();
         reload();
     }
 
     // ===================== 加载与渲染 =====================
 
-    /** 后台拉取索引并聚合依赖探测，随后渲染。 */
+    /** 重置并拉取第一页（秒出首屏）。 */
     private void reload() {
-        statusLabel.setText(I18n.t("market.loading"));
-        setContentMessage(I18n.t("market.loading"), false);
+        loaded = new ArrayList<>();
+        depStatus = Map.of();
+        nextCursor = "";
+        loadingMore = false;
+        setContentMessage(Placeholder.LOADING, I18n.t("market.loading"), null);
+        updateLoadMore();
+        loadPage(false);
+    }
+
+    /**
+     * 后台拉取一页 MCP 目录并做依赖探测，回 UI 线程合并渲染。
+     * {@code append} 为真时按 serverCode 去重追加（懒加载），否则替换（首屏/重试）。
+     */
+    private void loadPage(boolean append) {
+        if (append) {
+            loadingMore = true;
+            updateLoadMore();
+        }
+        String cursor = nextCursor;
         Thread t = new Thread(() -> {
             try {
-                List<MarketService.MarketMcp> items = marketService.fetchMcp("");
+                MarketService.McpPage page = marketService.fetchMcpPage("", cursor);
                 Set<String> requires = new LinkedHashSet<>();
-                for (MarketService.MarketMcp m : items) {
+                for (MarketService.MarketMcp m : page.items()) {
                     requires.addAll(m.requires());
                 }
                 Map<String, Boolean> deps = marketService.probeDependencies(new ArrayList<>(requires));
                 Platform.runLater(() -> {
-                    loaded = items;
-                    depStatus = deps;
-                    statusLabel.setText(I18n.t("market.count", items.size()));
+                    if (append) {
+                        Set<String> seen = new LinkedHashSet<>();
+                        for (MarketService.MarketMcp m : loaded) {
+                            seen.add(m.serverCode());
+                        }
+                        for (MarketService.MarketMcp m : page.items()) {
+                            if (seen.add(m.serverCode())) {
+                                loaded.add(m);
+                            }
+                        }
+                        Map<String, Boolean> merged = new LinkedHashMap<>(depStatus);
+                        merged.putAll(deps);
+                        depStatus = merged;
+                    } else {
+                        loaded = new ArrayList<>(page.items());
+                        depStatus = deps;
+                    }
+                    nextCursor = page.nextCursor();
+                    loadingMore = false;
+                    statusLabel.setText(I18n.t("market.count", loaded.size()));
                     render();
                 });
             } catch (Exception e) {
                 Platform.runLater(() -> {
-                    statusLabel.setText("");
-                    setContentMessage(I18n.t("market.error", message(e)), true);
+                    loadingMore = false;
+                    if (append) {
+                        statusLabel.setText(I18n.t("market.error", message(e)));
+                        updateLoadMore();
+                    } else {
+                        statusLabel.setText("");
+                        setContentMessage(Placeholder.ERROR, I18n.t("market.state.failed"),
+                                I18n.t("market.state.error.desc"));
+                    }
                 });
             }
         }, "jwork-market-mcp");
@@ -147,8 +214,18 @@ public class McpMarketDialog {
         t.start();
     }
 
+    /** 「加载更多」按钮：仅当有下一页游标时可见，加载中禁用并改文案。 */
+    private void updateLoadMore() {
+        boolean hasMore = !nextCursor.isBlank();
+        loadMore.setVisible(hasMore);
+        loadMore.setManaged(hasMore);
+        loadMore.setDisable(loadingMore);
+        loadMore.setText(I18n.t(loadingMore ? "market.loading" : "market.loadMore"));
+    }
+
     /** 按搜索词过滤已加载索引并重绘卡片。 */
     private void render() {
+        updateLoadMore();
         String kw = searchField.getText() == null ? "" : searchField.getText().trim().toLowerCase(Locale.ROOT);
         List<MarketService.MarketMcp> visible = loaded.stream()
                 .filter(m -> kw.isEmpty()
@@ -158,12 +235,16 @@ public class McpMarketDialog {
                         || m.tags().stream().anyMatch(tag -> contains(tag, kw)))
                 .toList();
         if (visible.isEmpty()) {
-            setContentMessage(loaded.isEmpty() ? I18n.t("market.empty") : I18n.t("market.emptyMatch"), false);
+            if (loaded.isEmpty()) {
+                setContentMessage(Placeholder.EMPTY, I18n.t("market.empty"), I18n.t("market.state.empty.desc"));
+            } else {
+                setContentMessage(Placeholder.EMPTY, I18n.t("market.emptyMatch"), I18n.t("market.state.nomatch.desc"));
+            }
             return;
         }
-        list.getChildren().clear();
-        for (MarketService.MarketMcp m : visible) {
-            list.getChildren().add(card(m));
+        grid.getChildren().clear();
+        for (int i = 0; i < visible.size(); i++) {
+            grid.add(card(visible.get(i)), i % GRID_COLUMNS, i / GRID_COLUMNS);
         }
         content.getChildren().setAll(scroller);
     }
@@ -174,29 +255,38 @@ public class McpMarketDialog {
         VBox card = new VBox(8);
         card.getStyleClass().add("provider-card");
         card.setMaxWidth(Double.MAX_VALUE);
+        card.setPrefHeight(212);
 
+        // 名称（最多两行截断）+ 官方徽章 + 版本徽章
         Label name = new Label(m.serverName().isBlank() ? m.serverCode() : m.serverName());
         name.getStyleClass().add("provider-card-title");
         name.setMinWidth(0);
+        name.setWrapText(true);
+        name.setMaxHeight(44);
         name.setTextOverrun(OverrunStyle.ELLIPSIS);
         HBox titleRow = new HBox(8, name);
         titleRow.setAlignment(Pos.CENTER_LEFT);
+        // 关闭纵向拉伸，徽章才不被拉高、垂直居中才能生效
+        titleRow.setFillHeight(false);
+        // 名称随空间收缩换行，徽章锁定首选宽度不被挤压
         if (m.official()) {
             Label official = new Label(I18n.t("market.official"));
             official.getStyleClass().addAll("badge", "badge-blue");
+            official.setMinWidth(Region.USE_PREF_SIZE);
+            official.setMaxWidth(Region.USE_PREF_SIZE);
             titleRow.getChildren().add(official);
         }
-        for (String tag : m.tags()) {
-            Label tagLabel = new Label(tag);
-            tagLabel.getStyleClass().addAll("badge", "badge-gray");
-            titleRow.getChildren().add(tagLabel);
+        if (!m.version().isBlank()) {
+            // 弹性占位把版本号推到标题行最右侧固定
+            Region titleSpacer = new Region();
+            HBox.setHgrow(titleSpacer, Priority.ALWAYS);
+            titleRow.getChildren().add(titleSpacer);
+            Label ver = new Label("v" + oneLine(m.version()));
+            ver.getStyleClass().addAll("badge", "badge-gray");
+            ver.setMinWidth(Region.USE_PREF_SIZE);
+            ver.setMaxWidth(Region.USE_PREF_SIZE);
+            titleRow.getChildren().add(ver);
         }
-
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
-        Button action = buildActionButton(m);
-        HBox head = new HBox(titleRow, sp, action);
-        head.setAlignment(Pos.CENTER_LEFT);
 
         Label desc = new Label(m.description().isBlank() ? I18n.t("skills.noDesc") : oneLine(m.description()));
         desc.getStyleClass().add("card-desc");
@@ -204,55 +294,109 @@ public class McpMarketDialog {
         desc.setMaxHeight(40);
         desc.setTextOverrun(OverrunStyle.ELLIPSIS);
 
-        card.getChildren().addAll(head, desc);
+        card.getChildren().addAll(titleRow, desc);
+
+        // 分类标签：发布者补充的 categories，最多 3 个
+        if (!m.tags().isEmpty()) {
+            HBox tagRow = new HBox(6);
+            tagRow.setAlignment(Pos.CENTER_LEFT);
+            for (String tag : m.tags()) {
+                Label t = new Label(tag);
+                t.getStyleClass().addAll("badge", "badge-gray");
+                tagRow.getChildren().add(t);
+            }
+            card.getChildren().add(tagRow);
+        }
+
+        Region sp = new Region();
+        VBox.setVgrow(sp, Priority.ALWAYS);
+        card.getChildren().add(sp);
 
         // 配置摘要：传输类型 + 命令 / 地址
         String config = I18n.t("market.transport") + "：" + m.transportType();
         if (!m.command().isBlank()) {
-            config += " · " + I18n.t("market.command") + "：" + oneLine(m.command() + " " + String.join(" ", m.args()));
+            config += " · " + oneLine(m.command() + " " + String.join(" ", m.args()));
         } else if (!m.baseUrl().isBlank()) {
-            config += " · " + I18n.t("market.command") + "：" + m.baseUrl();
+            config += " · " + m.baseUrl();
         }
         Label configLabel = new Label(config);
         configLabel.getStyleClass().add("card-meta");
+        configLabel.setMaxWidth(Double.MAX_VALUE);
         configLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
         card.getChildren().add(configLabel);
 
-        // 依赖状态行：就绪绿色徽章；缺失红色徽章 + 「获取」引导链接
+        // 依赖状态：就绪绿徽章、缺失红徽章 + 「获取」引导
         if (!m.requires().isEmpty()) {
             HBox deps = new HBox(6);
             deps.setAlignment(Pos.CENTER_LEFT);
-            Label depCaption = new Label(I18n.t("market.requires") + "：");
-            depCaption.getStyleClass().add("card-meta");
-            deps.getChildren().add(depCaption);
+            String missingHome = "";
             for (String dep : m.requires()) {
                 boolean ok = Boolean.TRUE.equals(depStatus.get(dep.toLowerCase(Locale.ROOT)));
                 Label badge = new Label(dep);
                 badge.getStyleClass().addAll("badge", ok ? "badge-green" : "badge-red");
                 deps.getChildren().add(badge);
-                if (!ok) {
-                    String homepage = MarketService.dependencyHomepage(dep);
-                    if (!homepage.isBlank()) {
-                        Button get = new Button(I18n.t("market.requires.get"));
-                        get.getStyleClass().add("link-btn");
-                        get.setOnAction(e -> openUrl(homepage));
-                        deps.getChildren().add(get);
-                    }
+                if (!ok && missingHome.isBlank()) {
+                    missingHome = MarketService.dependencyHomepage(dep);
                 }
+            }
+            if (!missingHome.isBlank()) {
+                final String home = missingHome;
+                Button get = new Button(I18n.t("market.requires.get"));
+                get.getStyleClass().add("link-btn");
+                get.setOnAction(e -> openUrl(home));
+                deps.getChildren().add(get);
             }
             card.getChildren().add(deps);
         }
 
-        // 工具清单预览
+        // 底部信息行：更新时间（左）+ 源码/官网链接（右）
+        boolean hasMeta = !m.updatedAt().isBlank();
+        boolean hasLinks = !m.repoUrl().isBlank() || !m.homepage().isBlank();
+        if (hasMeta || hasLinks) {
+            HBox metaRow = new HBox(8);
+            metaRow.setAlignment(Pos.CENTER_LEFT);
+            if (hasMeta) {
+                Label updated = new Label(I18n.t("market.updatedAt", m.updatedAt()));
+                updated.getStyleClass().add("card-meta");
+                metaRow.getChildren().add(updated);
+            }
+            Region msp = new Region();
+            HBox.setHgrow(msp, Priority.ALWAYS);
+            metaRow.getChildren().add(msp);
+            if (!m.repoUrl().isBlank()) {
+                metaRow.getChildren().add(linkButton(I18n.t("market.repo"), m.repoUrl()));
+            }
+            if (!m.homepage().isBlank()) {
+                metaRow.getChildren().add(linkButton(I18n.t("market.website"), m.homepage()));
+            }
+            card.getChildren().add(metaRow);
+        }
+
+        // 操作行：工具数（左）+ 添加按钮（右）
+        Button action = buildActionButton(m);
+        action.setMinWidth(Region.USE_PREF_SIZE);
+        HBox foot = new HBox(8);
+        foot.setAlignment(Pos.CENTER_LEFT);
         if (!m.tools().isEmpty()) {
             Button tools = new Button(I18n.t("market.tools.count", m.tools().size()));
             tools.getStyleClass().add("link-btn");
             tools.setOnAction(e -> showTools(m));
-            HBox toolRow = new HBox(tools);
-            toolRow.setAlignment(Pos.CENTER_LEFT);
-            card.getChildren().add(toolRow);
+            foot.getChildren().add(tools);
         }
+        Region fsp = new Region();
+        HBox.setHgrow(fsp, Priority.ALWAYS);
+        foot.getChildren().addAll(fsp, action);
+        card.getChildren().add(foot);
         return card;
+    }
+
+    /** 文字链接按钮：点击用系统浏览器打开给定 URL。 */
+    private Button linkButton(String text, String url) {
+        Button b = new Button(text);
+        b.getStyleClass().add("link-btn");
+        b.setMinWidth(Region.USE_PREF_SIZE);
+        b.setOnAction(e -> openUrl(url));
+        return b;
     }
 
     /** 操作按钮：已添加→禁用徽章；否则「添加」。 */
@@ -353,25 +497,59 @@ public class McpMarketDialog {
 
     // ===================== 小工具 =====================
 
-    /** 内容区占位（加载/空/错误）；{@code error} 为真时附「重试」按钮。 */
-    private void setContentMessage(String message, boolean error) {
-        VBox box = new VBox(10);
-        box.getStyleClass().add("empty-state");
-        box.setMaxWidth(Double.MAX_VALUE);
+    /** 内容区占位态种类，决定图标与配色。 */
+    private enum Placeholder { LOADING, EMPTY, ERROR }
+
+    /**
+     * 内容区占位（加载/空/错误）：圆形图标徽章 + 标题 + 弱化副标题，整体垂直居中；
+     * {@link Placeholder#ERROR} 额外附「重试」按钮。图标字形均为项目已用的安全码位。
+     */
+    private void setContentMessage(Placeholder kind, String title, String desc) {
+        Node anchor;
+        if (kind == Placeholder.LOADING) {
+            ProgressIndicator spinner = new ProgressIndicator();
+            spinner.setPrefSize(46, 46);
+            spinner.getStyleClass().add("market-state-spinner");
+            anchor = spinner;
+        } else {
+            Label glyph = new Label(kind == Placeholder.ERROR ? "\uE711" : "\uE71B");
+            glyph.getStyleClass().add("market-state-glyph");
+            if (kind == Placeholder.ERROR) {
+                glyph.getStyleClass().add("market-state-glyph-error");
+            }
+            anchor = glyph;
+        }
+
+        Label titleLabel = new Label(title);
+        titleLabel.getStyleClass().add("market-state-title");
+        titleLabel.setWrapText(true);
+        titleLabel.setTextAlignment(TextAlignment.CENTER);
+        titleLabel.setMaxWidth(420);
+
+        VBox text = new VBox(6, titleLabel);
+        text.setAlignment(Pos.CENTER);
+        if (desc != null && !desc.isBlank()) {
+            Label descLabel = new Label(desc);
+            descLabel.getStyleClass().add("market-state-desc");
+            descLabel.setWrapText(true);
+            descLabel.setTextAlignment(TextAlignment.CENTER);
+            descLabel.setMaxWidth(420);
+            text.getChildren().add(descLabel);
+        }
+
+        VBox box = new VBox(16, anchor, text);
+        box.getStyleClass().add("market-state");
+        box.setMaxSize(Double.MAX_VALUE, Double.MAX_VALUE);
         box.setAlignment(Pos.CENTER);
-        Label t = new Label(message);
-        t.getStyleClass().add("empty-title");
-        t.setWrapText(true);
-        t.setTextAlignment(TextAlignment.CENTER);
-        t.setMaxWidth(460);
-        box.getChildren().add(t);
-        if (error) {
+        box.setFillWidth(false);
+        if (kind == Placeholder.ERROR) {
             Button retry = new Button(I18n.t("market.retry"));
+            Label retryIcon = new Label("\uE72C");
+            retryIcon.getStyleClass().add("icon");
+            retry.setGraphic(retryIcon);
             retry.getStyleClass().add("btn-primary");
             retry.setOnAction(e -> reload());
-            HBox row = new HBox(retry);
-            row.setAlignment(Pos.CENTER);
-            box.getChildren().add(row);
+            box.getChildren().add(retry);
         }
         content.getChildren().setAll(box);
     }
