@@ -56,15 +56,13 @@ import java.util.function.DoubleConsumer;
 import java.util.stream.Stream;
 
 /**
- * 在线市场服务：从 gim-server-ai 拉取技能 / MCP 市场索引，下载技能包并校验后安装。
+ * 在线市场服务：技能市场直连 GitHub 仓库检索、MCP 市场直连公共 MCP 目录，下载后安装。
  *
- * <p><b>技能市场接口契约</b>（服务端实现见 gim-server-ai / gim-server-admin 市场管理模块）：</p>
- * <pre>
- * GET {base}/ai/market/skills?keyword=可选
- * → {"code":"200","msg":"ok","data":{"items":[{
- *       "skillCode","skillName","description","version","author",
- *       "tags":[],"downloadUrl","fileHash","fileSize","updatedAt","downloadCount","homepage"}]}}
- * </pre>
+ * <p><b>技能市场</b>：调用 GitHub 仓库检索 API（{@code api.github.com/search/repositories}），按
+ * {@code topic:agent-skills} / {@code topic:claude-skills} 聚合社区技能仓库，每个仓库映射为一个技能包
+ * 条目；安装时下载其默认分支 zipball（{@code codeload.github.com/<full_name>/zip/refs/heads/<branch>}），
+ * 交给 {@link SkillService#importFromMarket(java.nio.file.Path)} 挑最浅层 SKILL.md 落库。不再依赖
+ * gim-server-ai。未认证检索限流约 10 次/分钟；{@code downloadCount} 复用为仓库 star 数、{@code fileSize} 未知（-1）。</p>
  *
  * <p><b>MCP 市场</b>直连公共 MCP 目录（默认官方 MCP Registry {@code /v0/servers}），把社区标准
  * 条目（{@code remotes} / {@code packages}）翻译为配置模板，不再依赖 gim-server-ai；源地址可用
@@ -80,9 +78,11 @@ public class MarketService {
 
     private static final Logger log = LoggerFactory.getLogger(MarketService.class);
 
-    private static final String SKILLS_PATH = "/ai/market/skills";
-    /** 服务端统一成功码（com.gettyio.common.enums.ResultCode.SUCCESS）。 */
-    private static final String CODE_SUCCESS = "200";
+    /** 技能市场源：GitHub 官方仓库检索接口，按 {@code agent-skills} 主题分页浏览社区技能。 */
+    private static final String GITHUB_SEARCH_URL = "https://api.github.com/search/repositories";
+    private static final String GITHUB_ZIP_BASE = "https://codeload.github.com/";
+    private static final String SKILL_TOPIC = "agent-skills";
+    private static final int SKILL_PAGE_SIZE = 50;
 
     /** MCP 市场公共目录默认源：官方 MCP Registry 服务器列表接口，可用系统属性覆盖。 */
     private static final String REGISTRY_DEFAULT_URL = "https://registry.modelcontextprotocol.io/v0/servers";
@@ -156,32 +156,67 @@ public class MarketService {
 
     // ===================== 索引拉取 =====================
 
+    /** 一页技能目录结果：GitHub 仓库检索映射出的条目 + 下一页游标（页码字符串，空表示到底）。 */
+    public record SkillPage(List<MarketSkill> items, String nextCursor) {
+    }
+
     /**
-     * 拉取技能市场索引。
+     * 拉取技能市场索引的一页：直连 GitHub 仓库检索（{@code topic:agent-skills}，非空时并入关键词），
+     * 每个命中仓库映射为一个技能包条目，安装时下载该仓库默认分支的 zipball。不再依赖 gim-server-ai。
      *
-     * @param keyword 搜索词，空则全量
-     * @throws IOException 未配置地址、网络或解析失败
+     * @param keyword 搜索词，非空时并入检索串（{@code <kw> topic:agent-skills}）
+     * @param cursor  分页游标（页码字符串），空表示第一页
+     * @throws IOException 网络或解析失败（含限流 HTTP 403/429）
      */
-    public List<MarketSkill> fetchSkills(String keyword) throws IOException {
-        JsonNode data = get(SKILLS_PATH, keyword);
-        List<MarketSkill> out = new ArrayList<>();
-        for (JsonNode n : data.path("items")) {
-            MarketSkill s = new MarketSkill(
-                    n.path("skillCode").asText(""),
-                    n.path("skillName").asText(""),
-                    n.path("description").asText(""),
-                    n.path("version").asText(""),
-                    n.path("author").asText(""),
-                    textList(n.path("tags")),
-                    n.path("downloadUrl").asText(""),
-                    n.path("fileHash").asText(""),
-                    n.path("fileSize").asLong(-1),
-                    n.path("updatedAt").asText(""),
-                    n.path("downloadCount").asLong(0),
-                    n.path("homepage").asText(""));
-            if (!s.skillCode().isBlank()) {
-                out.add(s);
+    public SkillPage fetchSkillPage(String keyword, String cursor) throws IOException {
+        String kw = keyword == null ? "" : keyword.trim();
+        int page = 1;
+        if (cursor != null && !cursor.isBlank()) {
+            try {
+                page = Math.max(1, Integer.parseInt(cursor.trim()));
+            } catch (NumberFormatException ignored) {
+                // 非法游标回退首页
             }
+        }
+        String query = kw.isBlank() ? "topic:" + SKILL_TOPIC : kw + " topic:" + SKILL_TOPIC;
+        String url = GITHUB_SEARCH_URL + "?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                + "&per_page=" + SKILL_PAGE_SIZE + "&page=" + page + "&sort=stars&order=desc";
+        List<MarketSkill> items = githubSearch(url);
+        // GitHub 无游标：本页满额即视为还有下一页，返回页码 +1
+        String next = items.size() == SKILL_PAGE_SIZE ? String.valueOf(page + 1) : "";
+        return new SkillPage(items, next);
+    }
+
+    /** 解析 GitHub 仓库检索响应：{@code items[]} → 仓库级技能包条目。 */
+    private List<MarketSkill> githubSearch(String url) throws IOException {
+        JsonNode root = registryGet(url);
+        List<MarketSkill> out = new ArrayList<>();
+        for (JsonNode r : root.path("items")) {
+            String fullName = r.path("full_name").asText("");
+            if (fullName.isBlank()) {
+                continue;
+            }
+            String name = r.path("name").asText("");
+            String owner = r.path("owner").path("login").asText("");
+            String description = r.path("description").asText("");
+            String html = r.path("html_url").asText("");
+            String branch = r.path("default_branch").asText("main");
+            String pushed = r.path("pushed_at").asText("");
+            if (pushed.length() >= 10) {
+                pushed = pushed.substring(0, 10);
+            }
+            long stars = r.path("stargazers_count").asLong(0);
+            List<String> tags = new ArrayList<>();
+            for (JsonNode t : r.path("topics")) {
+                String s = t.asText("");
+                if (!s.isBlank() && tags.size() < 3) {
+                    tags.add(s);
+                }
+            }
+            String code = sanitizeFileName(fullName);
+            String downloadUrl = GITHUB_ZIP_BASE + fullName + "/zip/refs/heads/" + branch;
+            out.add(new MarketSkill(code, name, description, "", owner, tags,
+                    downloadUrl, "", -1, pushed, stars, html));
         }
         return out;
     }
@@ -547,36 +582,6 @@ public class MarketService {
 
     // ===================== HTTP 内部实现 =====================
 
-    /** GET 索引接口并校验业务码，返回 {@code data} 节点。 */
-    private JsonNode get(String path, String keyword) throws IOException {
-        String base = serverBaseUrl();
-        if (base.isEmpty()) {
-            throw new IOException(I18n.t("market.notConfigured"));
-        }
-        String url = base + path + (keyword == null || keyword.isBlank()
-                ? "" : "?keyword=" + URLEncoder.encode(keyword.trim(), StandardCharsets.UTF_8));
-        HttpRequest req = HttpRequest.newBuilder(URI.create(url))
-                .timeout(Duration.ofSeconds(12))
-                .header("Accept", "application/json")
-                .GET()
-                .build();
-        try {
-            HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            if (resp.statusCode() / 100 != 2) {
-                throw new IOException("HTTP " + resp.statusCode());
-            }
-            JsonNode root = mapper.readTree(resp.body());
-            String code = root.path("code").asText("");
-            if (!CODE_SUCCESS.equals(code)) {
-                throw new IOException(root.path("msg").asText("code=" + code));
-            }
-            return root.path("data");
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new IOException("请求被中断", e);
-        }
-    }
-
     /** 下载到本地文件并按总量上报进度；总量未知（-1）时不上报中间进度。 */
     private void download(String url, Path target, long size, DoubleConsumer onProgress) throws IOException {
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
@@ -655,19 +660,6 @@ public class MarketService {
         } catch (java.security.NoSuchAlgorithmException e) {
             throw new IOException("无法计算校验和", e);
         }
-    }
-
-    private static List<String> textList(JsonNode node) {
-        List<String> out = new ArrayList<>();
-        if (node.isArray()) {
-            for (JsonNode n : node) {
-                String t = n.asText("");
-                if (!t.isBlank()) {
-                    out.add(t);
-                }
-            }
-        }
-        return out;
     }
 
     private static String sanitizeFileName(String raw) {
