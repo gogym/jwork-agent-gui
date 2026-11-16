@@ -650,6 +650,11 @@ public class SettingsWindow {
         if (mcpView != null) {
             mcpView.reload();
         }
+        // 技能页复用拓展页的 SkillsView 单例，其自身只在刷新/搜索/语言切换时重绘，
+        // 从设置首次进入不会触发加载，这里随整表刷新补一次，避免首屏空列表
+        if (skillsView != null) {
+            skillsView.reload();
+        }
         // 安全页动态列表（危险命令/Shell 白名单/授权目录/授权管理）随数据刷新
         securityPanel().reloadSecurity();
     }

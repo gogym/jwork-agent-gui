@@ -40,6 +40,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.ListCell;
 import javafx.scene.control.ListView;
 import javafx.scene.control.PasswordField;
+import javafx.scene.control.TextArea;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.GridPane;
@@ -384,7 +385,7 @@ final class ModelSettingsPanel {
                 CardKit.kvLine(I18n.t("settings.model.cost"), modelCostText(m)),
                 CardKit.kvNodeLine(I18n.t("common.status"), SettingsLayout.statusIconValue(m.getStatus())),
                 CardKit.kvNodeLine(I18n.t("settings.model.multimodal"), SettingsLayout.visionIconValue(m.getSupportsVision())),
-                CardKit.kvLine(I18n.t("settings.model.lastTest"), lastTestText(m)));
+                lastTestRow(m));
         card.getStyleClass().add("provider-card");
         card.setPrefWidth(SettingsLayout.CARD_WIDTH);
         card.setMaxWidth(SettingsLayout.CARD_WIDTH);
@@ -517,13 +518,50 @@ final class ModelSettingsPanel {
         }
     }
 
-    private String lastTestText(ModelConfig m) {
+    /**
+     * 最近测试行：值列只显示测试时间，完整结果（常为长段报错）收进「详情」弹窗，
+     * 参考技能页 {@code openDetail} 的呈现，避免卡片内平铺大段文字。
+     */
+    private Node lastTestRow(ModelConfig m) {
+        String key = I18n.t("settings.model.lastTest");
         if (m.getLastTestAt() == null) {
-            return "-";
+            return CardKit.kvLine(key, "-");
         }
         String time = m.getLastTestAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
         String detail = m.getLastTestResult();
-        return detail == null || detail.isBlank() ? time : time + " · " + detail;
+        Label summary = new Label(time);
+        summary.getStyleClass().add("provider-card-val");
+        if (detail == null || detail.isBlank()) {
+            return CardKit.kvNodeLine(key, summary);
+        }
+        Button detailBtn = new Button(I18n.t("common.detail"));
+        detailBtn.getStyleClass().add("link-btn");
+        detailBtn.setMinWidth(Region.USE_PREF_SIZE);
+        detailBtn.setOnAction(e -> openLastTestDetail(m, time, detail));
+        HBox value = new HBox(8, summary, detailBtn);
+        value.setAlignment(Pos.CENTER_LEFT);
+        return CardKit.kvNodeLine(key, value);
+    }
+
+    /** 最近测试详情弹窗：只读、可换行的文本区展示完整结果，与技能页详情一致。 */
+    private void openLastTestDetail(ModelConfig m, String time, String detail) {
+        GimDialog.Shell shell = GimDialog.shell(host.hostWindow(), I18n.t("settings.model.lastTest"));
+        String name = m.getModelName() == null || m.getModelName().isBlank()
+                ? m.getModelCode() : m.getModelName();
+        Label head = new Label(name + " · " + time);
+        head.getStyleClass().add("dialog-header");
+        TextArea content = new TextArea(detail);
+        content.setEditable(false);
+        content.setWrapText(true);
+        content.setPrefWidth(600);
+        content.setPrefHeight(360);
+        content.setStyle("-fx-font-family: \"Cascadia Mono\", \"Consolas\", monospace; -fx-font-size: 12px;");
+        Button close = new Button(I18n.t("common.close"));
+        close.setOnAction(e -> shell.stage().close());
+        HBox btns = new HBox(8, close);
+        btns.setAlignment(Pos.CENTER_RIGHT);
+        shell.body().getChildren().addAll(head, content, btns);
+        shell.show();
     }
 
     // ---- 默认模型卡（模型页内嵌，自原「默认模型」独立页并入） ----
