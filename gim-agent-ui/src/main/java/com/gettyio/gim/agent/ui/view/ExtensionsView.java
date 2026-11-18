@@ -24,6 +24,8 @@ import javafx.scene.control.Tab;
 import javafx.scene.control.TabPane;
 import javafx.scene.layout.StackPane;
 
+import java.util.function.Supplier;
+
 /**
  * 拓展整页：内容区左上角三个 Tab —— 「技能」「知识」与「MCP 服务」。
  * <p>技能 Tab 复用 {@link SkillsView}，知识 Tab 复用 {@link KnowledgeView}，MCP Tab 复用自包含组件
@@ -66,6 +68,11 @@ public class ExtensionsView {
         return root;
     }
 
+    /** 透传侧栏当前智能体供给：知识页进入时默认跟随它。 */
+    public void bindCurrentAgent(Supplier<String> supplier) {
+        knowledgeView.bindCurrentAgent(supplier);
+    }
+
     private void ensureBuilt() {
         if (built) {
             return;
@@ -91,6 +98,14 @@ public class ExtensionsView {
         root.setPadding(new Insets(0));
         root.getChildren().add(tabPane);
 
+        // TabPane 内切 Tab 不走页面级 reload：不监听就会停在构造期空态
+        // （知识页首次点进来下拉/文件/索引全空，像坏了一样）
+        tabPane.getSelectionModel().selectedItemProperty().addListener((obs, o, n) -> {
+            if (built && n != null) {
+                refreshTab(n);
+            }
+        });
+
         applyI18n();
         built = true;
     }
@@ -104,12 +119,16 @@ public class ExtensionsView {
     /** 切页时刷新当前选中 Tab 的内容。 */
     public void reload() {
         ensureBuilt();
-        Tab selected = tabPane.getSelectionModel().getSelectedItem();
+        refreshTab(tabPane.getSelectionModel().getSelectedItem());
+    }
+
+    /** 刷新指定 Tab：知识页走 activate（跟随当前智能体），其余保留各自选中态。 */
+    private void refreshTab(Tab selected) {
         if (selected == mcpTab) {
             mcpView.reload();
         } else if (selected == knowledgeTab) {
             knowledgeView.showHeaderTitle(false);
-            knowledgeView.reload();
+            knowledgeView.activate();
         } else {
             // 设置页可能把共享单例的一级标题改回显示，Tab 内需重新隐去（与 Tab 名重复）
             skillsView.showHeaderTitle(false);

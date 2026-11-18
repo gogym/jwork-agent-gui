@@ -1695,6 +1695,30 @@
     -fx-alignment: center;
 }
 
+/* ---------- 知识页（拓展 Tab）：智能体 caption、空态引导卡、文档行、向量配置 ---------- */
+.knowledge-agent-caption { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
+.knowledge-empty-card {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -gim-border;
+    -fx-border-radius: 10;
+    -fx-padding: 14 16 14 16;
+}
+.knowledge-empty-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 16px;
+    -fx-text-fill: -gim-tint-fg-3;
+}
+.knowledge-empty-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.knowledge-doc-row {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 8;
+    -fx-padding: 8 12 8 12;
+}
+.knowledge-doc-row:hover { -fx-background-color: -gim-hover; }
+.knowledge-doc-name { -fx-font-size: 13px; -fx-text-fill: -gim-text-title; }
+.vector-field { -fx-font-size: 12px; }
+
 /* ============================================================
  * 拓展页：左上角标签页（技能 / MCP 服务）——对标顶部细横线 + accent 下划线
  * ============================================================ */

@@ -408,6 +408,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         this.appShell = appShell;
         this.tasksView = tasksView;
         this.extensionsView = extensionsView;
+        // 知识页进入时默认跟随侧栏当前智能体（与新建会话归属同口径）
+        extensionsView.bindCurrentAgent(this::currentAgentCode);
         this.usageView = usageView;
         this.terminalView = terminalView;
         this.agentAdminService = agentAdminService;

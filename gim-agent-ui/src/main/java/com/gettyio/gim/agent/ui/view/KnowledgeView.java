@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.ui.view;
 
+import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService;
 import com.gettyio.gim.agent.core.knowledge.KnowledgeService;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
@@ -50,6 +51,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Supplier;
 
 /**
  * 知识库整页（挂在「拓展」页「知识」Tab）：按智能体导入 / 列出 / 删除 {@code knowledge/} 下的资料，
@@ -66,9 +68,13 @@ public class KnowledgeView {
 
     private final VBox root = new VBox();
     private final ComboBox<AgentChoice> agentCombo = new ComboBox<>();
+    private final Label agentCaption = new Label();
     private final VBox docBox = new VBox(6);
-    private final Label docEmpty = new Label();
+    private final VBox docEmpty = new VBox(6);
+    private final Label docEmptyTitle = new Label();
+    private final Label docEmptyHint = new Label();
     private final TextArea indexArea = new TextArea();
+    private final Label indexHint = new Label();
     private Label titleLabel;
     private Label descLabel;
     private final Label docsHeader = new Label();
@@ -86,6 +92,8 @@ public class KnowledgeView {
     private final SecretField apiKey;
     private Button reindexBtn;
     private HBox vectorHeadRow;
+    /** 侧栏当前智能体供给（主控制器注入）：进入知识页时默认跟随它 */
+    private Supplier<String> currentAgent = () -> null;
 
     private static final DateTimeFormatter DATE_FMT =
             DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
@@ -123,6 +131,16 @@ public class KnowledgeView {
         return root;
     }
 
+    /** 注入侧栏当前智能体编码供给；进入知识页（activate）时默认选中它。 */
+    public void bindCurrentAgent(Supplier<String> supplier) {
+        this.currentAgent = supplier == null ? () -> null : supplier;
+    }
+
+    /** 进入知识页：跟随侧栏当前智能体（定义已删时回落默认智能体、再回落首项），再加载内容。 */
+    public void activate() {
+        reloadWith(currentAgent.get());
+    }
+
     /** 控制一级标题显隐（Tab 内隐藏，避免与标签名重复）。 */
     public void showHeaderTitle(boolean visible) {
         if (titleLabel != null) {
@@ -154,6 +172,7 @@ public class KnowledgeView {
 
         agentCombo.setMinWidth(180);
         agentCombo.setMaxWidth(280);
+        agentCaption.getStyleClass().add("knowledge-agent-caption");
         agentCombo.setCellFactory(v -> new ListCell<>() {
             @Override
             protected void updateItem(AgentChoice item, boolean empty) {
@@ -169,7 +188,7 @@ public class KnowledgeView {
 
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
-        HBox headRow = new HBox(10, descLabel, spacer, agentCombo, refreshBtn, importUrlBtn, importBtn);
+        HBox headRow = new HBox(10, descLabel, spacer, agentCaption, agentCombo, refreshBtn, importUrlBtn, importBtn);
         headRow.setAlignment(Pos.CENTER_LEFT);
         VBox headText = new VBox(4, titleLabel, headRow);
         headText.setMaxWidth(Double.MAX_VALUE);
@@ -178,20 +197,32 @@ public class KnowledgeView {
         header.getStyleClass().add("page-header");
 
         docsHeader.getStyleClass().add("section-title");
-        docEmpty.getStyleClass().add("card-meta");
+        // 空态引导卡：说清支持格式与「导入即生效」，而不是一句暂无数据
+        Label emptyIcon = new Label("\uE82D");
+        emptyIcon.getStyleClass().add("knowledge-empty-icon");
+        docEmptyTitle.getStyleClass().add("knowledge-empty-title");
+        docEmptyHint.getStyleClass().add("card-meta");
+        docEmptyHint.setWrapText(true);
+        HBox emptyHead = new HBox(8, emptyIcon, docEmptyTitle);
+        emptyHead.setAlignment(Pos.CENTER_LEFT);
+        docEmpty.getStyleClass().add("knowledge-empty-card");
+        docEmpty.getChildren().addAll(emptyHead, docEmptyHint);
         docBox.getStyleClass().add("knowledge-doc-box");
 
         indexHeader.getStyleClass().add("section-title");
+        indexHint.getStyleClass().add("card-meta");
+        indexHint.setWrapText(true);
         indexArea.setEditable(false);
         indexArea.setWrapText(true);
-        indexArea.setPrefHeight(220);
         indexArea.setStyle("-fx-font-family: \"Cascadia Mono\", \"Consolas\", monospace; -fx-font-size: 12px;");
 
         buildVectorSection();
 
+        // 引导顺序：① 知识文件 → ② 自动目录索引 → ③ 可选语义检索；
+        // 可选增强放最后，避免未配置时夹在中间像必配项
         VBox content = new VBox(10, docsHeader, docEmpty, docBox,
-                new Separator(), vectorHeadRow, vectorHint, configGrid(), vectorStatus,
-                new Separator(), indexHeader, indexArea);
+                new Separator(), indexHeader, indexHint, indexArea,
+                new Separator(), vectorHeadRow, vectorHint, configGrid(), vectorStatus);
         content.setMaxWidth(Double.MAX_VALUE);
 
         ScrollPane scroller = new ScrollPane(content);
@@ -209,11 +240,14 @@ public class KnowledgeView {
         if (titleLabel != null) {
             titleLabel.setText(I18n.t("knowledge.title"));
             descLabel.setText(I18n.t("knowledge.desc"));
+            agentCaption.setText(I18n.t("knowledge.agent"));
             importBtn.setText(I18n.t("knowledge.import"));
             importUrlBtn.setText(I18n.t("knowledge.importUrl"));
             docsHeader.setText(I18n.t("knowledge.docs"));
-            docEmpty.setText(I18n.t("knowledge.empty"));
+            docEmptyTitle.setText(I18n.t("knowledge.empty.title"));
+            docEmptyHint.setText(I18n.t("knowledge.empty.hint"));
             indexHeader.setText(I18n.t("knowledge.index"));
+            indexHint.setText(I18n.t("knowledge.index.hint"));
             refreshBtn.getTooltip().setText(I18n.t("common.refresh"));
             applyVectorI18n();
             loadSelected();
@@ -346,27 +380,40 @@ public class KnowledgeView {
 
     /** 刷新智能体下拉（保留当前选中），再加载选中项内容。 */
     public void reload() {
-        String previous = agentCombo.getValue() == null ? null : agentCombo.getValue().code;
+        reloadWith(null);
+    }
+
+    /** preferred 非空时优先选它（进入页跟随当前智能体）；否则保留旧选中；都落空才取首项。 */
+    private void reloadWith(String preferred) {
+        String previous = preferred != null ? preferred
+                : (agentCombo.getValue() == null ? null : agentCombo.getValue().code);
         agentCombo.getItems().clear();
         for (AgentDefinition a : knowledgeService.listAgents()) {
             String name = a.getAgentName() == null || a.getAgentName().isBlank()
                     ? a.getAgentCode() : a.getAgentName();
             agentCombo.getItems().add(new AgentChoice(a.getAgentCode(), name));
         }
-        AgentChoice target = null;
-        if (previous != null) {
-            for (AgentChoice c : agentCombo.getItems()) {
-                if (Objects.equals(c.code, previous)) {
-                    target = c;
-                    break;
-                }
-            }
+        AgentChoice target = find(previous);
+        if (target == null && preferred != null) {
+            target = find(MultiAgentGateway.DEFAULT_AGENT_CODE);
         }
         if (target == null && !agentCombo.getItems().isEmpty()) {
             target = agentCombo.getItems().get(0);
         }
         agentCombo.setValue(target);
         loadSelected();
+    }
+
+    private AgentChoice find(String code) {
+        if (code == null) {
+            return null;
+        }
+        for (AgentChoice c : agentCombo.getItems()) {
+            if (Objects.equals(c.code, code)) {
+                return c;
+            }
+        }
+        return null;
     }
 
     private void loadSelected() {
@@ -379,7 +426,15 @@ public class KnowledgeView {
         renderDocs(choice.code);
         indexArea.setText(knowledgeService.readIndex(choice.code));
         indexArea.deselect();
+        fitIndexHeight();
         refreshVectorStatus();
+    }
+
+    /** 索引预览高度随内容收放：空骨架只占小条，长索引封顶 12 行内滚，不再固定半屏空白。 */
+    private void fitIndexHeight() {
+        String text = indexArea.getText() == null ? "" : indexArea.getText();
+        int lines = text.split("\n", -1).length;
+        indexArea.setPrefRowCount(Math.max(4, Math.min(12, lines)));
     }
 
     private void renderDocs(String code) {
@@ -445,6 +500,7 @@ public class KnowledgeView {
         }
         renderDocs(choice.code);
         indexArea.setText(knowledgeService.readIndex(choice.code));
+        fitIndexHeight();
         if (ok == 0) {
             error(lastError);
         } else {
@@ -506,6 +562,7 @@ public class KnowledgeView {
                 }
                 renderDocs(agentCode);
                 indexArea.setText(knowledgeService.readIndex(agentCode));
+                fitIndexHeight();
                 refreshVectorStatus();
                 info(I18n.t("knowledge.importUrl.title"), I18n.t("knowledge.importUrl.ok", doneName));
             });
@@ -539,6 +596,7 @@ public class KnowledgeView {
             knowledgeService.deleteDoc(code, name);
             renderDocs(code);
             indexArea.setText(knowledgeService.readIndex(code));
+            fitIndexHeight();
         } catch (RuntimeException e) {
             error(e.getMessage());
         }
