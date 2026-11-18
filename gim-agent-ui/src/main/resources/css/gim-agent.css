@@ -1318,6 +1318,12 @@
     -fx-pref-width: 236;
     -fx-min-width: 236;
 }
+/* 菜单滚动容器：底色同菜单本体（滚动条槽亦米色不留白），宽度与菜单本体一致；
+   焦点态同底色，避免默认焦点外环；滚动条窄化对齐能力列表口径 */
+.settings-menu-scroll { -fx-background-color: -gim-canvas; -fx-padding: 0; -fx-pref-width: 236; -fx-min-width: 236; }
+.settings-menu-scroll:focused { -fx-background-color: -gim-canvas; }
+.settings-menu-scroll > .viewport { -fx-background-color: transparent; }
+.settings-menu-scroll .scroll-bar { -fx-pref-width: 8; }
 .settings-search {
     -fx-pref-width: 210;
     -fx-max-width: 210;

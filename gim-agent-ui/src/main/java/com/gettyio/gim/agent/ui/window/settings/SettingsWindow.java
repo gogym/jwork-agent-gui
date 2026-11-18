@@ -412,7 +412,7 @@ public class SettingsWindow {
 
     // ---- 菜单构建（含搜索过滤） ----
 
-    private VBox buildMenu() {
+    private ScrollPane buildMenu() {
         menuBox = new VBox();
         menuBox.getStyleClass().add("settings-menu");
 
@@ -462,7 +462,16 @@ public class SettingsWindow {
         Region spacer = new Region();
         VBox.setVgrow(spacer, Priority.ALWAYS);
         menuBox.getChildren().add(spacer);
-        return menuBox;
+        // 矮窗口下菜单纵向滚动避免分组/条目被裁切（横向永不滚）；
+        // 菜单本体最小高绑视口（同右侧内容区做法）：高窗口底色与 spacer 保持铺满整列不留白
+        ScrollPane menuScroll = new ScrollPane(menuBox);
+        menuScroll.setFitToWidth(true);
+        menuScroll.setHbarPolicy(ScrollPane.ScrollBarPolicy.NEVER);
+        menuScroll.getStyleClass().add("settings-menu-scroll");
+        menuBox.minHeightProperty().bind(Bindings.createDoubleBinding(
+                () -> menuScroll.getViewportBounds().getHeight(),
+                menuScroll.viewportBoundsProperty()));
+        return menuScroll;
     }
 
     private Label addSection(String text) {
