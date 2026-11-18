@@ -29,6 +29,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     group_id           TEXT,
     title              TEXT,
     model_code         TEXT,
+    -- 工具条审批档（ask|auto|readonly）：按会话持久化，切换/重启恢复；NULL=跟随设置「安全」页全局默认
+    approval_mode      TEXT,
     message_count      INTEGER DEFAULT 0,
     status             TEXT DEFAULT 'ACTIVE',
     pinned             INTEGER DEFAULT 0,

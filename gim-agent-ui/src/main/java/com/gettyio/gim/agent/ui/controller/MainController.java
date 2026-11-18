@@ -494,6 +494,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         toolbar = new com.gettyio.gim.agent.ui.chat.ToolbarPickers(
                 themeMenuButton, modelButton, approvalButton, templateButton, compareButton, inputField,
                 providerAdminService, securityAdminService, promptTemplateAdminService, this);
+        // 工具条选择按会话持久化：菜单选中即写当前会话行（空态尚无行，建会话时随写）
+        toolbar.setSessionPrefsSink(this::persistToolbarPrefs);
         sidebar = new com.gettyio.gim.agent.ui.chat.sidebar.SessionSidebar(
                 sessionsBox, sessionsHeader, recentHeader, recentBox, recentSectionCaret,
                 sessionsCount, agentSwitcher, agentAvatar, agentNameLabel, agentDescLabel,
@@ -561,6 +563,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         agentSwitcher.setOnMouseClicked(e -> sidebar.showAgentMenu());
         // 账号 chip（头像 + 账号名）：点击直达设置「账号」页；完整设置菜单仍走右侧齿轮
         userChip.setOnMouseClicked(e -> handleOpenSettings(I18n.t("settings.menu.account")));
+        // 审批全局默认先落（空态基准）；下面恢复会话时以会话行的档位优先
+        toolbar.initApprovalFromDefault();
         refreshSessions();
         List<ChatSession> scoped = sidebar.sessionsOfAgent();
         if (scoped.isEmpty()) {
@@ -610,8 +614,6 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
 
         applyI18n();
         toolbar.buildThemeMenu();
-        // 审批初始档：读设置「安全」页持久化的全局默认（未设置回退询问）
-        toolbar.initApprovalFromDefault();
         // 输入框工具条：附件芯片行仅在有待发图时占位；模型与审批下拉填充可选项
         attachChipsBox.visibleProperty().bind(Bindings.isNotEmpty(attachChipsBox.getChildren()));
         attachChipsBox.managedProperty().bind(attachChipsBox.visibleProperty());
@@ -980,6 +982,8 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             // 工作区右栏即时挂上该会话的专属目录入口（归属当前智能体；首次产出前为空，收尾后自动刷新）
             followWorkspace(currentSessionId, currentAgentCode());
             refreshSessions();
+            // 空态里已做的工具条选择随写进新会话行（模型/审批档）
+            persistToolbarPrefs(toolbar.currentSessionPrefs());
         }
         List<ImageAttachment> images = attachmentBar.snapshotImages();
         List<FileAttachment> docs = attachmentBar.snapshotDocs();
@@ -1129,6 +1133,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
             currentSessionId = chatService.createSession(currentAgentCode());
             followWorkspace(currentSessionId, currentAgentCode());
             refreshSessions();
+            persistToolbarPrefs(toolbar.currentSessionPrefs());
         }
         String sid = currentSessionId;
         String agent = agentOfSession(sid);
@@ -1466,6 +1471,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
 
     private void switchToSession(String sessionId) {
         currentSessionId = sessionId;
+        restoreToolbarPrefs(sessionId);
         hidePlanBanner();
         historyPager.render(sessionId);
         // 高亮当前会话行
@@ -1473,6 +1479,22 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         updateHeaderTitle();
         // 工作区右栏跟随会话：按会话归属智能体解析工作区，「当前会话」入口切到其专属目录（智能体产物实际落点）
         followWorkspace(sessionId);
+    }
+
+    /** 从会话行恢复工具条模型/审批档：空字段回退全局默认（跟随默认/安全页默认档）。 */
+    private void restoreToolbarPrefs(String sessionId) {
+        ChatSession s = sessionId == null ? null
+                : database.sessionDao().findBySessionId(sessionId).orElse(null);
+        toolbar.applySessionPrefs(s == null ? null : s.getModelCode(),
+                s == null ? null : s.getApprovalMode());
+    }
+
+    /** 工具条选择变更：落当前会话行；无会话（新任务空态）只留内存，首条消息建会话时随写。 */
+    private void persistToolbarPrefs(com.gettyio.gim.agent.ui.chat.ToolbarPickers.SessionPrefs prefs) {
+        if (currentSessionId == null) {
+            return;
+        }
+        database.sessionDao().updateToolbarPrefs(currentSessionId, prefs.modelCode(), prefs.approvalMode());
     }
 
     // ===================== 消息气泡操作：复制 / 重生成 / 编辑重发 / 删除 =====================

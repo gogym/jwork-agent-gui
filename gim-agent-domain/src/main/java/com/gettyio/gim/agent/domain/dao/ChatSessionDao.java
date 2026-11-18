@@ -33,7 +33,7 @@ import java.util.Optional;
 public class ChatSessionDao {
 
     private static final String COLUMNS =
-            "id, session_id, agent_code, group_id, title, model_code, message_count, status, pinned, favorite, parent_session_id, compacted_tokens, created_at, updated_at";
+            "id, session_id, agent_code, group_id, title, model_code, approval_mode, message_count, status, pinned, favorite, parent_session_id, compacted_tokens, created_at, updated_at";
 
     private final SqlRunner runner;
 
@@ -49,6 +49,7 @@ public class ChatSessionDao {
         s.setGroupId(rs.getString("group_id"));
         s.setTitle(rs.getString("title"));
         s.setModelCode(rs.getString("model_code"));
+        s.setApprovalMode(rs.getString("approval_mode"));
         s.setMessageCount(SqlRunner.getInt(rs, "message_count"));
         s.setStatus(rs.getString("status"));
         s.setPinned(SqlRunner.getInt(rs, "pinned"));
@@ -65,9 +66,9 @@ public class ChatSessionDao {
         s.setCreatedAt(now);
         s.setUpdatedAt(now);
         long id = runner.insert(
-                "INSERT INTO sessions (session_id, agent_code, group_id, title, model_code, message_count, status, pinned, favorite, parent_session_id, created_at, updated_at) "
-                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
-                s.getSessionId(), s.getAgentCode(), s.getGroupId(), s.getTitle(), s.getModelCode(),
+                "INSERT INTO sessions (session_id, agent_code, group_id, title, model_code, approval_mode, message_count, status, pinned, favorite, parent_session_id, created_at, updated_at) "
+                        + "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                s.getSessionId(), s.getAgentCode(), s.getGroupId(), s.getTitle(), s.getModelCode(), s.getApprovalMode(),
                 s.getMessageCount(), s.getStatus(), s.getPinned() == null ? 0 : s.getPinned(),
                 s.getFavorite() == null ? 0 : s.getFavorite(), s.getParentSessionId(), now, now);
         s.setId(id);
@@ -137,6 +138,16 @@ public class ChatSessionDao {
     /** 收藏/取消收藏：只改 {@code favorite}，不影响排序。 */
     public int updateFavorite(String sessionId, boolean favorite) {
         return runner.update("UPDATE sessions SET favorite=? WHERE session_id=?", favorite ? 1 : 0, sessionId);
+    }
+
+    /**
+     * 工具条选择（模型/审批档）：按会话持久化，切换会话与重启时恢复。
+     * <p>与重命名/分组同理不碰 {@code updated_at}：改下拉不该把会话顶到最近排序最前。
+     * 两参传 null 即「跟随默认」（模型不覆盖/审批跟全局默认）。</p>
+     */
+    public int updateToolbarPrefs(String sessionId, String modelCode, String approvalMode) {
+        return runner.update("UPDATE sessions SET model_code=?, approval_mode=? WHERE session_id=?",
+                modelCode, approvalMode, sessionId);
     }
 
     /**

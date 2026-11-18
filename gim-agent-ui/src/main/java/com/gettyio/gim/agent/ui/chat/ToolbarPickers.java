@@ -60,6 +60,7 @@ import java.util.Map;
  * 输入框工具条上的三个下拉：齿轮（设置/外观/语言/关于/退出登录）、模型选择、审批档位。
  * <p>各自复用单一 {@link ContextMenu} 实例并做开关切换，避免反复点击累积弹出。持有当前选中的
  * 模型与审批档位，供发送流程读取。由 {@code MainController} 在 FXML 注入后构造并委托。</p>
+ * <p>模型与审批档按会话持久化（sessions 行）：菜单选中即经回调写库，切换会话/重启时原样恢复。</p>
  *
  * @author gogym
  */
@@ -81,11 +82,11 @@ public class ToolbarPickers {
     private final PromptTemplateAdminService promptTemplateAdminService;
     private final ChatHost host;
 
-    /** 当前审批档位（权限模式 + 是否自动通过）；由审批按钮弹菜单选择，仅影响下一条要发的消息 */
+    /** 当前审批档位（权限模式 + 是否自动通过）；由审批按钮弹菜单选择，按会话持久化、切换/重启恢复 */
     private ApprovalOption approval = approvalOptions().get(0);
     /** 规划模式开关（独立于审批档位）：勾选后下一条消息先走只读计划轮，产出 plans/PLAN.md 供确认 */
     private boolean planModeRequested;
-    /** 当前选中的模型（工具条模型菜单选择）；null 或跟随默认项表示不覆盖 */
+    /** 当前选中的模型（工具条模型菜单选择）；null 或跟随默认项表示不覆盖；按会话持久化 */
     private ModelOption selectedModel;
     /** 审批选择菜单：复用单一实例 */
     private ContextMenu approvalMenu;
@@ -107,6 +108,8 @@ public class ToolbarPickers {
     private ContextMenu compareMenu;
     /** 对比菜单最近一次关闭的时间戳（毫秒） */
     private long compareMenuHiddenAt;
+    /** 会话级选择变更回调：宿主写当前会话行；恢复路径不触发 */
+    private java.util.function.Consumer<SessionPrefs> sessionPrefsSink;
 
     public ToolbarPickers(Button themeMenuButton, Button modelButton, Button approvalButton,
                           Button templateButton, Button compareButton, com.gettyio.gim.agent.ui.jcef.JcefComposer inputField,
@@ -175,9 +178,78 @@ public class ToolbarPickers {
         this.planModeRequested = requested;
     }
 
-    /** 审批初始档：读设置「安全」页持久化的全局默认（未设置回退询问）。 */
+    /** 审批初始档：读设置「安全」页持久化的全局默认（未设置回退询问）；会话行有值时恢复优先。 */
     public void initApprovalFromDefault() {
         approval = approvalForDefault(securityAdminService.getApprovalDefault());
+    }
+
+    /** 会话级工具条选择（模型 + 审批档）：宿主落 sessions 行，切换/重启时原样恢复。 */
+    public record SessionPrefs(String modelCode, String approvalMode) {
+    }
+
+    /** 挂选择变更回调：此后每次菜单选中都通知宿主落当前会话行。 */
+    public void setSessionPrefsSink(java.util.function.Consumer<SessionPrefs> sink) {
+        this.sessionPrefsSink = sink;
+    }
+
+    /** 当前工具条选择快照：首条消息建会话时随写（空态尚无会话行）。 */
+    public SessionPrefs currentSessionPrefs() {
+        return new SessionPrefs(selectedModelCode(), approvalKey());
+    }
+
+    /** 审批档持久化取值：与设置「安全」页默认档同一套词表（ask|auto|readonly）。 */
+    public String approvalKey() {
+        return approvalKey(approval.mode(), approval.autoApprove());
+    }
+
+    /** 档位→持久化值：自动通过优先（询问/自动同为 ACCEPT_EDITS，靠该标志区分）。 */
+    static String approvalKey(PermissionMode mode, boolean autoApprove) {
+        if (autoApprove) {
+            return SecurityAdminService.APPROVAL_AUTO;
+        }
+        return mode == PermissionMode.EXPLORE ? SecurityAdminService.APPROVAL_READONLY : SecurityAdminService.APPROVAL_ASK;
+    }
+
+    /**
+     * 恢复会话级选择：模型按编码找回（models.model_code 全局唯一），缺失/禁用回退跟随默认；
+     * 审批档空值回退全局默认。只改状态与重画，不触发落库回调。
+     */
+    public void applySessionPrefs(String modelCode, String approvalMode) {
+        selectedModel = matchModelOption(modelOptions(), modelCode);
+        approval = approvalForDefault(approvalMode == null || approvalMode.isBlank()
+                ? securityAdminService.getApprovalDefault() : approvalMode);
+        renderModelButton();
+        renderApprovalButton();
+    }
+
+    /** 按编码找会话持久化的模型；空编码或无匹配（已删/禁用/未测通）返回 null 即跟随默认。 */
+    static ModelOption matchModelOption(List<ModelOption> options, String modelCode) {
+        if (modelCode == null || modelCode.isBlank()) {
+            return null;
+        }
+        return options.stream()
+                .filter(o -> !o.followDefault() && modelCode.equals(o.modelCode()))
+                .findFirst().orElse(null);
+    }
+
+    /** 菜单选中模型：更新选择并重画，通知宿主落当前会话行。 */
+    void selectModel(ModelOption opt) {
+        selectedModel = opt;
+        renderModelButton();
+        notifySessionPrefs();
+    }
+
+    /** 菜单选中审批档：更新选择并重画，通知宿主落当前会话行。 */
+    void selectApproval(ApprovalOption opt) {
+        approval = opt;
+        renderApprovalButton();
+        notifySessionPrefs();
+    }
+
+    private void notifySessionPrefs() {
+        if (sessionPrefsSink != null) {
+            sessionPrefsSink.accept(currentSessionPrefs());
+        }
     }
 
     // ===================== 齿轮：设置/外观/语言/关于/退出登录 =====================
@@ -305,7 +377,7 @@ public class ToolbarPickers {
     // ===================== 模型选择 =====================
 
     /** 模型菜单可选项：首项「跟随默认」（不覆盖），其余为已启用且连通测试可用的模型；文案随语言解析。 */
-    private List<ModelOption> modelOptions() {
+    List<ModelOption> modelOptions() {
         List<ModelOption> out = new ArrayList<>();
         out.add(new ModelOption(null, null, I18n.t("model.followDefault"),
                 "\uEC92", I18n.t("model.followDefault.desc"), false));
@@ -404,10 +476,7 @@ public class ToolbarPickers {
         Label desc = new Label(opt.desc());
         desc.getStyleClass().add("approval-desc");
         // 说明保持单行（不换行）；超长时由 StackPane 布局压缩截断，不挤压右侧勾选
-        return twoLineMenuItem(icon, title, opt.vision() ? visionMark() : null, desc, checked, 200, () -> {
-            selectedModel = opt;
-            renderModelButton();
-        });
+        return twoLineMenuItem(icon, title, opt.vision() ? visionMark() : null, desc, checked, 200, () -> selectModel(opt));
     }
 
     /** 多模态小图标：E8B9 图片字形（蓝色），紧跟模型名称右侧，悬停提示「支持」。 */
@@ -524,7 +593,7 @@ public class ToolbarPickers {
     // ===================== 审批档位 =====================
 
     /** 审批三档：询问(ACCEPT_EDITS)/自动通过(ACCEPT_EDITS+autoApprove)/只读(EXPLORE)；文案随语言解析。 */
-    private List<ApprovalOption> approvalOptions() {
+    List<ApprovalOption> approvalOptions() {
         return List.of(
                 new ApprovalOption(PermissionMode.ACCEPT_EDITS, false, I18n.t("approval.ask"),
                         "\uEA18", I18n.t("approval.ask.desc"), false),
@@ -632,10 +701,7 @@ public class ToolbarPickers {
             icon.getStyleClass().add("approval-icon-danger");
             title.getStyleClass().add("approval-title-danger");
         }
-        return twoLineMenuItem(icon, title, desc, checked, 360, () -> {
-            approval = opt;
-            renderApprovalButton();
-        });
+        return twoLineMenuItem(icon, title, desc, checked, 360, () -> selectApproval(opt));
     }
 
     // ===================== 菜单布局工具 =====================
@@ -689,7 +755,7 @@ public class ToolbarPickers {
     }
 
     /** 模型菜单条目：providerCode/modelCode 同时为空表示「跟随默认」（不覆盖）。 */
-    private record ModelOption(String providerCode, String modelCode, String label, String icon, String desc,
+    record ModelOption(String providerCode, String modelCode, String label, String icon, String desc,
                                boolean vision) {
         boolean followDefault() {
             return providerCode == null;
@@ -702,7 +768,7 @@ public class ToolbarPickers {
     }
 
     /** 审批下拉条目：映射到 {@link PermissionMode}，携带图标、说明与危险标记。 */
-    private record ApprovalOption(PermissionMode mode, boolean autoApprove, String label, String icon, String desc,
+    record ApprovalOption(PermissionMode mode, boolean autoApprove, String label, String icon, String desc,
                                   boolean danger) {
 
         /** 档位同一性：权限模式 + 自动通过标志（询问/自动同为 ACCEPT_EDITS，靠 autoApprove 区分）。 */

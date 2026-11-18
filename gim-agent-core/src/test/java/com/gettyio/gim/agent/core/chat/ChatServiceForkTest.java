@@ -130,6 +130,20 @@ class ChatServiceForkTest {
     }
 
     @Test
+    @DisplayName("分支携带工具条选择：模型与审批档随会话行复制")
+    void forkCarriesToolbarPrefs() {
+        String sid = "s-prefs";
+        seedSession(sid, "问题一", "回答一");
+        db.sessionDao().updateToolbarPrefs(sid, "glm-4.6", "auto");
+
+        String newId = chatService.forkSession(sid, 0L);
+
+        ChatSession copy = db.sessionDao().findBySessionId(newId).orElseThrow();
+        assertEquals("glm-4.6", copy.getModelCode());
+        assertEquals("auto", copy.getApprovalMode());
+    }
+
+    @Test
     @DisplayName("message_count 与复制条数一致，空会话分支为 0")
     void forkCountsMessages() {
         String sid = "s-count";

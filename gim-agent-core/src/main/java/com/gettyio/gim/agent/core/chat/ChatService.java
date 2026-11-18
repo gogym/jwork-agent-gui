@@ -1044,6 +1044,7 @@ public class ChatService {
         copy.setGroupId(src.getGroupId());
         copy.setTitle(deriveBranchTitle(src.getTitle()));
         copy.setModelCode(src.getModelCode());
+        copy.setApprovalMode(src.getApprovalMode());
         copy.setStatus(SessionStatus.ACTIVE.name());
         copy.setMessageCount(0);
         copy.setParentSessionId(sessionId);

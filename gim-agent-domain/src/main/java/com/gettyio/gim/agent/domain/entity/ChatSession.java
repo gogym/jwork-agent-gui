@@ -43,6 +43,9 @@ public class ChatSession {
 
     private String modelCode;
 
+    /** 工具条审批档（ask|auto|readonly）：按会话持久化，切换/重启恢复；null=跟随全局默认 */
+    private String approvalMode;
+
     private Integer messageCount = 0;
 
     /** ACTIVE / CLOSED，见 SessionStatus */

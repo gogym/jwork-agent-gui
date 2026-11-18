@@ -74,7 +74,7 @@ public class SqlSchemaInitializer {
      * <p>改 schema.sql 的表或列时同步 +1：补列本身按 schema.sql 现算、幂等，不依赖这个数；
      * 它的作用是留下证据——出问题时能判断这份库是被哪个版本建过、是不是比本程序还新。</p>
      */
-    public static final int SCHEMA_VERSION = 3;
+    public static final int SCHEMA_VERSION = 4;
 
     /** 建表语句头：{@code CREATE TABLE [IF NOT EXISTS] <名字> (} */
     private static final Pattern CREATE_TABLE_HEAD = Pattern.compile(
