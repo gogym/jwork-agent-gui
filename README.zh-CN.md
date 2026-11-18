@@ -10,6 +10,10 @@
 
 Jwork是一个真正在你机器上干活的桌面 AI 助理：读写真实文件、经你批准后执行命令、基于你自己的文档回答问题、联网搜索、跑定时任务，并跨会话记住你的上下文。一切数据都存放在你磁盘上的 `~/.jwork/`——无需账号、不依赖云服务。接入任意 OpenAI 兼容提供商，或本地模型服务（Ollama / LM Studio），就可以开始委派了。
 
+<p align="center">
+  <img src="img/main-window.png" width="860" alt="Jwork 主窗口">
+</p>
+
 ## 它能为你做什么
 
 ### 1. 接管文件与代码杂活
@@ -66,6 +70,14 @@ Jwork是一个真正在你机器上干活的桌面 AI 助理：读写真实文�
 - 界面语言：English / 简体中文 / 繁體中文 · 亮暗主题 · 三档字号。
 - 会话搜索命令面板（标题 + 全文）、会话分组、按工作区组织的会话管理。
 
+## 界面截图
+
+| 联网搜索并附来源 | 守卫链与产物交付 |
+| --- | --- |
+| <img src="img/chat-web-search.png" width="440" alt="联网搜索回答与来源"> | <img src="img/chat-guard-artifact.png" width="440" alt="受守卫的工具调用与产物交付"> |
+| **应用内产物预览** | **技能市场** |
+| <img src="img/artifact-preview.png" width="440" alt="产物预览窗口"> | <img src="img/skills-market.png" width="440" alt="技能市场"> |
+
 ## 架构
 
 | 模块 | 职责 |
@@ -118,6 +130,10 @@ powershell -ExecutionPolicy Bypass -File .\scripts\package-windows.ps1 -Type msi
 
 1. 打开 **设置 → 模型 → 提供商 / 模型**，添加提供商（任意 OpenAI 兼容端点）并设置默认模型。本地 Ollama / LM Studio 实例会被自动探测。设置菜单带搜索框，迷路时直接搜。
 2. 委派你的第一件杂活：附上一个文档、在任意应用中划词后按热键，或让智能体整理一个文件夹——批准受守卫的命令，看着产物出现。
+
+<p align="center">
+  <img src="img/settings-models.png" width="760" alt="设置 — 模型页">
+</p>
 
 ## 数据与隐私
 

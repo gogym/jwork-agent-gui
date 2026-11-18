@@ -10,6 +10,10 @@ English | [简体中文](README.zh-CN.md)
 
 Jwork is a desktop AI assistant that actually gets work done on your machine: it reads and writes real files, runs commands under your approval, answers from your own documents, searches the web, executes scheduled jobs, and remembers your context across sessions. Everything lives in `~/.jwork/` on your disk — no account, no cloud dependency. Plug in any OpenAI-compatible provider, or a local model server (Ollama / LM Studio), and start delegating.
 
+<p align="center">
+  <img src="img/main-window.png" width="860" alt="Jwork main window">
+</p>
+
 ## What it does for you
 
 ### 1. Takes file & code chores off your plate
@@ -66,6 +70,14 @@ Jwork is a desktop AI assistant that actually gets work done on your machine: it
 - i18n: English / 简体中文 / 繁體中文 · light & dark themes · three font scales.
 - Session search command palette (titles + full text), session groups, workspace-aware session organization.
 
+## Screenshots
+
+| Web search with sources | Guard chain & artifact delivery |
+| --- | --- |
+| <img src="img/chat-web-search.png" width="440" alt="Web search answer with sources"> | <img src="img/chat-guard-artifact.png" width="440" alt="Guarded tool calls and artifact delivery"> |
+| **In-app artifact preview** | **Skill marketplace** |
+| <img src="img/artifact-preview.png" width="440" alt="Artifact preview window"> | <img src="img/skills-market.png" width="440" alt="Skill marketplace"> |
+
 ## Architecture
 
 | Module | Responsibility |
@@ -118,6 +130,10 @@ Artifacts are placed under `build/installer/`.
 
 1. Open **Settings → Models → Providers / Models**, add a provider (any OpenAI-compatible endpoint) and set a default model. Local Ollama / LM Studio instances are detected automatically. The settings menu has a search box if you get lost.
 2. Delegate your first chore: attach a document, select text anywhere and press the hotkey, or ask the agent to organize a folder — approve the guarded commands and watch the artifacts appear.
+
+<p align="center">
+  <img src="img/settings-models.png" width="760" alt="Settings — Models page">
+</p>
 
 ## Data & Privacy
 
