@@ -6,7 +6,7 @@
 
     <groupId>com.gettyio.jwork</groupId>
     <artifactId>jwork-agent-gui</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <packaging>pom</packaging>
     <name>jwork-agent</name>
     <description>Jwork - 本地优先的个人 AI 助理工作台（JavaFX + AgentScope Java）</description>
