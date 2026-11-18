@@ -189,6 +189,74 @@ class TabularInspectorTest {
         assertFalse(TabularInspector.isTabular("a.docx"));
     }
 
+    @Test
+    @DisplayName("预览：全表收集、日期还原显示值、空表保留")
+    void previewCollectsSheetsWithDisplayValues() throws IOException {
+        List<TabularInspector.SheetTable> sheets = TabularInspector.preview(ordersXlsx());
+        assertEquals(2, sheets.size());
+        assertEquals("退款明细", sheets.get(0).name());
+        assertEquals(3, sheets.get(0).totalRows());
+        assertEquals(3, sheets.get(0).rows().size());
+        assertFalse(sheets.get(0).truncated());
+        assertEquals("2026-10-01", sheets.get(0).rows().get(1).get(1));
+        assertEquals("空表", sheets.get(1).name());
+        assertTrue(sheets.get(1).rows().isEmpty());
+    }
+
+    @Test
+    @DisplayName("预览：行数与单元格长度按预览上限钳制并带截断标记")
+    void previewCapsRowsAndCells() throws IOException {
+        Path big = bigXlsx(TabularInspector.PREVIEW_ROWS + 20);
+        List<TabularInspector.SheetTable> sheets = TabularInspector.preview(big);
+        assertEquals(1, sheets.size());
+        assertEquals(TabularInspector.PREVIEW_ROWS, sheets.get(0).rows().size());
+        assertEquals(TabularInspector.PREVIEW_ROWS + 20, sheets.get(0).totalRows());
+        assertTrue(sheets.get(0).truncated());
+
+        Path csv = dir.resolve("long.csv");
+        Files.writeString(csv, "a,b\n" + "x".repeat(TabularInspector.PREVIEW_CELL_CHARS + 50) + ",2\n");
+        List<TabularInspector.SheetTable> cs = TabularInspector.preview(csv);
+        assertEquals(1, cs.size());
+        assertEquals("(csv)", cs.get(0).name());
+        assertFalse(cs.get(0).truncated());
+        String cell = cs.get(0).rows().get(1).get(0);
+        assertEquals(TabularInspector.PREVIEW_CELL_CHARS + 1, cell.length());
+        assertTrue(cell.endsWith("…"), cell);
+    }
+
+    @Test
+    @DisplayName("预览：公式单元格取缓存计算结果而非公式串")
+    void previewFormulaShowsCachedResult() throws IOException {
+        Path file = dir.resolve("formula.xlsx");
+        try (XSSFWorkbook wb = new XSSFWorkbook()) {
+            XSSFSheet sheet = wb.createSheet("汇总");
+            XSSFRow head = sheet.createRow(0);
+            head.createCell(0).setCellValue("数量");
+            head.createCell(1).setCellValue("单价");
+            head.createCell(2).setCellValue("金额");
+            XSSFRow row = sheet.createRow(1);
+            row.createCell(0).setCellValue(120);
+            row.createCell(1).setCellValue(899);
+            row.createCell(2).setCellFormula("A2*B2");
+            wb.getCreationHelper().createFormulaEvaluator().evaluateAll();
+            try (OutputStream out = Files.newOutputStream(file)) {
+                wb.write(out);
+            }
+        }
+        List<TabularInspector.SheetTable> sheets = TabularInspector.preview(file);
+        assertEquals("107880", sheets.get(0).rows().get(1).get(2));
+    }
+
+    @Test
+    @DisplayName("预览：损坏/非表格/空路径返回空列表供调用方回退")
+    void previewFallsBackToEmpty() throws IOException {
+        Path bad = Files.write(dir.resolve("bad2.xlsx"), new byte[] {1, 2, 3, 4});
+        assertTrue(TabularInspector.preview(bad).isEmpty());
+        Path txt = Files.writeString(dir.resolve("note2.txt"), "hello");
+        assertTrue(TabularInspector.preview(txt).isEmpty());
+        assertTrue(TabularInspector.preview(null).isEmpty());
+    }
+
     private Path bigXlsx(int rows) throws IOException {
         Path file = dir.resolve("big" + rows + ".xlsx");
         try (XSSFWorkbook wb = new XSSFWorkbook()) {

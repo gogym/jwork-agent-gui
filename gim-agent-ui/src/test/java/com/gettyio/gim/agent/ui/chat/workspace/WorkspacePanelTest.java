@@ -50,7 +50,9 @@ class WorkspacePanelTest {
         assertEquals(WorkspacePanel.RenderKind.IMAGE, WorkspacePanel.classify("shot.png"));
         assertEquals(WorkspacePanel.RenderKind.IMAGE, WorkspacePanel.classify("photo.JPEG"));
         assertEquals(WorkspacePanel.RenderKind.DOC, WorkspacePanel.classify("report.pdf"));
-        assertEquals(WorkspacePanel.RenderKind.DOC, WorkspacePanel.classify("data.xlsx"));
+        assertEquals(WorkspacePanel.RenderKind.TABLE, WorkspacePanel.classify("data.xlsx"));
+        assertEquals(WorkspacePanel.RenderKind.TABLE, WorkspacePanel.classify("pay.CSV"));
+        assertEquals(WorkspacePanel.RenderKind.TABLE, WorkspacePanel.classify("rows.tsv"));
         assertEquals(WorkspacePanel.RenderKind.TEXT, WorkspacePanel.classify("main.py"));
         assertEquals(WorkspacePanel.RenderKind.TEXT, WorkspacePanel.classify("noext"));
         assertEquals(WorkspacePanel.RenderKind.TEXT, WorkspacePanel.classify(null));
@@ -130,6 +132,18 @@ class WorkspacePanelTest {
         // 目录缺失/空会话贡献空表，不抛异常
         assertTrue(WorkspacePanel.sessionArtifactPaths(null, ws.resolve("absent"), ws).isEmpty());
         assertTrue(WorkspacePanel.sessionArtifactPaths(null, null, ws).isEmpty());
+    }
+
+    @Test
+    void chooserCommandOnlyOnWindows() {
+        Path p = Paths.get("ws").resolve("a.xlsx");
+        assertEquals(List.of("rundll32.exe", "shell32.dll,OpenAs_RunDLL", p.toAbsolutePath().toString()),
+                WorkspacePanel.chooserCommand(p, "Windows 11"));
+        // 非 Windows 无 shell 选择器：返回 null 供调用方降级默认关联
+        assertNull(WorkspacePanel.chooserCommand(p, "Linux"));
+        assertNull(WorkspacePanel.chooserCommand(p, "Mac OS X"));
+        assertNull(WorkspacePanel.chooserCommand(null, "Windows 11"));
+        assertNull(WorkspacePanel.chooserCommand(p, null));
     }
 
     @Test

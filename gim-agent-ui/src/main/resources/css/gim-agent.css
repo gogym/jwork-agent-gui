@@ -846,6 +846,17 @@
     -fx-cursor: hand;
 }
 .workspace-open-sys:hover { -fx-background-color: -gim-btn-hover; }
+/* 外部打开菜单按钮：GRAPHIC_ONLY 只留图标+箭头，与工具按钮同形；箭头随图标灰阶、弹出态常驻底色 */
+.workspace-tool.menu-button { -fx-padding: 0 4 0 0; }
+.workspace-tool.menu-button > .arrow-button { -fx-background-color: transparent; -fx-padding: 0 2 0 0; }
+.workspace-tool.menu-button > .arrow-button > .arrow { -fx-background-color: -gim-text-4; -fx-padding: 2 3 2 3; }
+.workspace-tool.menu-button:hover > .arrow-button > .arrow,
+.workspace-tool.menu-button:showing > .arrow-button > .arrow { -fx-background-color: -gim-text-2; }
+.workspace-tool.menu-button:showing { -fx-background-color: -gim-hover; }
+/* 兜底页菜单按钮：文字/箭头锁次要灰，不被 modena 的 .menu-button 默认色接管 */
+.workspace-open-sys.menu-button > .label { -fx-text-fill: -gim-text-2; }
+.workspace-open-sys.menu-button > .arrow-button { -fx-background-color: transparent; -fx-padding: 0 0 0 4; }
+.workspace-open-sys.menu-button > .arrow-button > .arrow { -fx-background-color: -gim-text-4; -fx-padding: 2 3 2 3; }
 
 /* 输入区：卡片钉住最大宽度并居中，侧栏收起使聊天区变宽时输入框不跟着拉长 */
 .input-wrap { -fx-padding: 10 24 20 24; -fx-alignment: top-center; }

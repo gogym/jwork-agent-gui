@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.ui.chat.workspace;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.chat.FileTextExtractor;
 import com.gettyio.gim.agent.core.chat.SessionArtifactDelivery;
+import com.gettyio.gim.agent.core.doc.TabularInspector;
 import com.gettyio.gim.agent.core.fs.CanonicalPath;
 import com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer;
 import com.gettyio.gim.agent.ui.i18n.I18n;
@@ -28,7 +29,11 @@ import javafx.collections.ObservableList;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
+import javafx.scene.control.ButtonBase;
+import javafx.scene.control.ContentDisplay;
 import javafx.scene.control.Label;
+import javafx.scene.control.MenuButton;
+import javafx.scene.control.MenuItem;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.SplitPane;
 import javafx.scene.control.TextArea;
@@ -44,6 +49,7 @@ import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.layout.VBox;
 import com.gettyio.gim.agent.ui.jcef.JcefOsrView;
+import com.gettyio.gim.agent.ui.theme.UiTheme;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
@@ -102,7 +108,7 @@ public final class WorkspacePanel {
     private static final String HINT_CELL_CLASS = "workspace-tree-hint-cell";
 
     /** 阅读区分派类型；{@link #classify} 依据扩展名产出。 */
-    enum RenderKind { MARKDOWN, HTML, IMAGE, TEXT, DOC, BINARY, TOO_LARGE, MISSING }
+    enum RenderKind { MARKDOWN, HTML, IMAGE, TEXT, DOC, TABLE, BINARY, TOO_LARGE, MISSING }
 
     private final SplitPane workspaceSplit;
     private final Path workspaceRoot;
@@ -138,7 +144,14 @@ public final class WorkspacePanel {
     private final Label crumb = new Label();
     private final Button columnsBtn = new Button();
     private final Button filterBtn = new Button();
+    private final Button backBtn = new Button();
+    /** 外部打开菜单按钮：默认关联一键开 + 「选择其他程序」走系统选择器（见 fillOpenWithMenu）。 */
+    private final MenuButton openSysBtn = new MenuButton();
     private final Button closeBtn = new Button();
+    /** 当前预览的真实文件（可空=内联产物/未预览）：外部打开按钮据此显隐与取路径。 */
+    private Path previewPath;
+    /** 当前阅读区是否为表格（非空即表格载荷）：主题/语言切换时据此重渲染。 */
+    private List<TabularInspector.SheetTable> tableSheets;
     /** HTML/SVG 阅读复用单个 JCEF OSR 视图，首次渲染时创建。 */
     private JcefOsrView htmlView;
     /** 三列模式：阅读区与文件树并排；否则单面板只显示其一。 */
@@ -179,7 +192,7 @@ public final class WorkspacePanel {
 
     /**
      * 展开：未挂则先经宿主守护校准窗口（必要时扩窗），再挂入并把分栏位压到约 0.62；
-     * 每次展开复位到文件列表（返回按钮已移除，「收起再展开」即单面板下的返回路径）并刷新会话入口。
+     * 每次展开复位到文件列表（与头部返回按钮同口径的双返回路径）并刷新会话入口。
      */
     public void show() {
         if (workspaceSplit == null) {
@@ -363,6 +376,10 @@ public final class WorkspacePanel {
             sharedItem.setValue(new FileNode(sharedItem.getValue().path(), true, I18n.t("chat.workspace.shared")));
         }
         applyToolTips();
+        if (tableSheets != null) {
+            // 表格内的截断/空态提示是本地化文案：语言切换重渲染
+            renderTable(tableSheets);
+        }
         if (artifactsOnly) {
             // 产物视图子项含本地化标签（会话交付/空态提示）：整树重建顺带刷新
             rebuildTree();
@@ -415,6 +432,7 @@ public final class WorkspacePanel {
         show();
         String lang = language == null ? "" : language.trim().toUpperCase(Locale.ROOT);
         crumb.setText(I18n.t("chat.workspace.artifact") + (lang.isEmpty() ? "" : " · " + lang));
+        previewPath = null;
         showingViewer = true;
         applyInnerLayout();
         renderHtml(code, language);
@@ -435,6 +453,7 @@ public final class WorkspacePanel {
         }
         show();
         crumb.setText(crumbFor(target));
+        previewPath = target;
         showingViewer = true;
         applyInnerLayout();
         renderPlaceholder(I18n.t("chat.workspace.loading"));
@@ -458,6 +477,12 @@ public final class WorkspacePanel {
         buildViewer();
         buildTree();
         applyInnerLayout();
+        // 表格预览走 web 渲染：主题切换时按新色板重渲染（其余阅读类型是原生控件自动跟随）
+        UiTheme.addThemeListener(() -> Platform.runLater(() -> {
+            if (tableSheets != null) {
+                renderTable(tableSheets);
+            }
+        }));
     }
 
     private Node buildHeader() {
@@ -468,6 +493,14 @@ public final class WorkspacePanel {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
+        configureTool(backBtn, "\uE72B", "chat.workspace.back", this::closePreview);
+        // GRAPHIC_ONLY：文案走菜单条目，按钮本体只留图标 + 箭头（与其余工具按钮同形）
+        openSysBtn.setGraphic(UiTheme.icon("\uE8A7"));
+        openSysBtn.setContentDisplay(ContentDisplay.GRAPHIC_ONLY);
+        openSysBtn.getStyleClass().add("workspace-tool");
+        openSysBtn.setFocusTraversable(false);
+        openSysBtn.setTooltip(new javafx.scene.control.Tooltip(I18n.t("chat.workspace.openWith")));
+        fillOpenWithMenu(openSysBtn, () -> previewPath);
         configureTool(filterBtn, "\uE71C", "chat.workspace.filter.all", () -> {
             artifactsOnly = !artifactsOnly;
             applyToolTips();
@@ -480,10 +513,11 @@ public final class WorkspacePanel {
         });
         configureTool(closeBtn, "\uE711", "chat.workspace.close", this::hide);
 
-        HBox header = new HBox(4, crumb, spacer, filterBtn, columnsBtn, closeBtn);
+        HBox header = new HBox(4, backBtn, crumb, spacer, openSysBtn, filterBtn, columnsBtn, closeBtn);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("workspace-header");
         applyToolTips();
+        refreshHeaderState();
         return header;
     }
 
@@ -537,6 +571,31 @@ public final class WorkspacePanel {
             detach(inner, treePane);
             inner.getItems().setAll(only);
         }
+        refreshHeaderState();
+    }
+
+    /** 头部按钮显隐：返回箭头仅阅读区激活时；外部打开仅预览真实文件时（内联产物无文件可开）。 */
+    private void refreshHeaderState() {
+        setShown(backBtn, showingViewer);
+        setShown(openSysBtn, showingViewer && previewPath != null);
+    }
+
+    private static void setShown(ButtonBase btn, boolean on) {
+        btn.setVisible(on);
+        btn.setManaged(on);
+    }
+
+    /** 关闭预览：单面板回文件列表、三列清阅读区为空态；清树选中保证再点同一行能重新打开。 */
+    private void closePreview() {
+        showingViewer = false;
+        previewPath = null;
+        tableSheets = null;
+        crumb.setText("");
+        tree.getSelectionModel().clearSelection();
+        if (threeColumn) {
+            renderPlaceholder(I18n.t("chat.workspace.pickFile"));
+        }
+        applyInnerLayout();
     }
 
     private static void detach(SplitPane sp, Node n) {
@@ -546,13 +605,17 @@ public final class WorkspacePanel {
     private void applyToolTips() {
         setTip(columnsBtn, threeColumn ? "chat.workspace.columns.collapse" : "chat.workspace.columns.expand");
         setTip(filterBtn, artifactsOnly ? "chat.workspace.filter.all" : "chat.workspace.filter.artifacts");
+        setTip(backBtn, "chat.workspace.back");
+        setTip(openSysBtn, "chat.workspace.openWith");
+        // 菜单条目文案随语言重灌（复用 MenuButton 内置弹出实例，只换 items 不新建菜单）
+        fillOpenWithMenu(openSysBtn, () -> previewPath);
         filterBtn.getStyleClass().remove("workspace-tool-on");
         if (artifactsOnly) {
             filterBtn.getStyleClass().add("workspace-tool-on");
         }
     }
 
-    private void setTip(Button btn, String key) {
+    private void setTip(ButtonBase btn, String key) {
         if (btn.getTooltip() != null) {
             btn.getTooltip().setText(I18n.t(key));
         }
@@ -561,14 +624,19 @@ public final class WorkspacePanel {
     // ===================== 阅读区渲染 =====================
 
     private void renderPlaceholder(String text) {
+        tableSheets = null;
         viewerPane.getChildren().setAll(centeredLabel(text));
     }
 
     private void renderPayload(Path path, PreviewPayload payload) {
+        if (payload.kind() != RenderKind.TABLE) {
+            tableSheets = null;
+        }
         switch (payload.kind()) {
             case MARKDOWN -> renderMarkdown(payload.text());
             case HTML -> renderHtml(payload.text(), extOf(path));
             case IMAGE -> renderImage(payload.bytes());
+            case TABLE -> renderTable(payload.sheets());
             case TEXT, DOC -> renderText(payload.text());
             default -> renderFallback(payload.kind(), path);
         }
@@ -590,11 +658,22 @@ public final class WorkspacePanel {
     }
 
     private void renderHtml(String code, String language) {
+        tableSheets = null;
         if (htmlView == null) {
             htmlView = new JcefOsrView("gimQuery", "gimCancel", null);
         }
         viewerPane.getChildren().setAll(htmlView.node());
         htmlView.loadData(ArtifactPreviewWindow.buildHtml(code, language));
+    }
+
+    /** 表格预览：流式解析结果交 web 表格渲染（页签/吸顶表头/数字右对齐），明暗随 UiTheme。 */
+    private void renderTable(List<TabularInspector.SheetTable> sheets) {
+        tableSheets = sheets;
+        if (htmlView == null) {
+            htmlView = new JcefOsrView("gimQuery", "gimCancel", null);
+        }
+        viewerPane.getChildren().setAll(htmlView.node());
+        htmlView.loadData(TablePreviewHtml.render(sheets, UiTheme.mode() == UiTheme.Mode.DARK));
     }
 
     private void renderImage(byte[] bytes) {
@@ -617,6 +696,7 @@ public final class WorkspacePanel {
     }
 
     private void renderFallback(RenderKind kind, Path path) {
+        tableSheets = null;
         String msg = switch (kind) {
             case TOO_LARGE -> I18n.t("chat.workspace.tooLarge");
             case BINARY -> I18n.t("chat.workspace.binary");
@@ -626,10 +706,10 @@ public final class WorkspacePanel {
         box.setAlignment(Pos.CENTER);
         box.getStyleClass().add("workspace-empty");
         if (path != null && Files.isRegularFile(path)) {
-            Button open = new Button(I18n.t("chat.workspace.openWith"));
+            MenuButton open = new MenuButton(I18n.t("chat.workspace.openWith"));
             open.getStyleClass().add("workspace-open-sys");
             open.setFocusTraversable(false);
-            open.setOnAction(e -> openWithSystem(path));
+            fillOpenWithMenu(open, () -> path);
             box.getChildren().add(open);
         }
         viewerPane.getChildren().setAll(box);
@@ -654,30 +734,37 @@ public final class WorkspacePanel {
 
     private PreviewPayload readForPreview(Path path) {
         if (!Files.isRegularFile(path)) {
-            return new PreviewPayload(RenderKind.MISSING, null, null);
+            return new PreviewPayload(RenderKind.MISSING, null, null, null);
         }
         RenderKind kind = classify(path.getFileName().toString());
+        if (kind == RenderKind.TABLE) {
+            // 表格走 SAX 流式解析（不整份读进内存），故不受文本预览字节上限约束
+            List<TabularInspector.SheetTable> sheets = TabularInspector.preview(path);
+            return sheets.isEmpty()
+                    ? new PreviewPayload(RenderKind.MISSING, null, null, null)
+                    : new PreviewPayload(RenderKind.TABLE, null, null, sheets);
+        }
         try {
             long size = Files.size(path);
             long cap = kind == RenderKind.IMAGE ? MAX_IMAGE_BYTES : MAX_PREVIEW_BYTES;
             if (tooLarge(size, cap)) {
-                return new PreviewPayload(RenderKind.TOO_LARGE, null, null);
+                return new PreviewPayload(RenderKind.TOO_LARGE, null, null, null);
             }
             byte[] bytes = Files.readAllBytes(path);
             if (kind == RenderKind.IMAGE) {
-                return new PreviewPayload(RenderKind.IMAGE, null, bytes);
+                return new PreviewPayload(RenderKind.IMAGE, null, bytes, null);
             }
             if (kind == RenderKind.DOC) {
                 String text = FileTextExtractor.extract(path.getFileName().toString(), null, bytes);
-                return new PreviewPayload(RenderKind.DOC, text, null);
+                return new PreviewPayload(RenderKind.DOC, text, null, null);
             }
             if (looksBinary(bytes)) {
-                return new PreviewPayload(RenderKind.BINARY, null, null);
+                return new PreviewPayload(RenderKind.BINARY, null, null, null);
             }
-            return new PreviewPayload(kind, new String(bytes, StandardCharsets.UTF_8), null);
+            return new PreviewPayload(kind, new String(bytes, StandardCharsets.UTF_8), null, null);
         } catch (IOException e) {
             log.warn("读取预览文件失败: {}", path, e);
-            return new PreviewPayload(RenderKind.MISSING, null, null);
+            return new PreviewPayload(RenderKind.MISSING, null, null, null);
         }
     }
 
@@ -687,6 +774,48 @@ public final class WorkspacePanel {
         } catch (Exception e) {
             log.warn("系统程序打开失败: {}", path, e);
         }
+    }
+
+    /** 外部打开菜单条目：默认关联 / 系统「打开方式」选择器；路径取点击时的实时值（头部预览可切换）。 */
+    private void fillOpenWithMenu(MenuButton menu, java.util.function.Supplier<Path> path) {
+        MenuItem def = new MenuItem(I18n.t("chat.workspace.openWith.default"), UiTheme.icon("\uE8A7"));
+        def.setOnAction(e -> {
+            Path p = path.get();
+            if (p != null) {
+                openWithSystem(p);
+            }
+        });
+        MenuItem choose = new MenuItem(I18n.t("chat.workspace.openWith.choose"), UiTheme.icon("\uE8D7"));
+        choose.setOnAction(e -> {
+            Path p = path.get();
+            if (p != null) {
+                openWithChooser(p);
+            }
+        });
+        menu.getItems().setAll(def, choose);
+    }
+
+    /** 「选择其他程序」：Windows shell 的「打开方式」对话框；非 Windows 或拉起失败降级默认关联。 */
+    private void openWithChooser(Path path) {
+        List<String> cmd = chooserCommand(path, System.getProperty("os.name", ""));
+        if (cmd == null) {
+            openWithSystem(path);
+            return;
+        }
+        try {
+            new ProcessBuilder(cmd).start();
+        } catch (IOException e) {
+            log.warn("打开方式对话框拉起失败: {}", path, e);
+            openWithSystem(path);
+        }
+    }
+
+    /** 纯函数：Windows「打开方式」选择器命令（rundll32 OpenAs_RunDLL）；非 Windows 返回 null。包私有便于单测。 */
+    static List<String> chooserCommand(Path path, String osName) {
+        if (path == null || osName == null || !osName.toLowerCase(Locale.ROOT).contains("win")) {
+            return null;
+        }
+        return List.of("rundll32.exe", "shell32.dll,OpenAs_RunDLL", path.toAbsolutePath().toString());
     }
 
     // ===================== 纯函数（可单测，不触 FX） =====================
@@ -704,8 +833,11 @@ public final class WorkspacePanel {
                 || n.endsWith(".bmp") || n.endsWith(".webp")) {
             return RenderKind.IMAGE;
         }
-        if (n.endsWith(".pdf") || n.endsWith(".docx") || n.endsWith(".xlsx")) {
+        if (n.endsWith(".pdf") || n.endsWith(".docx")) {
             return RenderKind.DOC;
+        }
+        if (TabularInspector.isTabular(fileName)) {
+            return RenderKind.TABLE;
         }
         return RenderKind.TEXT;
     }
@@ -826,8 +958,9 @@ public final class WorkspacePanel {
         }
     }
 
-    /** 读盘结果载荷：类型 + 文本（md/html/text/doc）+ 字节（image）。 */
-    private record PreviewPayload(RenderKind kind, String text, byte[] bytes) {
+    /** 读盘结果载荷：类型 + 文本（md/html/text/doc）+ 字节（image）+ 工作表（table）。 */
+    private record PreviewPayload(RenderKind kind, String text, byte[] bytes,
+                                  List<TabularInspector.SheetTable> sheets) {
     }
 
     /** 目录节点：挂一个空值占位子项以出现展开箭头，真正子项在展开时懒列。 */

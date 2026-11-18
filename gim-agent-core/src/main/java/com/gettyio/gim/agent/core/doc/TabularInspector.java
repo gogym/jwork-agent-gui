@@ -67,6 +67,10 @@ public final class TabularInspector {
     public static final int MAX_ROWS = 400;
     /** 概览里每个工作表附带的样例行数。 */
     public static final int SAMPLE_ROWS = 3;
+    /** 预览上限：每表行数（预览只看个形状，全量内容走外部程序）。 */
+    public static final int PREVIEW_ROWS = 500;
+    /** 预览上限：单元格字符数；长文单元格截断加省略号，全文靠外部打开看。 */
+    public static final int PREVIEW_CELL_CHARS = 500;
     /** 渲染文本总量上限（字符）：超出即截断并提示缩小区间。 */
     private static final int MAX_OUTPUT_CHARS = 12_000;
     /** 单元格显示值长度上限。 */
@@ -86,6 +90,10 @@ public final class TabularInspector {
 
     /** 一次行区间读取的结果。 */
     public record Table(String sheet, int totalRows, int offset, List<List<String>> rows) {
+    }
+
+    /** 预览工作表：名称 + 总行数 + 行数据（首行通常是表头）+ 是否被预览上限截断。 */
+    public record SheetTable(String name, int totalRows, List<List<String>> rows, boolean truncated) {
     }
 
     /** 该文件名是否属于可按行探查的表格类型。 */
@@ -135,6 +143,32 @@ public final class TabularInspector {
         } catch (Exception e) {
             log.warn("读取表格区间失败: {}", file, e);
             return null;
+        }
+    }
+
+    /**
+     * 预览级读取：全部工作表、每表前 {@link #PREVIEW_ROWS} 行、单元格截 {@link #PREVIEW_CELL_CHARS} 字符；
+     * csv/tsv 视为单表。与 {@link #read} 共用流式解析与显示值还原（公式→缓存计算结果、日期→显示格式）；
+     * 失败返回空列表（调用方回退其他预览分支），不抛异常。
+     */
+    public static List<SheetTable> preview(Path file) {
+        if (file == null || !Files.isRegularFile(file)) {
+            return List.of();
+        }
+        String n = name(file).toLowerCase(Locale.ROOT);
+        try {
+            if (isCsv(n)) {
+                List<List<String>> rows = csvRows(file, 0, PREVIEW_ROWS, PREVIEW_CELL_CHARS);
+                int total = countRows(file);
+                return List.of(new SheetTable("(csv)", total, rows, total > rows.size()));
+            }
+            if (isTabular(n)) {
+                return xlsxPreview(file);
+            }
+            return List.of();
+        } catch (Exception e) {
+            log.warn("表格预览读取失败: {}", file, e);
+            return List.of();
         }
     }
 
@@ -260,6 +294,30 @@ public final class TabularInspector {
         }
     }
 
+    /** 预览：单趟收集每表前 PREVIEW_ROWS 行；单表读失败不影响其余表。 */
+    private static List<SheetTable> xlsxPreview(Path file) throws Exception {
+        List<SheetTable> out = new ArrayList<>();
+        try (OPCPackage pkg = OPCPackage.open(file.toFile(), PackageAccess.READ)) {
+            XSSFReader reader = new XSSFReader(pkg, true);
+            Styles styles = reader.getStylesTable();
+            SharedStrings sst = reader.getSharedStringsTable();
+            XSSFReader.SheetIterator it = (XSSFReader.SheetIterator) reader.getSheetsData();
+            while (it.hasNext()) {
+                try (InputStream in = it.next()) {
+                    String sheetName = it.getSheetName();
+                    Dimension dim = new Dimension();
+                    RangeSink sink = new RangeSink(0, PREVIEW_ROWS, PREVIEW_CELL_CHARS);
+                    parse(in, styles, sst, dim, sink, false);
+                    int total = dim.rows > 0 ? dim.rows : sink.lastRow + 1;
+                    out.add(new SheetTable(sheetName, total, sink.rows, total > sink.rows.size()));
+                } catch (IOException | RuntimeException e) {
+                    log.warn("读取工作表预览失败: {} / {}", file, e.getMessage());
+                }
+            }
+        }
+        return out;
+    }
+
     /** 工作表定位：名称（忽略大小写）或 1 基序号；空取第一个。 */
     private static boolean matchesSheet(String ref, String sheetName, int index) {
         if (ref == null || ref.isBlank()) {
@@ -379,13 +437,19 @@ public final class TabularInspector {
     private static final class RangeSink implements XSSFSheetXMLHandler.SheetContentsHandler {
         private final int offset;
         private final int limit;
+        private final int cellCap;
         private final List<List<String>> rows = new ArrayList<>(64);
         private int lastRow = -1;
         private List<String> current;
 
         private RangeSink(int offset, int limit) {
+            this(offset, limit, MAX_CELL_CHARS);
+        }
+
+        private RangeSink(int offset, int limit, int cellCap) {
             this.offset = offset;
             this.limit = limit;
+            this.cellCap = cellCap;
         }
 
         @Override
@@ -415,7 +479,7 @@ public final class TabularInspector {
             while (current.size() < col) {
                 current.add("");
             }
-            current.add(oneLine(formattedValue == null ? "" : formattedValue));
+            current.add(oneLine(formattedValue == null ? "" : formattedValue, cellCap));
         }
 
         @Override
@@ -443,6 +507,10 @@ public final class TabularInspector {
     }
 
     private static List<List<String>> csvRows(Path file, int offset, int count) throws IOException {
+        return csvRows(file, offset, count, MAX_CELL_CHARS);
+    }
+
+    private static List<List<String>> csvRows(Path file, int offset, int count, int cellCap) throws IOException {
         String text = readHead(file);
         char delimiter = sniffDelimiter(text);
         List<List<String>> out = new ArrayList<>();
@@ -474,14 +542,14 @@ public final class TabularInspector {
                 continue;
             }
             if (c == delimiter) {
-                row.add(oneLine(cell.toString()));
+                row.add(oneLine(cell.toString(), cellCap));
                 cell.setLength(0);
                 i++;
                 continue;
             }
             if (c == '\n' || c == '\r') {
                 i += (c == '\r' && i + 1 < text.length() && text.charAt(i + 1) == '\n') ? 2 : 1;
-                row.add(oneLine(cell.toString()));
+                row.add(oneLine(cell.toString(), cellCap));
                 cell.setLength(0);
                 if (!isBlankRow(row)) {
                     if (seen >= offset && out.size() < count) {
@@ -498,7 +566,7 @@ public final class TabularInspector {
             cell.append(c);
             i++;
         }
-        row.add(oneLine(cell.toString()));
+        row.add(oneLine(cell.toString(), cellCap));
         if (seen >= offset && out.size() < count && !isBlankRow(row)) {
             out.add(List.copyOf(row));
         }
@@ -595,8 +663,12 @@ public final class TabularInspector {
     }
 
     private static String oneLine(String value) {
+        return oneLine(value, MAX_CELL_CHARS);
+    }
+
+    private static String oneLine(String value, int cap) {
         String v = value.replace('\n', ' ').replace('\r', ' ').strip();
-        return v.length() <= MAX_CELL_CHARS ? v : v.substring(0, MAX_CELL_CHARS) + "…";
+        return v.length() <= cap ? v : v.substring(0, cap) + "…";
     }
 
     private static String cap(String text) {
