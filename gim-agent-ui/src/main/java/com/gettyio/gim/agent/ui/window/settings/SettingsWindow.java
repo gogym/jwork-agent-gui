@@ -438,11 +438,13 @@ public class SettingsWindow {
         addMenu(personal, "\uE790", I18n.t("settings.menu.appearance"), buildAppearancePage());
         addMenu(personal, "\uE713", I18n.t("settings.menu.general"), buildGeneralPage());
         addMenu(personal, "\uE8BD", I18n.t("settings.menu.chat"), buildChatUsagePage());
-        addMenu(personal, "\uE720", I18n.t("settings.menu.voice"), buildVoicePage());
-        addMenu(personal, "\uE91B", I18n.t("settings.menu.image"), buildImagePage());
-        addMenu(personal, "\uE909", I18n.t("settings.menu.network"), buildNetworkPage());
-        addMenu(personal, "\uE7B5", I18n.t("settings.menu.backupRestore"), buildBackupRestorePage());
-        addMenu(personal, "\uE946", I18n.t("settings.menu.about"), buildUpdatePage());
+
+        Label app = addSection(I18n.t("settings.section.app"));
+        addMenu(app, "\uE720", I18n.t("settings.menu.voice"), buildVoicePage());
+        addMenu(app, "\uE91B", I18n.t("settings.menu.image"), buildImagePage());
+        addMenu(app, "\uE909", I18n.t("settings.menu.network"), buildNetworkPage());
+        addMenu(app, "\uE7B5", I18n.t("settings.menu.backupRestore"), buildBackupRestorePage());
+        addMenu(app, "\uE946", I18n.t("settings.menu.about"), buildUpdatePage());
 
         Label model = addSection(I18n.t("settings.section.model"));
         addMenu(model, "\uE99A", I18n.t("settings.menu.agents"), buildAgentPage());

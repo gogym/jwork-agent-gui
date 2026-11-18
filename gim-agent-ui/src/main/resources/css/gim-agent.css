@@ -1221,8 +1221,8 @@
 .dialog-state-warn  { -fx-background-color: -gim-warn-bg;      -fx-text-fill: -gim-warn-icon; }
 .dialog-state-error { -fx-background-color: -gim-badge-red-bg; -fx-text-fill: -gim-badge-red-fg; }
 
-/* ---------- 关于对话框（齿轮菜单「关于」）：图形标 + 版本胶囊 + 信息卡 ---------- */
-.about-title { -fx-font-size: 20px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+/* ---------- 关于对话框（齿轮菜单「关于」）：图形标 + 版本胶囊 + 信息卡 + 开源卡 + 版权行 ---------- */
+.about-title { -fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
 .about-version {
     -fx-background-color: -gim-tint-3;
     -fx-background-radius: 999;
@@ -1240,6 +1240,10 @@
 }
 .about-info-key { -fx-font-size: 12px; -fx-text-fill: -gim-section; -fx-min-width: 64px; }
 .about-info-val { -fx-font-size: 12px; -fx-text-fill: -gim-text-title; }
+/* 开源卡可点击值：主色链接观感，悬停下划线提示可点 */
+.about-link { -fx-font-size: 12px; -fx-text-fill: -gim-tint-fg-3; -fx-cursor: hand; }
+.about-link:hover { -fx-underline: true; }
+.about-footer { -fx-font-size: 11px; -fx-text-fill: -gim-text-5; }
 
 /* ---------- 登录门（独立认证小窗）：品牌区与表单卡片单列居中 ---------- */
 /* 同款标题栏（品牌标识）在上；内容列紧凑居中 */

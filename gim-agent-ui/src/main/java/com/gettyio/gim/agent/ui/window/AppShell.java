@@ -16,12 +16,14 @@
 
 package com.gettyio.gim.agent.ui.window;
 
+import javafx.geometry.Pos;
 import javafx.scene.Parent;
 import javafx.scene.effect.BoxBlur;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.Region;
 import javafx.scene.layout.StackPane;
 import javafx.scene.shape.Rectangle;
+import javafx.stage.Screen;
 import javafx.stage.Stage;
 
 import java.util.ArrayList;
@@ -60,6 +62,8 @@ public class AppShell {
     private BoxBlur frostBlur;
     /** 标题栏实例；configure 后不为空。 */
     private TitleBar titleBar;
+    /** 主界面基线最小高度（首次 setContent 时捕获启动装配值，视图需求回落后还原）。 */
+    private double baseMinHeight = -1;
     /** 早于 configure() 注册的标题栏回调，装配时一次性刷入。 */
     private final List<Consumer<TitleBar>> pendingTitleBarHooks = new ArrayList<>();
 
@@ -74,12 +78,16 @@ public class AppShell {
         this.body.setTop(titleBar.getNode());
 
         this.contentHolder = new StackPane(appContent);
+        // 顶部锚定：视图最小高度超出可用区时只向下溢出（底部裁切），不向上盖住常驻标题栏
+        this.contentHolder.setAlignment(Pos.TOP_LEFT);
         this.frostVeil = new Region();
         this.frostVeil.getStyleClass().add("frost-veil");
         // 常驻布局、只切 opacity：不可见的子节点可能被排版跳过，导致遮罩首次出现时尺寸不对
         this.frostVeil.setMouseTransparent(true);
         this.frostVeil.setOpacity(0);
-        this.body.setCenter(new StackPane(contentHolder, frostVeil));
+        StackPane centerStack = new StackPane(contentHolder, frostVeil);
+        centerStack.setAlignment(Pos.TOP_LEFT);
+        this.body.setCenter(centerStack);
 
         // 圆角裁剪：贴边子节点（标题栏/侧栏）随容器一起呈现四角圆角
         this.cornerClip = new Rectangle();
@@ -91,6 +99,9 @@ public class AppShell {
 
         this.root = new StackPane();
         this.root.getStyleClass().add("window-root-shell");
+        // 顶部锚定：body 最小高度（标题栏＋视图骨架）超出窗口时只向下溢出，
+        // 居中会把整个 body 向上推、标题栏被推出窗外（设置视图曾因此「消失」）
+        this.root.setAlignment(Pos.TOP_LEFT);
         this.root.getChildren().add(body);
 
         FrostedBackdrop.register(stage, this::applyFrost, this::clearFrost);
@@ -131,7 +142,34 @@ public class AppShell {
     public void setContent(Parent content) {
         if (contentHolder != null && content != null) {
             contentHolder.getChildren().setAll(content);
+            applyContentMinHeight();
         }
+    }
+
+    /**
+     * 窗口最小高度随中部视图的骨架最小高度抬升（不超过所在屏幕可视高）：
+     * 设置视图菜单骨架较高，不抬升时压矮窗口会让溢出内容盖住常驻标题栏；
+     * 返回主界面后需求回落，基线最小高度自动还原。首次调用捕获基线（启动装配设定值）。
+     */
+    private void applyContentMinHeight() {
+        if (baseMinHeight < 0) {
+            baseMinHeight = stage.getMinHeight();
+        }
+        double need = root.minHeight(-1);
+        double min = Math.min(Math.max(baseMinHeight, need), screenVisualHeight());
+        stage.setMinHeight(min);
+        // 当前高度不足时立即补足（setMinHeight 只约束后续拖拽）：打开高骨架视图即完整可见
+        if (stage.getHeight() < min) {
+            stage.setHeight(min);
+        }
+    }
+
+    /** 窗口所在屏幕的可视区高度（多屏取窗口当前所在屏，取不到回退主屏）。 */
+    private double screenVisualHeight() {
+        List<Screen> screens = Screen.getScreensForRectangle(stage.getX(), stage.getY(),
+                stage.getWidth(), stage.getHeight());
+        Screen screen = screens.isEmpty() ? Screen.getPrimary() : screens.get(0);
+        return screen.getVisualBounds().getHeight();
     }
 
     /** 还原为主界面内容。 */
