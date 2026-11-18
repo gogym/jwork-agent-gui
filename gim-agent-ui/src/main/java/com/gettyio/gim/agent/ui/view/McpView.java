@@ -20,6 +20,7 @@ import com.gettyio.gim.agent.core.capability.CapabilityCodec;
 import com.gettyio.gim.agent.core.capability.McpConnectionProbe;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
+import com.gettyio.gim.agent.domain.enums.McpConnectionStatus;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
@@ -28,6 +29,7 @@ import com.gettyio.gim.agent.ui.control.KeyValueEditor;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.market.MarketService;
 import com.gettyio.gim.agent.ui.market.McpMarketDialog;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.beans.binding.Bindings;
@@ -122,7 +124,7 @@ public class McpView {
 
     private void buildUi() {
         // 拓展页 Tab 内的 MCP 视图：容器内边距对齐 .content-page（技能页），不再吃 .settings-page 的 26px 顶距
-        root.getStyleClass().addAll("settings-page", "mcp-page");
+        root.getStyleClass().addAll(UiStyles.SETTINGS_PAGE, "mcp-page");
         root.setMaxWidth(Double.MAX_VALUE);
         root.setMaxHeight(Double.MAX_VALUE);
 
@@ -132,7 +134,7 @@ public class McpView {
         subtitleLabel.setMinWidth(0);
         subtitleLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
 
-        addBtn.getStyleClass().add("btn-primary");
+        addBtn.getStyleClass().add(UiStyles.BTN_PRIMARY);
         addBtn.setMinWidth(Region.USE_PREF_SIZE);
         Label addIcon = new Label("\uE710");
         addIcon.getStyleClass().add("icon");
@@ -156,7 +158,7 @@ public class McpView {
 
         HBox header = new HBox(headText);
         HBox.setHgrow(headText, Priority.ALWAYS);
-        header.getStyleClass().add("page-header");
+        header.getStyleClass().add(UiStyles.PAGE_HEADER);
 
         transportCombo.getItems().setAll(
                 McpTransportType.STDIO.name(), McpTransportType.HTTP.name(), McpTransportType.SSE.name());
@@ -210,16 +212,16 @@ public class McpView {
 
     private VBox emptyState() {
         VBox box = new VBox();
-        box.getStyleClass().add("empty-state");
+        box.getStyleClass().add(UiStyles.EMPTY_STATE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setFillWidth(false);
         Label icon = new Label("\uE71B");
-        icon.getStyleClass().add("empty-icon");
+        icon.getStyleClass().add(UiStyles.EMPTY_ICON);
         Label t = new Label(I18n.t("settings.mcp.empty"));
-        t.getStyleClass().add("empty-title");
+        t.getStyleClass().add(UiStyles.EMPTY_TITLE);
         t.setTextAlignment(TextAlignment.CENTER);
         Label d = new Label(I18n.t("settings.mcp.emptyDesc"));
-        d.getStyleClass().add("empty-desc");
+        d.getStyleClass().add(UiStyles.EMPTY_DESC);
         d.setWrapText(true);
         d.setTextAlignment(TextAlignment.CENTER);
         d.setMaxWidth(460);
@@ -231,16 +233,16 @@ public class McpView {
         boolean enabled = EnabledStatus.isEnabled(m.getEnabled());
         Label name = new Label(m.getServerName() == null || m.getServerName().isBlank()
                 ? m.getServerCode() : m.getServerName());
-        name.getStyleClass().add("provider-card-title");
+        name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
         Label badge = new Label(I18n.t(enabled ? "settings.mcp.enabled" : "settings.mcp.disabled"));
-        badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
+        badge.getStyleClass().addAll("badge", enabled ? UiStyles.BADGE_GREEN : UiStyles.BADGE_GRAY);
         // 测试连接：手动重试入口；结果摘要行常显，工具清单点「详情」弹窗查看（参考技能页）
         Label probeSummary = new Label(I18n.t("settings.mcp.tools.hint"));
-        probeSummary.getStyleClass().addAll("card-meta", "status-unknown");
+        probeSummary.getStyleClass().addAll(UiStyles.CARD_META, "status-unknown");
         probeSummary.setWrapText(true);
         probeSummary.setMinWidth(0);
         Button probeDetail = new Button(I18n.t("settings.mcp.tools.show"));
-        probeDetail.getStyleClass().add("link-btn");
+        probeDetail.getStyleClass().add(UiStyles.LINK_BTN);
         probeDetail.setMinWidth(Region.USE_PREF_SIZE);
         probeDetail.setVisible(false);
         probeDetail.setManaged(false);
@@ -254,16 +256,16 @@ public class McpView {
         statusVal.getStyleClass().add("provider-card-val");
         // 探测回调需要按钮引用自身做禁用/恢复，故保留手写构造而非 CardKit.iconTextButton 一步式
         Button test = new Button(I18n.t("settings.mcp.test"));
-        test.getStyleClass().add("link-btn");
+        test.getStyleClass().add(UiStyles.LINK_BTN);
         Label testIcon = new Label("\uE72C");
         testIcon.getStyleClass().add("icon");
         test.setGraphic(testIcon);
         test.setOnAction(e -> handleProbe(m, probe, statusVal, test));
 
         Button edit = CardKit.iconTextButton("\uE70F", I18n.t("common.edit"), () -> openDialog(m));
-        edit.getStyleClass().add("link-btn");
+        edit.getStyleClass().add(UiStyles.LINK_BTN);
         Button del = CardKit.iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDelete(m));
-        del.getStyleClass().addAll("link-btn", "link-btn-danger");
+        del.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         HBox head = CardKit.cardHeadRow(name, badge, test, edit, del);
 
         // 卡片只摆与传输类型相关的地址行；配了密钥再补一行计数（不露值）
@@ -283,7 +285,7 @@ public class McpView {
         }
         VBox card = new VBox(8);
         card.getChildren().addAll(lines);
-        card.getStyleClass().add("provider-card");
+        card.getStyleClass().add(UiStyles.PROVIDER_CARD);
         card.setMinWidth(340);
         card.setMaxWidth(CARD_WIDTH);
         return card;
@@ -317,7 +319,7 @@ public class McpView {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setOnAction(e -> {
             if (commitForm()) {
                 shell.stage().close();
@@ -425,7 +427,7 @@ public class McpView {
     /** 表单内语义提示：小字灰文、可换行。 */
     private static Label hintLabel() {
         Label label = new Label();
-        label.getStyleClass().add("row-desc");
+        label.getStyleClass().add(UiStyles.ROW_DESC);
         label.setWrapText(true);
         label.setMinWidth(0);
         return label;
@@ -521,9 +523,9 @@ public class McpView {
             Platform.runLater(() -> {
                 trigger.setDisable(false);
                 renderProbeResult(probe, result);
-                boolean wasConnected = "CONNECTED".equalsIgnoreCase(m.getStatus());
+                boolean wasConnected = McpConnectionStatus.CONNECTED.name().equalsIgnoreCase(m.getStatus());
                 mcpAdminService.recordStatus(code, result.success());
-                String nextStatus = result.success() ? "CONNECTED" : "DISCONNECTED";
+                String nextStatus = McpConnectionStatus.of(result.success()).name();
                 m.setStatus(nextStatus);
                 statusVal.setText(nextStatus);
                 if (result.success() && !wasConnected) {
@@ -538,7 +540,7 @@ public class McpView {
 
     private void renderProbeResult(ProbeFeedback probe, McpConnectionProbe.ProbeResult result) {
         if (!result.success()) {
-            setProbeTone(probe.summary(), "status-bad");
+            setProbeTone(probe.summary(), UiStyles.STATUS_BAD);
             probe.summary().setText(I18n.t("settings.mcp.test.fail", result.error()));
             collapseProbe(probe);
             return;
@@ -584,7 +586,7 @@ public class McpView {
     }
 
     private static void setProbeTone(Label label, String tone) {
-        label.getStyleClass().removeAll("status-ok", "status-bad", "status-unknown");
+        label.getStyleClass().removeAll("status-ok", UiStyles.STATUS_BAD, "status-unknown");
         label.getStyleClass().add(tone);
     }
 
@@ -595,17 +597,17 @@ public class McpView {
         String name = m.getServerName() == null || m.getServerName().isBlank()
                 ? m.getServerCode() : m.getServerName();
         Label head = new Label(name + " · " + I18n.t("settings.mcp.test.ok", tools.size()));
-        head.getStyleClass().add("dialog-header");
+        head.getStyleClass().add(UiStyles.DIALOG_HEADER);
         VBox list = new VBox(8);
         list.setPrefWidth(520);
         for (McpConnectionProbe.ToolInfo t : tools) {
             Label tn = new Label(t.name());
-            tn.getStyleClass().add("provider-card-title");
+            tn.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
             list.getChildren().add(tn);
             String desc = t.description() == null ? "" : t.description().replaceAll("\\s+", " ").trim();
             if (!desc.isBlank()) {
                 Label d = new Label(desc);
-                d.getStyleClass().add("card-desc");
+                d.getStyleClass().add(UiStyles.CARD_DESC);
                 d.setWrapText(true);
                 list.getChildren().add(d);
             }

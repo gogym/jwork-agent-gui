@@ -20,6 +20,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
+import com.gettyio.gim.agent.domain.util.HttpMedia;
 import javafx.application.Platform;
 import javafx.scene.media.Media;
 import javafx.scene.media.MediaPlayer;
@@ -244,7 +245,7 @@ public class TtsService {
 
         HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(base + "/audio/speech"))
                 .timeout(Duration.ofSeconds(60))
-                .header("Content-Type", "application/json")
+                .header(HttpMedia.CONTENT_TYPE, HttpMedia.APPLICATION_JSON)
                 .POST(HttpRequest.BodyPublishers.ofString(payload.toString(), StandardCharsets.UTF_8));
         String key = apiKeyPlain();
         if (!key.isEmpty()) {

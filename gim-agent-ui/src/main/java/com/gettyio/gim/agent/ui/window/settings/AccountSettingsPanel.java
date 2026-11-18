@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.window.settings;
 
 import com.gettyio.gim.agent.domain.security.LocalAuthService;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -62,9 +63,9 @@ final class AccountSettingsPanel {
         });
 
         Button change = SettingsLayout.newButton(I18n.t("settings.account.change"), this::handleChangePassword);
-        change.getStyleClass().add("link-btn");
+        change.getStyleClass().add(UiStyles.LINK_BTN);
         Button signOut = SettingsLayout.newButton(I18n.t("settings.account.signout"), this::handleSignOut);
-        signOut.getStyleClass().add("link-btn");
+        signOut.getStyleClass().add(UiStyles.LINK_BTN);
 
         box.getChildren().add(SettingsLayout.groupCard(I18n.t("settings.account.group"), List.of(
                 SettingsLayout.settingRow(I18n.t("settings.account.current"), null, accountValue),
@@ -93,7 +94,7 @@ final class AccountSettingsPanel {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setOnAction(e -> {
             if (newField.getText() == null || newField.getText().length() < LocalAuthService.MIN_PASSWORD_LENGTH) {
                 host.notify("settings.account.change.title",

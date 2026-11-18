@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.core.knowledge;
 
+import com.gettyio.gim.agent.domain.util.HttpMedia;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -94,7 +95,7 @@ public class OpenAiCompatibleEmbeddingClient implements EmbeddingClient {
             batch.forEach(input::add);
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(endpoint))
                     .timeout(Duration.ofSeconds(30))
-                    .header("Content-Type", "application/json")
+                    .header(HttpMedia.CONTENT_TYPE, HttpMedia.APPLICATION_JSON)
                     .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body), StandardCharsets.UTF_8));
             if (!apiKey.isEmpty()) {
                 builder.header("Authorization", "Bearer " + apiKey);

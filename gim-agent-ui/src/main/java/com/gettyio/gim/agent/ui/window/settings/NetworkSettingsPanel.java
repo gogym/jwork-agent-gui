@@ -23,6 +23,7 @@ import com.gettyio.gim.agent.ui.config.ProxyManager;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.control.SecretField;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
@@ -90,7 +91,7 @@ final class NetworkSettingsPanel {
         refreshAuthHint.run();
         pwdField.setMaxWidth(200);
         Button clearAuth = new Button(I18n.t("settings.secret.clear"));
-        clearAuth.getStyleClass().addAll("link-btn", "link-btn-danger");
+        clearAuth.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         clearAuth.setOnAction(e -> {
             proxyManager.clearPassword();
             pwdField.clear();
@@ -189,7 +190,7 @@ final class NetworkSettingsPanel {
                         I18n.t("settings.network.web.private.desc"), allowPrivate)));
 
         Label hint = new Label(I18n.t("settings.network.web.hint"));
-        hint.getStyleClass().add("row-desc");
+        hint.getStyleClass().add(UiStyles.ROW_DESC);
         hint.setWrapText(true);
         return new VBox(12, card, hint);
     }

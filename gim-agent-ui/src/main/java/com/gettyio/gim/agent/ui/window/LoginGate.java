@@ -20,6 +20,7 @@ import com.gettyio.gim.agent.domain.security.LocalAuthService;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.chat.MenuPopup;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.settings.SettingsLayout;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -345,7 +346,7 @@ public final class LoginGate {
         Label notice = trLabel(subKey(), "auth-notice");
         notice.setWrapText(true);
 
-        errorLabel.getStyleClass().addAll("dialog-message", "status-bad");
+        errorLabel.getStyleClass().addAll("dialog-message", UiStyles.STATUS_BAD);
         errorLabel.setWrapText(true);
         errorLabel.setManaged(false);
         errorLabel.setVisible(false);
@@ -513,7 +514,7 @@ public final class LoginGate {
                 });
                 // 「忘记密码？」在操作行右侧展开指引
                 forgotButton = new Button(I18n.t("auth.login.forgot"));
-                forgotButton.getStyleClass().add("link-btn");
+                forgotButton.getStyleClass().add(UiStyles.LINK_BTN);
                 forgotButton.setFocusTraversable(false);
                 forgotButton.setOnAction(e -> {
                     boolean show = !forgotHint.isVisible();
@@ -551,7 +552,7 @@ public final class LoginGate {
     /** 提交按钮：绑定表单提交、作为默认按钮（Enter 提交）。 */
     private void installSubmit(Runnable action) {
         submitButton = new Button(I18n.t(submitKey()));
-        submitButton.getStyleClass().addAll("btn-primary", "auth-submit");
+        submitButton.getStyleClass().addAll(UiStyles.BTN_PRIMARY, "auth-submit");
         submitButton.setMinWidth(96);
         submitButton.setDefaultButton(true);
         submitButton.setOnAction(e -> action.run());

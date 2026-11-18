@@ -20,6 +20,7 @@ import com.gettyio.gim.agent.domain.dao.ScheduledTaskDao;
 import com.gettyio.gim.agent.domain.entity.ScheduledTask;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.scheduler.TaskSchedulerService;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
@@ -47,7 +48,7 @@ import java.util.concurrent.ThreadLocalRandom;
 public class ScheduleTools {
 
     private static final Logger log = LoggerFactory.getLogger(ScheduleTools.class);
-    private static final DateTimeFormatter FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter FMT = TimeFormats.DISPLAY_TIMESTAMP;
 
     private final TaskSchedulerService schedulerService;
     private final ScheduledTaskDao taskDao;

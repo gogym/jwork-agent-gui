@@ -17,7 +17,9 @@
 package com.gettyio.gim.agent.core.capability;
 
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
+import com.gettyio.gim.agent.domain.enums.McpTransportType;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
+import com.gettyio.gim.agent.domain.util.Closeables;
 import io.agentscope.core.tool.mcp.McpClientBuilder;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import org.slf4j.Logger;
@@ -26,6 +28,7 @@ import org.slf4j.LoggerFactory;
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -103,12 +106,12 @@ public final class McpConnectionProbe {
         }
     }
 
-    /** transport 装配：与框架 {@code McpServerRegistrar.buildClient} 同口径（stdio/sse/http）。 */
+    /** transport 装配：与框架 {@code McpServerRegistrar.buildClient} 同口径；类型经 {@link McpTransportType} 枚举路由（配置翻译已保证枚举名）。 */
     private static void configureTransport(
             McpClientBuilder builder, io.agentscope.harness.agent.tools.McpServerConfig cfg) {
-        String transport = cfg.getTransport() == null ? "" : cfg.getTransport();
-        switch (transport) {
-            case "stdio" -> {
+        McpTransportType type = McpTransportType.fromCode(cfg.getTransport());
+        switch (type) {
+            case STDIO -> {
                 if (cfg.getCommand() == null || cfg.getCommand().isBlank()) {
                     throw new IllegalArgumentException("stdio 服务缺少启动命令（command）");
                 }
@@ -116,39 +119,32 @@ public final class McpConnectionProbe {
                 List<String> args = cfg.getArgs() == null ? List.of() : cfg.getArgs();
                 builder.stdioTransport(cfg.getCommand(), args, env);
             }
-            case "sse" -> {
-                requireUrl(cfg, "sse");
+            case SSE -> {
+                requireUrl(cfg, type);
                 builder.sseTransport(cfg.getUrl());
                 if (cfg.getHeaders() != null && !cfg.getHeaders().isEmpty()) {
                     builder.headers(cfg.getHeaders());
                 }
             }
-            case "http", "streamable-http", "streamablehttp" -> {
-                requireUrl(cfg, transport);
+            case HTTP -> {
+                requireUrl(cfg, type);
                 builder.streamableHttpTransport(cfg.getUrl());
                 if (cfg.getHeaders() != null && !cfg.getHeaders().isEmpty()) {
                     builder.headers(cfg.getHeaders());
                 }
             }
-            default -> throw new IllegalArgumentException("不支持的传输类型：" + transport);
         }
     }
 
-    private static void requireUrl(io.agentscope.harness.agent.tools.McpServerConfig cfg, String transport) {
+    private static void requireUrl(io.agentscope.harness.agent.tools.McpServerConfig cfg, McpTransportType type) {
         if (cfg.getUrl() == null || cfg.getUrl().isBlank()) {
-            throw new IllegalArgumentException(transport + " 服务缺少服务地址（url）");
+            throw new IllegalArgumentException(
+                    type.name().toLowerCase(Locale.ROOT) + " 服务缺少服务地址（url）");
         }
     }
 
     private static void closeQuietly(McpClientWrapper client, String serverCode) {
-        if (client == null) {
-            return;
-        }
-        try {
-            client.close();
-        } catch (RuntimeException e) {
-            log.warn("关闭 MCP 探测连接失败: {}", serverCode, e);
-        }
+        Closeables.quietly(client, log, "关闭 MCP 探测连接失败: " + serverCode);
     }
 
     /** 从异常链取最有信息量的一句原因。 */

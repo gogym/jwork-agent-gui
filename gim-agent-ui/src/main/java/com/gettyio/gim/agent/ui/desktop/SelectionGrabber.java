@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.ui.desktop;
 
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.sun.jna.platform.win32.BaseTSD;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinDef;
@@ -28,7 +29,6 @@ import java.awt.datatransfer.Clipboard;
 import java.awt.datatransfer.DataFlavor;
 import java.awt.datatransfer.StringSelection;
 import java.awt.datatransfer.Transferable;
-import java.util.Locale;
 
 /**
  * 划词抓取：向当前前台窗口注入 Ctrl+C，把「选中文本」复制进剪贴板后取回，随后恢复原剪贴板。
@@ -55,7 +55,7 @@ final class SelectionGrabber {
 
     /** 当前平台是否支持划词抓取（仅 Windows）。 */
     static boolean isSupported() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        return OsPlatform.current().isWindows();
     }
 
     /**

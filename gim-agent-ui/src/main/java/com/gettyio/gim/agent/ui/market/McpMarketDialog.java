@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.ui.market;
 
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -94,7 +95,7 @@ public class McpMarketDialog {
     public void show() {
         GimDialog.Shell shell = GimDialog.shell(owner, I18n.t("market.mcp.title"));
 
-        refreshButton.getStyleClass().add("icon-btn");
+        refreshButton.getStyleClass().add(UiStyles.ICON_BTN);
         Label refreshIcon = new Label("\uE72C");
         refreshIcon.getStyleClass().add("icon");
         refreshButton.setGraphic(refreshIcon);
@@ -126,7 +127,7 @@ public class McpMarketDialog {
         content.setMinSize(CONTENT_WIDTH, CONTENT_HEIGHT);
         content.getChildren().setAll(scroller);
 
-        loadMore.getStyleClass().add("link-btn");
+        loadMore.getStyleClass().add(UiStyles.LINK_BTN);
         loadMore.setVisible(false);
         loadMore.setManaged(false);
         loadMore.setOnAction(e -> loadPage(true));
@@ -253,13 +254,13 @@ public class McpMarketDialog {
 
     private Node card(MarketService.MarketMcp m) {
         VBox card = new VBox(8);
-        card.getStyleClass().add("provider-card");
+        card.getStyleClass().add(UiStyles.PROVIDER_CARD);
         card.setMaxWidth(Double.MAX_VALUE);
         card.setPrefHeight(212);
 
         // 名称（最多两行截断）+ 官方徽章 + 版本徽章
         Label name = new Label(m.serverName().isBlank() ? m.serverCode() : m.serverName());
-        name.getStyleClass().add("provider-card-title");
+        name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
         name.setMinWidth(0);
         name.setWrapText(true);
         name.setMaxHeight(44);
@@ -282,14 +283,14 @@ public class McpMarketDialog {
             HBox.setHgrow(titleSpacer, Priority.ALWAYS);
             titleRow.getChildren().add(titleSpacer);
             Label ver = new Label("v" + oneLine(m.version()));
-            ver.getStyleClass().addAll("badge", "badge-gray");
+            ver.getStyleClass().addAll("badge", UiStyles.BADGE_GRAY);
             ver.setMinWidth(Region.USE_PREF_SIZE);
             ver.setMaxWidth(Region.USE_PREF_SIZE);
             titleRow.getChildren().add(ver);
         }
 
         Label desc = new Label(m.description().isBlank() ? I18n.t("skills.noDesc") : oneLine(m.description()));
-        desc.getStyleClass().add("card-desc");
+        desc.getStyleClass().add(UiStyles.CARD_DESC);
         desc.setWrapText(true);
         desc.setMaxHeight(40);
         desc.setTextOverrun(OverrunStyle.ELLIPSIS);
@@ -302,7 +303,7 @@ public class McpMarketDialog {
             tagRow.setAlignment(Pos.CENTER_LEFT);
             for (String tag : m.tags()) {
                 Label t = new Label(tag);
-                t.getStyleClass().addAll("badge", "badge-gray");
+                t.getStyleClass().addAll("badge", UiStyles.BADGE_GRAY);
                 tagRow.getChildren().add(t);
             }
             card.getChildren().add(tagRow);
@@ -320,7 +321,7 @@ public class McpMarketDialog {
             config += " · " + m.baseUrl();
         }
         Label configLabel = new Label(config);
-        configLabel.getStyleClass().add("card-meta");
+        configLabel.getStyleClass().add(UiStyles.CARD_META);
         configLabel.setMaxWidth(Double.MAX_VALUE);
         configLabel.setTextOverrun(OverrunStyle.ELLIPSIS);
         card.getChildren().add(configLabel);
@@ -333,7 +334,7 @@ public class McpMarketDialog {
             for (String dep : m.requires()) {
                 boolean ok = Boolean.TRUE.equals(depStatus.get(dep.toLowerCase(Locale.ROOT)));
                 Label badge = new Label(dep);
-                badge.getStyleClass().addAll("badge", ok ? "badge-green" : "badge-red");
+                badge.getStyleClass().addAll("badge", ok ? UiStyles.BADGE_GREEN : "badge-red");
                 deps.getChildren().add(badge);
                 if (!ok && missingHome.isBlank()) {
                     missingHome = MarketService.dependencyHomepage(dep);
@@ -342,7 +343,7 @@ public class McpMarketDialog {
             if (!missingHome.isBlank()) {
                 final String home = missingHome;
                 Button get = new Button(I18n.t("market.requires.get"));
-                get.getStyleClass().add("link-btn");
+                get.getStyleClass().add(UiStyles.LINK_BTN);
                 get.setOnAction(e -> openUrl(home));
                 deps.getChildren().add(get);
             }
@@ -357,7 +358,7 @@ public class McpMarketDialog {
             metaRow.setAlignment(Pos.CENTER_LEFT);
             if (hasMeta) {
                 Label updated = new Label(I18n.t("market.updatedAt", m.updatedAt()));
-                updated.getStyleClass().add("card-meta");
+                updated.getStyleClass().add(UiStyles.CARD_META);
                 metaRow.getChildren().add(updated);
             }
             Region msp = new Region();
@@ -379,7 +380,7 @@ public class McpMarketDialog {
         foot.setAlignment(Pos.CENTER_LEFT);
         if (!m.tools().isEmpty()) {
             Button tools = new Button(I18n.t("market.tools.count", m.tools().size()));
-            tools.getStyleClass().add("link-btn");
+            tools.getStyleClass().add(UiStyles.LINK_BTN);
             tools.setOnAction(e -> showTools(m));
             foot.getChildren().add(tools);
         }
@@ -393,7 +394,7 @@ public class McpMarketDialog {
     /** 文字链接按钮：点击用系统浏览器打开给定 URL。 */
     private Button linkButton(String text, String url) {
         Button b = new Button(text);
-        b.getStyleClass().add("link-btn");
+        b.getStyleClass().add(UiStyles.LINK_BTN);
         b.setMinWidth(Region.USE_PREF_SIZE);
         b.setOnAction(e -> openUrl(url));
         return b;
@@ -403,15 +404,15 @@ public class McpMarketDialog {
     private Button buildActionButton(MarketService.MarketMcp m) {
         if (marketService.localMcp(m.serverCode()) != null) {
             Label added = new Label(I18n.t("market.added"));
-            added.getStyleClass().addAll("badge", "badge-green");
+            added.getStyleClass().addAll("badge", UiStyles.BADGE_GREEN);
             Button placeholder = new Button();
             placeholder.setGraphic(added);
-            placeholder.getStyleClass().add("link-btn");
+            placeholder.getStyleClass().add(UiStyles.LINK_BTN);
             placeholder.setDisable(true);
             return placeholder;
         }
         Button action = new Button(I18n.t("market.add"));
-        action.getStyleClass().add("btn-primary");
+        action.getStyleClass().add(UiStyles.BTN_PRIMARY);
         action.setMinWidth(Region.USE_PREF_SIZE);
         action.setOnAction(e -> handleAdd(m));
         return action;
@@ -464,11 +465,11 @@ public class McpMarketDialog {
         box.setPrefWidth(480);
         for (MarketService.MarketMcpTool t : m.tools()) {
             Label name = new Label(t.name());
-            name.getStyleClass().add("provider-card-title");
+            name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
             box.getChildren().add(name);
             if (!t.description().isBlank()) {
                 Label d = new Label(oneLine(t.description()));
-                d.getStyleClass().add("card-desc");
+                d.getStyleClass().add(UiStyles.CARD_DESC);
                 d.setWrapText(true);
                 box.getChildren().add(d);
             }
@@ -547,7 +548,7 @@ public class McpMarketDialog {
             Label retryIcon = new Label("\uE72C");
             retryIcon.getStyleClass().add("icon");
             retry.setGraphic(retryIcon);
-            retry.getStyleClass().add("btn-primary");
+            retry.getStyleClass().add(UiStyles.BTN_PRIMARY);
             retry.setOnAction(e -> reload());
             box.getChildren().add(retry);
         }

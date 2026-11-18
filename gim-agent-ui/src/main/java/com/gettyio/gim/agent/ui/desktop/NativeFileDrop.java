@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.ui.desktop;
 
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.sun.jna.CallbackReference;
 import com.sun.jna.Function;
 import com.sun.jna.Library;
@@ -212,7 +213,7 @@ public final class NativeFileDrop {
         if (window == null || onDrop == null || INSTALLED.contains(window)) {
             return;
         }
-        if (!System.getProperty("os.name", "").toLowerCase().contains("win")) {
+        if (!OsPlatform.current().isWindows()) {
             return;
         }
         INSTALLED.add(window);

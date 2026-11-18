@@ -16,6 +16,8 @@
 
 package com.gettyio.gim.agent.domain.backup;
 
+import com.gettyio.gim.agent.domain.util.TimeFormats;
+
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.persist.PersistException;
 import org.slf4j.Logger;
@@ -54,7 +56,7 @@ public class DbBackupService {
     /** 自动备份的最小间隔 */
     public static final Duration MIN_INTERVAL = Duration.ofHours(24);
 
-    private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    private static final DateTimeFormatter FILE_TS = TimeFormats.FILE_TIMESTAMP;
     private static final String PREFIX = "jwork-";
     private static final String SUFFIX = ".db";
 

@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.tools.web;
 
+import com.gettyio.gim.agent.domain.util.HttpMedia;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -149,7 +150,7 @@ public class WebSearchTools {
             body.put("include_answer", true);
             HttpRequest req = HttpRequest.newBuilder(URI.create(TAVILY_ENDPOINT))
                     .timeout(Duration.ofSeconds(20))
-                    .header("Content-Type", "application/json")
+                    .header(HttpMedia.CONTENT_TYPE, HttpMedia.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + key)
                     .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();
@@ -183,7 +184,7 @@ public class WebSearchTools {
             body.put("freshness", "noLimit");
             HttpRequest req = HttpRequest.newBuilder(URI.create(BOCHA_ENDPOINT))
                     .timeout(Duration.ofSeconds(20))
-                    .header("Content-Type", "application/json")
+                    .header(HttpMedia.CONTENT_TYPE, HttpMedia.APPLICATION_JSON)
                     .header("Authorization", "Bearer " + key)
                     .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();
@@ -222,7 +223,7 @@ public class WebSearchTools {
             HttpRequest req = HttpRequest.newBuilder(URI.create(endpoint))
                     .timeout(Duration.ofSeconds(20))
                     .header("User-Agent", "Mozilla/5.0 (Jwork Desktop)")
-                    .header("Accept", "application/json")
+                    .header(HttpMedia.ACCEPT, HttpMedia.APPLICATION_JSON)
                     .GET()
                     .build();
             HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -295,7 +296,7 @@ public class WebSearchTools {
             if (status < 300) {
                 try (InputStream in = resp.body()) {
                     byte[] raw = in.readNBytes(MAX_PAGE_BYTES);
-                    String contentType = resp.headers().firstValue("content-type").orElse("");
+                    String contentType = resp.headers().firstValue(HttpMedia.CONTENT_TYPE).orElse("");
                     return renderFetch(decode(raw, contentType), contentType, target, finalUrl,
                             prompt, limit, raw.length >= MAX_PAGE_BYTES);
                 }

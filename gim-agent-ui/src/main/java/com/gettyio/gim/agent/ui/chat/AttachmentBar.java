@@ -19,6 +19,8 @@ package com.gettyio.gim.agent.ui.chat;
 import com.gettyio.gim.agent.core.chat.FileAttachment;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
+import com.gettyio.gim.agent.domain.util.FileKinds;
+import com.gettyio.gim.agent.domain.util.HttpMedia;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.util.UiFormat;
@@ -68,15 +70,17 @@ public class AttachmentBar {
     /** 「文件」附件可选的文本/代码类扩展名（对齐 Qoder：喂给模型的是文本上下文，不含 PDF/Office 二进制） */
     private static final String[] CODE_EXTENSIONS = {
             "*.java", "*.kt", "*.groovy", "*.scala", "*.py", "*.js", "*.jsx", "*.ts", "*.tsx", "*.vue",
-            "*.html", "*.htm", "*.css", "*.scss", "*.less", "*.c", "*.h", "*.cpp", "*.hpp", "*.cc",
+            wildcard(FileKinds.HTML), wildcard(FileKinds.HTM), "*.css", "*.scss", "*.less", "*.c", "*.h", "*.cpp", "*.hpp", "*.cc",
             "*.cs", "*.go", "*.rs", "*.rb", "*.php", "*.swift", "*.m", "*.mm", "*.sql", "*.sh",
-            "*.bat", "*.ps1", "*.cmd", "*.json", "*.xml", "*.yml", "*.yaml", "*.toml", "*.ini",
-            "*.properties", "*.md", "*.markdown", "*.txt", "*.csv", "*.log", "*.rst"
+            "*.bat", "*.ps1", "*.cmd", wildcard(FileKinds.JSON), "*.xml", "*.yml", "*.yaml", "*.toml", "*.ini",
+            wildcard(FileKinds.PROPERTIES), wildcard(FileKinds.MD), wildcard(FileKinds.MARKDOWN),
+            wildcard(FileKinds.TXT), wildcard(FileKinds.CSV), wildcard(FileKinds.LOG), wildcard(FileKinds.RST)
     };
 
     /** 文档附件（服务端抽取正文喂模型）可选扩展名。 */
     private static final String[] DOC_EXTENSIONS = {
-            "*.pdf", "*.docx", "*.xlsx", "*.txt", "*.md", "*.markdown", "*.csv"
+            wildcard(FileKinds.PDF), wildcard(FileKinds.DOCX), wildcard(FileKinds.XLSX), wildcard(FileKinds.TXT),
+            wildcard(FileKinds.MD), wildcard(FileKinds.MARKDOWN), wildcard(FileKinds.CSV)
     };
     /** 单个文档附件字节上限（50MB）：与 ChatService 口径一致。 */
     private static final long MAX_DOC_BYTES = 50L * 1024 * 1024;
@@ -166,7 +170,7 @@ public class AttachmentBar {
                     I18n.t("attach.tooLarge", fileName));
             return;
         }
-        ImageAttachment att = new ImageAttachment(fileName, "image/png",
+        ImageAttachment att = new ImageAttachment(fileName, HttpMedia.IMAGE_PNG,
                 Base64.getEncoder().encodeToString(bytes));
         pendingImages.add(att);
         attachChipsBox.getChildren().add(buildChip(att, bytes));
@@ -188,9 +192,9 @@ public class AttachmentBar {
             }
             if (f.isDirectory()) {
                 addPendingRef(new FileRef("folder", f.getName(), f.getAbsolutePath(), buildTree(f.toPath())));
-            } else if (isImage(f.getName())) {
+            } else if (FileKinds.isImage(f.getName())) {
                 addPendingImage(f);
-            } else if (isDoc(f.getName())) {
+            } else if (FileKinds.isExtractableDocument(f.getName())) {
                 addPendingDoc(f);
             } else {
                 addPendingRef(new FileRef("file", f.getName(), f.getAbsolutePath(), null));
@@ -249,7 +253,8 @@ public class AttachmentBar {
         chooser.setTitle(I18n.t("attach.menu.file"));
         chooser.getExtensionFilters().addAll(
                 new FileChooser.ExtensionFilter(I18n.t("attach.filter.all"), "*.*", "*"),
-                new FileChooser.ExtensionFilter(I18n.t("attach.filter"), "*.png", "*.jpg", "*.jpeg", "*.gif", "*.bmp", "*.webp"),
+                new FileChooser.ExtensionFilter(I18n.t("attach.filter"), wildcard(FileKinds.PNG), wildcard(FileKinds.JPG),
+                        wildcard(FileKinds.JPEG), wildcard(FileKinds.GIF), wildcard(FileKinds.BMP), wildcard(FileKinds.WEBP)),
                 new FileChooser.ExtensionFilter(I18n.t("attach.filter.doc"), DOC_EXTENSIONS),
                 new FileChooser.ExtensionFilter(I18n.t("attach.filter.code"), CODE_EXTENSIONS));
         List<File> files = chooser.showOpenMultipleDialog(host.currentWindow());
@@ -257,9 +262,9 @@ public class AttachmentBar {
             return;
         }
         for (File f : files) {
-            if (isImage(f.getName())) {
+            if (FileKinds.isImage(f.getName())) {
                 addPendingImage(f);
-            } else if (isDoc(f.getName())) {
+            } else if (FileKinds.isExtractableDocument(f.getName())) {
                 addPendingDoc(f);
             } else {
                 addPendingRef(new FileRef("file", f.getName(), f.getAbsolutePath(), null));
@@ -268,11 +273,9 @@ public class AttachmentBar {
         inputField.requestFocus();
     }
 
-    /** 按扩展名判定是否为可抽取正文的文档。 */
-    private static boolean isDoc(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        return n.endsWith(".pdf") || n.endsWith(".docx") || n.endsWith(".xlsx")
-                || n.endsWith(".txt") || n.endsWith(".md") || n.endsWith(".markdown") || n.endsWith(".csv");
+    /** 扩展名 → 文件选择器通配符（"*.pdf" 等）。 */
+    private static String wildcard(String extension) {
+        return "*" + extension;
     }
 
     /** 加入一个待发文档附件（读字节 Base64）；超 50MB 拒绝并提示。 */
@@ -324,32 +327,25 @@ public class AttachmentBar {
     /** 文档扩展名→MIME，未知回退 application/octet-stream。 */
     private static String docMimeOf(String name) {
         String n = name.toLowerCase(Locale.ROOT);
-        if (n.endsWith(".pdf")) {
-            return "application/pdf";
+        if (n.endsWith(FileKinds.PDF)) {
+            return HttpMedia.APPLICATION_PDF;
         }
-        if (n.endsWith(".docx")) {
-            return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (n.endsWith(FileKinds.DOCX)) {
+            return HttpMedia.APPLICATION_DOCX;
         }
-        if (n.endsWith(".xlsx")) {
-            return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        if (n.endsWith(FileKinds.XLSX)) {
+            return HttpMedia.APPLICATION_XLSX;
         }
-        if (n.endsWith(".csv")) {
-            return "text/csv";
+        if (n.endsWith(FileKinds.CSV)) {
+            return HttpMedia.TEXT_CSV;
         }
-        if (n.endsWith(".md") || n.endsWith(".markdown")) {
-            return "text/markdown";
+        if (FileKinds.isMarkdown(n)) {
+            return HttpMedia.TEXT_MARKDOWN;
         }
-        if (n.endsWith(".txt")) {
-            return "text/plain";
+        if (n.endsWith(FileKinds.TXT)) {
+            return HttpMedia.TEXT_PLAIN;
         }
-        return "application/octet-stream";
-    }
-
-    /** 按扩展名判定是否为图片（与 {@link #mimeOf} 支持的格式一致）。 */
-    private static boolean isImage(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        return n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg")
-                || n.endsWith(".gif") || n.endsWith(".bmp") || n.endsWith(".webp");
+        return HttpMedia.APPLICATION_OCTET_STREAM;
     }
 
     /** 选择单个文件夹：采集目录树文本 + 根路径引用加入待发。 */
@@ -471,21 +467,10 @@ public class AttachmentBar {
         return chip;
     }
 
+    /** 图片扩展名→MIME；非图片后缀按 jpeg 兜底（与历史行为一致）。 */
     private static String mimeOf(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        if (n.endsWith(".png")) {
-            return "image/png";
-        }
-        if (n.endsWith(".gif")) {
-            return "image/gif";
-        }
-        if (n.endsWith(".bmp")) {
-            return "image/bmp";
-        }
-        if (n.endsWith(".webp")) {
-            return "image/webp";
-        }
-        return "image/jpeg";
+        String mime = FileKinds.imageMime(name);
+        return mime != null ? mime : HttpMedia.IMAGE_JPEG;
     }
 
     // ===================== 缩略图工具 =====================

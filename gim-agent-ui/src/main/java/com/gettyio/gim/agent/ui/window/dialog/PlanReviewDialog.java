@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.window.dialog;
 
 import com.gettyio.gim.agent.core.plan.PlanService;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -63,14 +64,14 @@ public final class PlanReviewDialog {
         cancel.setMinWidth(76);
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("plan.review.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setMinWidth(76);
         save.setOnAction(e -> {
             planService.write(agentCode, area.getText());
             shell.stage().close();
         });
         HBox actions = new HBox(8, cancel, save);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         actions.setAlignment(Pos.CENTER_RIGHT);
         shell.body().getChildren().addAll(hint, area, actions);
         shell.showAndWait();

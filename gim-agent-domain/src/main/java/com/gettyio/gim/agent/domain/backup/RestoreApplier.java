@@ -16,6 +16,8 @@
 
 package com.gettyio.gim.agent.domain.backup;
 
+import com.gettyio.gim.agent.domain.util.TimeFormats;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -43,7 +45,7 @@ public final class RestoreApplier {
 
     private static final Logger log = LoggerFactory.getLogger(RestoreApplier.class);
 
-    private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    private static final DateTimeFormatter FILE_TS = TimeFormats.FILE_TIMESTAMP;
 
     private RestoreApplier() {
     }

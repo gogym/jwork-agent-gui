@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.core.memory;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
+import com.gettyio.gim.agent.domain.util.FileKinds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -274,8 +275,8 @@ public class MemoryService {
      */
     public static String normalizeCategoryName(String rawName) {
         String raw = rawName == null ? "" : rawName.strip();
-        if (raw.toLowerCase(java.util.Locale.ROOT).endsWith(".md")) {
-            raw = raw.substring(0, raw.length() - 3);
+        if (raw.toLowerCase(java.util.Locale.ROOT).endsWith(FileKinds.MD)) {
+            raw = raw.substring(0, raw.length() - FileKinds.MD.length());
         }
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < raw.length(); i++) {
@@ -291,11 +292,11 @@ public class MemoryService {
         }
         String base = sb.toString();
         if (base.isEmpty() || base.length() > NAME_MAX_LEN
-                || DAILY_FILE.matcher(base + ".md").matches()
+                || DAILY_FILE.matcher(base + FileKinds.MD).matches()
                 || "archive".equalsIgnoreCase(base)) {
             return null;
         }
-        return base + ".md";
+        return base + FileKinds.MD;
     }
 
     /**
@@ -344,7 +345,7 @@ public class MemoryService {
 
     /** 仅接受 {@code memory/} 目录下的裸 {@code .md} 文件名，含分隔符或非法名一律拒绝。 */
     private Path safeMemoryFile(String scopeKey, String name) {
-        if (name == null || name.isBlank() || !name.endsWith(".md")
+        if (name == null || name.isBlank() || !name.endsWith(FileKinds.MD)
                 || name.indexOf('/') >= 0 || name.indexOf('\\') >= 0
                 || name.contains("..")) {
             return null;
@@ -377,7 +378,7 @@ public class MemoryService {
     }
 
     private static boolean isMdFile(Path p) {
-        return p.getFileName().toString().endsWith(".md");
+        return p.getFileName().toString().endsWith(FileKinds.MD);
     }
 
     private static boolean isDailyFile(String name) {

@@ -21,6 +21,7 @@ import com.gettyio.gim.agent.core.fs.CanonicalPath;
 import com.gettyio.gim.agent.core.subagent.SubagentSpecs;
 import com.gettyio.gim.agent.domain.dao.AgentDefinitionDao;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
+import com.gettyio.gim.agent.domain.util.Closeables;
 import io.agentscope.core.model.Model;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -328,11 +329,7 @@ public class MultiAgentGateway implements AgentGateway, AutoCloseable {
     }
 
     private static void closeQuietly(HarnessAgentGateway gateway) {
-        try {
-            gateway.close();
-        } catch (RuntimeException e) {
-            log.warn("关闭智能体运行时失败", e);
-        }
+        Closeables.quietly(gateway, log, "关闭智能体运行时失败");
     }
 
     @Override

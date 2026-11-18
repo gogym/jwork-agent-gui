@@ -19,12 +19,14 @@ package com.gettyio.gim.agent.ui.window.settings;
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.control.SecretField;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.export.ExportService;
 import com.gettyio.gim.agent.ui.export.SessionImageExporter;
 import com.gettyio.gim.agent.ui.sync.WebDavSyncService;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -41,7 +43,6 @@ import javafx.stage.FileChooser;
 import java.awt.Desktop;
 import java.io.File;
 import java.nio.file.Path;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
@@ -126,7 +127,7 @@ final class BackupRestoreSettingsPanel {
      * 打开备份目录 / 打开数据目录。
      */
     private VBox dataMaintenanceCard() {
-        lastBackupValueLabel.getStyleClass().add("row-value");
+        lastBackupValueLabel.getStyleClass().add(UiStyles.ROW_VALUE);
         List<Node> rows = new ArrayList<>();
         rows.add(SettingsLayout.infoRow(I18n.t("settings.key.backupsDir"), gimPaths.backupsDir()));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.backup.lastAt"), null, lastBackupValueLabel));
@@ -140,7 +141,7 @@ final class BackupRestoreSettingsPanel {
                 () -> revealDir(gimPaths.root()));
 
         Label hint = new Label(I18n.t("settings.backup.hint"));
-        hint.getStyleClass().add("row-desc");
+        hint.getStyleClass().add(UiStyles.ROW_DESC);
         hint.setWrapText(true);
 
         FlowPane buttons = new FlowPane(8, 8, backup, exportSession, exportFull, openBackup, openRoot);
@@ -196,7 +197,7 @@ final class BackupRestoreSettingsPanel {
         webDavRestoreButton = CardKit.iconTextButton("\uE896", I18n.t("settings.sync.restore"), this::handleRestore);
         FlowPane buttons = new FlowPane(8, 8, webDavTestButton, webDavSyncButton, webDavRestoreButton);
 
-        webDavLastSyncLabel.getStyleClass().add("row-value");
+        webDavLastSyncLabel.getStyleClass().add(UiStyles.ROW_VALUE);
         List<Node> rows = new ArrayList<>();
         rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.url"), I18n.t("settings.sync.url.desc"), urlField));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.sync.username"),
@@ -347,7 +348,7 @@ final class BackupRestoreSettingsPanel {
     private void refreshLastSyncRow() {
         String text = webDavSyncService.lastSyncAt()
                 .map(i -> i.atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(
-                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
+                        TimeFormats.DISPLAY_TIMESTAMP))
                 .orElse(I18n.t("settings.sync.never"));
         webDavLastSyncLabel.setText(text);
     }
@@ -358,7 +359,7 @@ final class BackupRestoreSettingsPanel {
      * 带着旧库启动、再被下次启动静默换掉。这里把它常驻呈现，并给一条反悔的路。</p>
      */
     private HBox pendingRestoreControl() {
-        pendingRestoreValueLabel.getStyleClass().add("row-value");
+        pendingRestoreValueLabel.getStyleClass().add(UiStyles.ROW_VALUE);
         pendingCancelBtn = CardKit.iconTextButton("\uE711", I18n.t("settings.sync.pending.cancel"),
                 this::handleCancelPendingRestore);
         pendingCancelBtn.setVisible(false);
@@ -376,7 +377,7 @@ final class BackupRestoreSettingsPanel {
         }
         WebDavSyncService.PendingRestore p = pending.get();
         String at = p.at().atZone(java.time.ZoneId.systemDefault()).toLocalDateTime()
-                .format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+                .format(TimeFormats.DISPLAY_TIMESTAMP);
         pendingRestoreValueLabel.setText(I18n.t("settings.sync.pending.desc",
                 p.source().isBlank() ? "-" : p.source(), at));
         pendingCancelBtn.setVisible(true);
@@ -401,7 +402,7 @@ final class BackupRestoreSettingsPanel {
     private String formatLastBackup() {
         return dbBackupService.lastBackupAt()
                 .map(i -> i.atZone(java.time.ZoneId.systemDefault()).toLocalDateTime().format(
-                        DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")))
+                        TimeFormats.DISPLAY_TIMESTAMP))
                 .orElse(I18n.t("settings.backup.none"));
     }
 

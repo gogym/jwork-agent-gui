@@ -21,6 +21,7 @@ import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.AgentAdminService.CapabilityOption;
 import com.gettyio.gim.agent.ui.config.AgentAdminService.ModelOption;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -131,7 +132,7 @@ public final class AgentDialog {
         CapabilityPicker mcpPicker = new CapabilityPicker(
                 service.mcpOptions(), service.selectedMcpCodes(form), I18n.t("agent.cap.noneMcp"));
         Label capHint = new Label(I18n.t("agent.cap.hint"));
-        capHint.getStyleClass().add("row-desc");
+        capHint.getStyleClass().add(UiStyles.ROW_DESC);
         capHint.setWrapText(true);
 
         Label error = new Label("");
@@ -166,7 +167,7 @@ public final class AgentDialog {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         final AgentDefinition[] saved = new AgentDefinition[1];
         save.setOnAction(e -> {
             String name = nameField.getText() == null ? "" : nameField.getText().trim();
@@ -283,7 +284,7 @@ public final class AgentDialog {
             this.options = options;
             if (options.isEmpty()) {
                 Label none = new Label(emptyHint);
-                none.getStyleClass().add("row-desc");
+                none.getStyleClass().add(UiStyles.ROW_DESC);
                 none.setWrapText(true);
                 node = none;
                 return;
@@ -313,10 +314,10 @@ public final class AgentDialog {
             search.textProperty().addListener((obs, was, now) -> applyFilter());
             count.getStyleClass().add("cap-count");
             Button all = new Button(I18n.t("agent.cap.selectAll"));
-            all.getStyleClass().add("link-btn");
+            all.getStyleClass().add(UiStyles.LINK_BTN);
             all.setOnAction(e -> bulk(true));
             Button clear = new Button(I18n.t("agent.cap.clear"));
-            clear.getStyleClass().add("link-btn");
+            clear.getStyleClass().add(UiStyles.LINK_BTN);
             clear.setOnAction(e -> bulk(false));
             HBox toolbar = new HBox(6, search, count, all, clear);
             toolbar.setAlignment(Pos.CENTER_LEFT);

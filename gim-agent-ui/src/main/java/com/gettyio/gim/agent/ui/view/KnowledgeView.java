@@ -20,10 +20,12 @@ import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.core.knowledge.EmbeddingIndexService;
 import com.gettyio.gim.agent.core.knowledge.KnowledgeService;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.util.UiFormat;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.control.SecretField;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -96,7 +98,7 @@ public class KnowledgeView {
     private Supplier<String> currentAgent = () -> null;
 
     private static final DateTimeFormatter DATE_FMT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
+            TimeFormats.MINUTE_TIMESTAMP.withZone(ZoneId.systemDefault());
 
     /** ComboBox 展示项：以智能体名显示、以编码寻值。 */
     private static final class AgentChoice {
@@ -162,11 +164,11 @@ public class KnowledgeView {
         refreshBtn = iconButton("\uE72C", this::reload);
         refreshBtn.setMinWidth(Region.USE_PREF_SIZE);
 
-        importUrlBtn.getStyleClass().add("link-btn");
+        importUrlBtn.getStyleClass().add(UiStyles.LINK_BTN);
         importUrlBtn.setMinWidth(Region.USE_PREF_SIZE);
         importUrlBtn.setOnAction(e -> handleImportUrl());
 
-        importBtn.getStyleClass().addAll("btn-primary", "knowledge-import-btn");
+        importBtn.getStyleClass().addAll(UiStyles.BTN_PRIMARY, "knowledge-import-btn");
         importBtn.setMinWidth(Region.USE_PREF_SIZE);
         importBtn.setOnAction(e -> handleImport());
 
@@ -194,14 +196,14 @@ public class KnowledgeView {
         headText.setMaxWidth(Double.MAX_VALUE);
         HBox header = new HBox(headText);
         HBox.setHgrow(headText, Priority.ALWAYS);
-        header.getStyleClass().add("page-header");
+        header.getStyleClass().add(UiStyles.PAGE_HEADER);
 
         docsHeader.getStyleClass().add("section-title");
         // 空态引导卡：说清支持格式与「导入即生效」，而不是一句暂无数据
         Label emptyIcon = new Label("\uE82D");
         emptyIcon.getStyleClass().add("knowledge-empty-icon");
         docEmptyTitle.getStyleClass().add("knowledge-empty-title");
-        docEmptyHint.getStyleClass().add("card-meta");
+        docEmptyHint.getStyleClass().add(UiStyles.CARD_META);
         docEmptyHint.setWrapText(true);
         HBox emptyHead = new HBox(8, emptyIcon, docEmptyTitle);
         emptyHead.setAlignment(Pos.CENTER_LEFT);
@@ -210,7 +212,7 @@ public class KnowledgeView {
         docBox.getStyleClass().add("knowledge-doc-box");
 
         indexHeader.getStyleClass().add("section-title");
-        indexHint.getStyleClass().add("card-meta");
+        indexHint.getStyleClass().add(UiStyles.CARD_META);
         indexHint.setWrapText(true);
         indexArea.setEditable(false);
         indexArea.setWrapText(true);
@@ -259,13 +261,13 @@ public class KnowledgeView {
     /** 向量索引区：标题行（重建按钮在右）+ embedding 提供方三字段（失焦/回车即存）+ 状态行。 */
     private void buildVectorSection() {
         vectorHeader.getStyleClass().add("section-title");
-        vectorStatus.getStyleClass().add("card-meta");
+        vectorStatus.getStyleClass().add(UiStyles.CARD_META);
         vectorStatus.setWrapText(true);
-        vectorHint.getStyleClass().add("card-meta");
+        vectorHint.getStyleClass().add(UiStyles.CARD_META);
         vectorHint.setWrapText(true);
 
         reindexBtn = new Button();
-        reindexBtn.getStyleClass().add("link-btn");
+        reindexBtn.getStyleClass().add(UiStyles.LINK_BTN);
         reindexBtn.setMinWidth(Region.USE_PREF_SIZE);
         reindexBtn.setOnAction(e -> handleReindex());
         Region spacer = new Region();
@@ -454,12 +456,12 @@ public class KnowledgeView {
         name.setMaxWidth(Double.MAX_VALUE);
         name.setEllipsisString("\u2026");
         VBox meta = new VBox(2, name, new Label(summaryLine(d)));
-        meta.getChildren().get(1).getStyleClass().add("card-meta");
+        meta.getChildren().get(1).getStyleClass().add(UiStyles.CARD_META);
         HBox.setHgrow(meta, Priority.ALWAYS);
 
         Button view = linkButton(I18n.t("knowledge.view"), () -> openDoc(code, d.name()));
         Button del = linkButton(I18n.t("knowledge.delete"), () -> handleDelete(code, d.name()));
-        del.getStyleClass().add("link-btn-danger");
+        del.getStyleClass().add(UiStyles.LINK_BTN_DANGER);
         HBox row = new HBox(8, meta, view, del);
         row.setAlignment(Pos.CENTER_LEFT);
         row.getStyleClass().add("knowledge-doc-row");
@@ -524,7 +526,7 @@ public class KnowledgeView {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button confirm = new Button(I18n.t("knowledge.importUrl.confirm"));
-        confirm.getStyleClass().add("btn-primary");
+        confirm.getStyleClass().add(UiStyles.BTN_PRIMARY);
         confirm.setOnAction(e -> {
             String url = urlField.getText() == null ? "" : urlField.getText().trim();
             if (url.isEmpty()) {
@@ -610,7 +612,7 @@ public class KnowledgeView {
 
     private Button iconButton(String iconText, Runnable action) {
         Button b = new Button();
-        b.getStyleClass().add("icon-btn");
+        b.getStyleClass().add(UiStyles.ICON_BTN);
         b.setTooltip(new Tooltip());
         Label icon = new Label(iconText);
         icon.getStyleClass().add("icon");
@@ -621,7 +623,7 @@ public class KnowledgeView {
 
     private Button linkButton(String text, Runnable action) {
         Button b = new Button(text);
-        b.getStyleClass().add("link-btn");
+        b.getStyleClass().add(UiStyles.LINK_BTN);
         b.setOnAction(e -> action.run());
         return b;
     }

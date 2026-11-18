@@ -29,6 +29,18 @@
     var TRIM_THRESHOLD = 800;     // DOM 消息行超此数且贴底时触发顶部回收（长会话控内存）
     var TRIM_KEEP = 400;          // 回收后保留的最新消息行数
     var IDLE_MS = 1000;           // 轮内心跳：超此时长无新事件且无在途行自报动作，就补「思考中」占位
+    var SECOND_MS = 1000;         // 每秒毫秒数：读秒文案与两处读秒定时器共用
+    var WHOLE_SECOND_MS = 10000;  // 读秒精度阈值：低于它保留一位小数，达到后整秒四舍五入
+
+    /** 「思考中」文案：本地化未推送时用英文兜底（占位行/在途思考行/块头同一口径）。 */
+    function thinkingLabel() {
+        return LABELS.thinking || 'Thinking…';
+    }
+
+    /** 「已思考」文案：本地化未推送时用英文兜底。 */
+    function thoughtLabel() {
+        return LABELS.thinkingDone || 'Thought';
+    }
 
     function esc(s) {
         return s == null ? '' : String(s);
@@ -394,8 +406,8 @@
 
     /** 毫秒 → 本地化秒数文案（不足 1 秒返回空串，标题里不出现）。 */
     function seconds(ms) {
-        if (!ms || ms < 1000) { return ''; }
-        var v = ms >= 10000 ? Math.round(ms / 1000) : Math.round(ms / 100) / 10;
+        if (!ms || ms < SECOND_MS) { return ''; }
+        var v = ms >= WHOLE_SECOND_MS ? Math.round(ms / SECOND_MS) : Math.round(ms / (SECOND_MS / 10)) / 10;
         return (LABELS.thinkingElapsed || '{0}s').replace('{0}', v);
     }
 
@@ -403,7 +415,7 @@
     function processTitle(tools, failed, thinkMs, running, liveMs) {
         if (running) {
             // 思考在途时块头也带读秒：与行尾同口径，收起态不丢时长
-            var ts = running === (LABELS.thinking || 'Thinking…') ? seconds(liveMs) : '';
+            var ts = running === thinkingLabel() ? seconds(liveMs) : '';
             return ts ? running + ' · ' + ts : running;
         }
         if (tools > 0) {
@@ -412,7 +424,7 @@
                     .replace('{0}', tools).replace('{1}', failed)
                 : (LABELS.toolCount || 'Executed {0} tool call(s)').replace('{0}', tools);
         }
-        var t = LABELS.thinkingDone || 'Thought';
+        var t = thoughtLabel();
         var el2 = seconds(thinkMs);
         return el2 ? t + ' · ' + el2 : t;
     }
@@ -449,7 +461,7 @@
                 else if (!it.tool.ok) { failed++; }
             } else if (it.kind === 'think') {
                 // 统计只算已定格的思考；在途耗时单独走 running 读秒，免得展开态块头误报「已思考」
-                if (it.live) { liveMs += it.ms || 0; running = LABELS.thinking || 'Thinking…'; }
+                if (it.live) { liveMs += it.ms || 0; running = thinkingLabel(); }
                 else if (it.ms) { thinkMs += it.ms; }
             }
         }
@@ -504,7 +516,7 @@
         var row = el('div', 'log-row');
         var ic = iconEl(it.live ? SPINNER_SVG : CHECK_SVG, 'log-ic' + (it.live ? ' live' : ''));
         row.appendChild(ic);
-        var name = el('span', 'log-name', it.live ? (LABELS.thinking || 'Thinking…') : (LABELS.thinkingDone || 'Thought'));
+        var name = el('span', 'log-name', it.live ? thinkingLabel() : thoughtLabel());
         row.appendChild(name);
         var time = el('span', 'log-time', seconds(it.ms));
         row.appendChild(time);
@@ -526,7 +538,7 @@
         if (it.refs) {
             it.refs.ic.innerHTML = CHECK_SVG;
             it.refs.ic.classList.remove('live');
-            it.refs.name.textContent = LABELS.thinkingDone || 'Thought';
+            it.refs.name.textContent = thoughtLabel();
             it.refs.time.textContent = seconds(it.ms);
         }
         if (it.detail && it.detail.firstChild) {
@@ -741,7 +753,7 @@
             it.ms = Math.max(0, Date.now() - it.started);
             if (it.refs) { it.refs.time.textContent = seconds(it.ms); }
             if (it.proc) { refreshProcess(it.proc); }
-        }, 1000);
+        }, SECOND_MS);
     }
 
     function stopThinkTick(it) {
@@ -814,7 +826,7 @@
     function pendingLine() {
         var box = el('div', 'pending');
         box.appendChild(iconEl(SPINNER_SVG, 'pending-ic'));
-        box.appendChild(el('span', 'pending-text pulsing', LABELS.thinking || 'Thinking…'));
+        box.appendChild(el('span', 'pending-text pulsing', thinkingLabel()));
         box.appendChild(el('span', 'pending-time', ''));
         return box;
     }
@@ -827,7 +839,7 @@
             if (!s.pending) { return; }
             var t = s.pending.querySelector('.pending-time');
             if (t) { t.textContent = seconds(Date.now() - s.pendingSince); }
-        }, 1000);
+        }, SECOND_MS);
     }
 
     function stopPendingTick(s) {

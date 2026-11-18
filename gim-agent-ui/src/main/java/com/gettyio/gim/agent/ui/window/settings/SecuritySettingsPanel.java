@@ -24,6 +24,7 @@ import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -136,15 +137,15 @@ final class SecuritySettingsPanel {
                         I18n.t("settings.security.approval.default.desc"), approvalCombo))));
 
         Button addRule = SettingsLayout.newButton(I18n.t("settings.security.rule.add"), this::handleAddDangerousRule);
-        addRule.getStyleClass().add("btn-primary");
+        addRule.getStyleClass().add(UiStyles.BTN_PRIMARY);
         Button resetRules = SettingsLayout.newButton(I18n.t("settings.security.rule.reset"), this::handleResetDangerousRules);
-        resetRules.getStyleClass().add("link-btn");
+        resetRules.getStyleClass().add(UiStyles.LINK_BTN);
         renderDangerousRules();
         tab.getChildren().add(SettingsLayout.sectionBlock(I18n.t("settings.security.dangerous.group"),
                 I18n.t("settings.security.dangerous.desc"), List.of(resetRules, addRule), dangerousRulesBox));
 
         Button addProg = SettingsLayout.newButton(I18n.t("settings.security.shell.add"), this::handleAddShellProgram);
-        addProg.getStyleClass().add("btn-primary");
+        addProg.getStyleClass().add(UiStyles.BTN_PRIMARY);
         renderShellAllowlist();
         tab.getChildren().add(SettingsLayout.sectionBlock(I18n.t("settings.security.shell.group"),
                 I18n.t("settings.security.shell.desc"), List.of(addProg), shellAllowBox));
@@ -171,7 +172,7 @@ final class SecuritySettingsPanel {
         });
 
         Label statusValue = new Label();
-        statusValue.getStyleClass().addAll("row-value", "status-unknown");
+        statusValue.getStyleClass().addAll(UiStyles.ROW_VALUE, "status-unknown");
         statusValue.setWrapText(true);
         statusValue.setMaxWidth(340);
         Button check = new Button(I18n.t("settings.security.sandbox.check"));
@@ -205,7 +206,7 @@ final class SecuritySettingsPanel {
             Platform.runLater(() -> {
                 statusValue.setText(I18n.t(available
                         ? "settings.security.sandbox.status.available" : "sandbox.docker.unavailable"));
-                setStatusTone(statusValue, available ? "status-ok" : "status-bad");
+                setStatusTone(statusValue, available ? "status-ok" : UiStyles.STATUS_BAD);
                 checkButton.setDisable(false);
             });
         }, "sandbox-docker-check");
@@ -215,7 +216,7 @@ final class SecuritySettingsPanel {
 
     /** 状态标签按语义着色（绿=可用、红=不可用、灰=检测中），保留基础 row-value 样式。 */
     private static void setStatusTone(Label statusValue, String tone) {
-        statusValue.getStyleClass().removeAll("status-ok", "status-bad", "status-unknown");
+        statusValue.getStyleClass().removeAll("status-ok", UiStyles.STATUS_BAD, "status-unknown");
         statusValue.getStyleClass().add(tone);
     }
 
@@ -226,14 +227,14 @@ final class SecuritySettingsPanel {
         tab.setMaxWidth(Double.MAX_VALUE);
 
         Button addDir = SettingsLayout.newButton(I18n.t("settings.security.path.add"), this::handleAddPathRoot);
-        addDir.getStyleClass().add("btn-primary");
+        addDir.getStyleClass().add(UiStyles.BTN_PRIMARY);
         renderPathRoots();
         tab.getChildren().add(SettingsLayout.sectionBlock(I18n.t("settings.security.path.group"),
                 I18n.t("settings.security.path.desc"), List.of(addDir), pathRootsBox));
 
         Label builtin = new Label(I18n.t("settings.security.path.builtin",
                 String.valueOf(gimPaths.workspaceDir())));
-        builtin.getStyleClass().add("row-desc");
+        builtin.getStyleClass().add(UiStyles.ROW_DESC);
         builtin.setWrapText(true);
         tab.getChildren().add(builtin);
         return tab;
@@ -246,7 +247,7 @@ final class SecuritySettingsPanel {
         tab.setMaxWidth(Double.MAX_VALUE);
 
         Button clearAll = SettingsLayout.newButton(I18n.t("settings.security.clear"), this::handleClearPermissions);
-        clearAll.getStyleClass().add("link-btn");
+        clearAll.getStyleClass().add(UiStyles.LINK_BTN);
         renderGrants();
         tab.getChildren().add(SettingsLayout.sectionBlock(I18n.t("settings.security.grant.group"),
                 I18n.t("settings.security.hint"), List.of(clearAll), grantBox));
@@ -295,7 +296,7 @@ final class SecuritySettingsPanel {
         Label title = new Label(desc);
         title.getStyleClass().add("row-title");
         Label pattern = new Label(rule.pattern());
-        pattern.getStyleClass().add("row-desc");
+        pattern.getStyleClass().add(UiStyles.ROW_DESC);
         VBox text = new VBox(2, title, pattern);
         text.getStyleClass().add("row-text");
 
@@ -309,7 +310,7 @@ final class SecuritySettingsPanel {
             securityAdminService.deleteDangerousRule(rule.id());
             renderDangerousRules();
         });
-        del.getStyleClass().addAll("link-btn", "link-btn-danger");
+        del.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         del.setMinWidth(Region.USE_PREF_SIZE);
 
         HBox row = new HBox(12, sev, text, toggle, del);
@@ -421,7 +422,7 @@ final class SecuritySettingsPanel {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setOnAction(e -> {
             String p = patternField.getText().trim();
             if (p.isEmpty()) {

@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.ui.window.settings;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.collections.FXCollections;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -54,7 +55,7 @@ public final class SettingsLayout {
     /** 页面骨架：标题 + 可选副标题，占满可用宽高。 */
     static VBox page(String title, String subtitle) {
         VBox box = new VBox();
-        box.getStyleClass().add("settings-page");
+        box.getStyleClass().add(UiStyles.SETTINGS_PAGE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setMaxHeight(Double.MAX_VALUE);
         Label t = new Label(title);
@@ -99,7 +100,7 @@ public final class SettingsLayout {
         text.getChildren().add(t);
         if (desc != null && !desc.isBlank()) {
             Label d = new Label(desc);
-            d.getStyleClass().add("row-desc");
+            d.getStyleClass().add(UiStyles.ROW_DESC);
             d.setWrapText(true);
             d.setMaxWidth(520);
             text.getChildren().add(d);
@@ -123,7 +124,7 @@ public final class SettingsLayout {
 
     static Label valueLabel(String value) {
         Label l = new Label(value);
-        l.getStyleClass().add("row-value");
+        l.getStyleClass().add(UiStyles.ROW_VALUE);
         return l;
     }
 
@@ -146,7 +147,7 @@ public final class SettingsLayout {
         gt.getStyleClass().add("settings-group-title");
 
         Label d = new Label(desc);
-        d.getStyleClass().add("row-desc");
+        d.getStyleClass().add(UiStyles.ROW_DESC);
         d.setWrapText(true);
         d.setMaxWidth(560);
         // 占位把操作按钮顶到卡片右缘；header 用 CENTER_LEFT 使按钮相对换行后的描述垂直居中
@@ -176,13 +177,13 @@ public final class SettingsLayout {
         VBox text = new VBox(2, t);
         if (sub != null && !sub.isBlank()) {
             Label s = new Label(sub);
-            s.getStyleClass().add("row-desc");
+            s.getStyleClass().add(UiStyles.ROW_DESC);
             text.getChildren().add(s);
         }
         text.getStyleClass().add("row-text");
 
         Button remove = CardKit.iconTextButton("\uE74D", I18n.t("common.delete"), onRemove);
-        remove.getStyleClass().addAll("link-btn", "link-btn-danger");
+        remove.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         remove.setMinWidth(Region.USE_PREF_SIZE);
 
         HBox row = new HBox(12, text, remove);
@@ -194,7 +195,7 @@ public final class SettingsLayout {
 
     static Label emptyHint(String text) {
         Label l = new Label(text);
-        l.getStyleClass().add("row-desc");
+        l.getStyleClass().add(UiStyles.ROW_DESC);
         l.setWrapText(true);
         return l;
     }
@@ -235,7 +236,7 @@ public final class SettingsLayout {
             return CardKit.iconTextValue("\uE73E", "status-ok", I18n.t("settings.model.status.valid"));
         }
         if (ProviderAdminService.MODEL_STATUS_INVALID.equalsIgnoreCase(status)) {
-            return CardKit.iconTextValue("\uE711", "status-bad", I18n.t("settings.model.status.invalid"));
+            return CardKit.iconTextValue("\uE711", UiStyles.STATUS_BAD, I18n.t("settings.model.status.invalid"));
         }
         return CardKit.iconTextValue("\uE897", "status-unknown", I18n.t("settings.model.status.unknown"));
     }
@@ -248,7 +249,7 @@ public final class SettingsLayout {
         if (supportsVision == 1) {
             return CardKit.iconTextValue("\uE8B9", "status-vision", I18n.t("settings.model.vision.supported"));
         }
-        return CardKit.iconTextValue("\uE8B9", "status-bad", I18n.t("settings.model.vision.unsupported"));
+        return CardKit.iconTextValue("\uE8B9", UiStyles.STATUS_BAD, I18n.t("settings.model.vision.unsupported"));
     }
 
     /** 表单网格：统一 {@code form-card} 样式与行/列间距，供提供商/模型表单复用。 */

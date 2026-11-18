@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.tools.sandbox;
 
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -30,7 +31,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicLong;
@@ -318,15 +318,14 @@ public final class BackgroundShellRunner {
 
     /** 与框架本地 shell 同规：Windows 走 cmd.exe /c，其余走 sh -c。 */
     private static String[] shellArgv(String command) {
-        boolean win = System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        boolean win = OsPlatform.current().isWindows();
         return win ? new String[] {"cmd.exe", "/c", command}
                 : new String[] {"sh", "-c", command};
     }
 
     /** 输出解码：非 Windows 一律 UTF-8，Windows 按控制台原生编码（与框架同口径）。 */
     private static Charset outputCharset() {
-        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        if (!os.contains("win")) {
+        if (!OsPlatform.current().isWindows()) {
             return StandardCharsets.UTF_8;
         }
         String nativeEncoding = System.getProperty("native.encoding");

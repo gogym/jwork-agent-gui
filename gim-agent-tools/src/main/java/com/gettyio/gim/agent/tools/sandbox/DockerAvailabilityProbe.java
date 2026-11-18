@@ -16,10 +16,10 @@
 
 package com.gettyio.gim.agent.tools.sandbox;
 
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import java.io.File;
 import java.io.InputStream;
 import java.time.Duration;
-import java.util.Locale;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Pattern;
 
@@ -49,8 +49,7 @@ public interface DockerAvailabilityProbe {
                 if (path == null || path.isBlank()) {
                     return false;
                 }
-                boolean windows = System.getProperty("os.name", "")
-                        .toLowerCase(Locale.ROOT).contains("win");
+                boolean windows = OsPlatform.current().isWindows();
                 String[] names = windows
                         ? new String[]{"docker.exe", "docker.com"}
                         : new String[]{"docker"};

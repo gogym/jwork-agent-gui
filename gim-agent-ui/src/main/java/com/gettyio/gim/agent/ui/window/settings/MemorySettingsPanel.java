@@ -22,10 +22,12 @@ import com.gettyio.gim.agent.core.memory.MemoryService;
 import com.gettyio.gim.agent.core.memory.MemoryService.MemoryFile;
 import com.gettyio.gim.agent.core.memory.MemoryService.MemoryScope;
 import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -68,7 +70,7 @@ final class MemorySettingsPanel {
     private static final String[] FLUSH_MODES = {"always", "throttled", "never"};
 
     private static final DateTimeFormatter TIME_FMT =
-            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm").withZone(ZoneId.systemDefault());
+            TimeFormats.MINUTE_TIMESTAMP.withZone(ZoneId.systemDefault());
 
     private final SettingsWindow host;
     private final MemoryService memoryService;
@@ -151,7 +153,7 @@ final class MemorySettingsPanel {
         title.getStyleClass().add("row-title");
         title.setTooltip(new Tooltip(scope.dir().toString()));
         Label meta = new Label(scopeMeta(scope));
-        meta.getStyleClass().add("row-desc");
+        meta.getStyleClass().add(UiStyles.ROW_DESC);
         VBox text = new VBox(2, title, meta);
         text.getStyleClass().add("row-text");
         HBox.setHgrow(text, Priority.ALWAYS);
@@ -203,7 +205,7 @@ final class MemorySettingsPanel {
     private VBox buildDetailPage(MemoryScope scope) {
         VBox page = SettingsLayout.page(scopeTitle(scope), scope.dir().toString());
         Button back = CardKit.iconTextButton("\uE72B", I18n.t("settings.memory.back"), this::showList);
-        back.getStyleClass().add("link-btn");
+        back.getStyleClass().add(UiStyles.LINK_BTN);
         HBox backRow = new HBox(back);
         backRow.setAlignment(Pos.CENTER_LEFT);
         page.getChildren().add(backRow);
@@ -218,13 +220,13 @@ final class MemorySettingsPanel {
     private VBox coreSection(MemoryScope scope) {
         Label title = sectionLabel("settings.memory.core");
         Button save = new Button(I18n.t("settings.memory.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox head = new HBox(8, title, spacer, save);
         head.setAlignment(Pos.CENTER_LEFT);
         Label desc = new Label(I18n.t("settings.memory.core.desc"));
-        desc.getStyleClass().add("row-desc");
+        desc.getStyleClass().add(UiStyles.ROW_DESC);
         desc.setWrapText(true);
         TextArea editor = new TextArea(memoryService.readLongTerm(scope.key()));
         editor.getStyleClass().add("memory-editor");
@@ -246,7 +248,7 @@ final class MemorySettingsPanel {
         Label title = sectionLabel("settings.memory.category");
         Button add = CardKit.iconTextButton("\uE710", I18n.t("settings.memory.category.new"),
                 () -> createCategoryFile(scope));
-        add.getStyleClass().add("link-btn");
+        add.getStyleClass().add(UiStyles.LINK_BTN);
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
         HBox head = new HBox(8, title, spacer, add);
@@ -278,16 +280,16 @@ final class MemorySettingsPanel {
         Label nameLabel = new Label(file.name());
         nameLabel.getStyleClass().add("row-title");
         Label meta = new Label(I18n.t("settings.memory.category.updated", formatTime(file.lastModified())));
-        meta.getStyleClass().add("row-desc");
+        meta.getStyleClass().add(UiStyles.ROW_DESC);
         VBox text = new VBox(2, nameLabel, meta);
         text.getStyleClass().add("row-text");
         HBox.setHgrow(text, Priority.ALWAYS);
 
         Button edit = new Button(I18n.t("settings.memory.category.edit"));
-        edit.getStyleClass().add("link-btn");
+        edit.getStyleClass().add(UiStyles.LINK_BTN);
         edit.setOnAction(e -> editCategoryFile(scope, file.name()));
         Button delete = new Button(I18n.t("settings.memory.category.delete"));
-        delete.getStyleClass().addAll("link-btn", "link-btn-danger");
+        delete.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         delete.setOnAction(e -> deleteCategoryFile(scope, file.name()));
         HBox controls = new HBox(8, edit, delete);
         controls.setAlignment(Pos.CENTER_RIGHT);
@@ -331,7 +333,7 @@ final class MemorySettingsPanel {
         content.setPrefHeight(420);
         content.setStyle("-fx-font-family: \"Cascadia Mono\", \"Consolas\", monospace; -fx-font-size: 12px;");
         Button save = new Button(I18n.t("settings.memory.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setOnAction(e -> {
             try {
                 memoryService.writeMemoryFile(scope.key(), name, content.getText());
@@ -391,10 +393,10 @@ final class MemorySettingsPanel {
         HBox.setHgrow(nameLabel, Priority.ALWAYS);
 
         Button view = new Button(I18n.t("settings.memory.daily.view"));
-        view.getStyleClass().add("link-btn");
+        view.getStyleClass().add(UiStyles.LINK_BTN);
         view.setOnAction(e -> openDaily(scope, name));
         Button delete = new Button(I18n.t("settings.memory.daily.delete"));
-        delete.getStyleClass().addAll("link-btn", "link-btn-danger");
+        delete.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         delete.setOnAction(e -> deleteDaily(scope, name));
         HBox controls = new HBox(8, view, delete);
         controls.setAlignment(Pos.CENTER_RIGHT);
@@ -454,7 +456,7 @@ final class MemorySettingsPanel {
     /** 图标按钮 + tooltip。 */
     private Button iconButton(String glyph, String tooltipKey, Runnable action) {
         Button b = new Button();
-        b.getStyleClass().add("icon-btn");
+        b.getStyleClass().add(UiStyles.ICON_BTN);
         b.setGraphic(UiTheme.icon(glyph));
         b.setTooltip(new Tooltip(I18n.t(tooltipKey)));
         b.setOnAction(e -> action.run());

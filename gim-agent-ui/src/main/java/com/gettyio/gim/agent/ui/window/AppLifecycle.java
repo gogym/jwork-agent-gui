@@ -18,8 +18,10 @@ package com.gettyio.gim.agent.ui.window;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.security.LocalAuthService;
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.notify.TrayNotifier;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -103,7 +105,7 @@ public class AppLifecycle {
 
         Button doTray = new Button(I18n.t("app.close.ask.tray"));
         Button doExit = new Button(I18n.t("app.close.ask.exit"));
-        doExit.getStyleClass().add("btn-primary");
+        doExit.getStyleClass().add(UiStyles.BTN_PRIMARY);
         if (!trayCapable) {
             doTray.setDisable(true);
         }
@@ -263,7 +265,7 @@ public class AppLifecycle {
     }
 
     private static boolean isWindows() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        return OsPlatform.current().isWindows();
     }
 
     /**

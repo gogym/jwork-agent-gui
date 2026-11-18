@@ -24,6 +24,7 @@ import com.gettyio.gim.agent.ui.chat.MenuPopup;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.market.MarketService;
 import com.gettyio.gim.agent.ui.market.SkillsMarketDialog;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Pos;
@@ -128,7 +129,7 @@ public class SkillsView {
         searchField.setMinWidth(140);
         searchField.textProperty().addListener((obs, o, n) -> reload());
         importButton = new Button();
-        importButton.getStyleClass().addAll("btn-primary", "skill-import-btn");
+        importButton.getStyleClass().addAll(UiStyles.BTN_PRIMARY, "skill-import-btn");
         importButton.setMinWidth(Region.USE_PREF_SIZE);
         // 文字与下拉箭头都做成自绘子节点放进 graphic：控件自身的 -fx-text-fill 会被
         // .btn-primary/-gim-bg 与全局 .label 规则拉扯、颜色难稳定夺回；改为真实 Label 后其
@@ -168,7 +169,7 @@ public class SkillsView {
 
         HBox header = new HBox(headText);
         HBox.setHgrow(headText, Priority.ALWAYS);
-        header.getStyleClass().add("page-header");
+        header.getStyleClass().add(UiStyles.PAGE_HEADER);
 
         grid.getStyleClass().add("card-grid");
         grid.setHgap(14);
@@ -258,12 +259,12 @@ public class SkillsView {
         top.setAlignment(Pos.CENTER_LEFT);
 
         Label desc = new Label(oneLine(s.getDescription()));
-        desc.getStyleClass().add("card-desc");
+        desc.getStyleClass().add(UiStyles.CARD_DESC);
         clampLines(desc, 2);
         desc.setTooltip(new Tooltip(desc.getText()));
 
         Label meta = new Label(sourceText(s.getSource()));
-        meta.getStyleClass().add("card-meta");
+        meta.getStyleClass().add(UiStyles.CARD_META);
 
         boolean enabled = EnabledStatus.isEnabled(s.getEnabled());
         HBox actions = new HBox(4);
@@ -272,7 +273,7 @@ public class SkillsView {
         actions.getChildren().add(linkButton(enabled ? I18n.t("skills.action.disable") : I18n.t("skills.action.enable"), () -> handleSetEnabled(s, !enabled)));
         actions.getChildren().add(linkButton(I18n.t("skills.action.detail"), () -> openDetail(s)));
         Button del = linkButton(I18n.t("skills.action.delete"), () -> confirmDelete(s));
-        del.getStyleClass().add("link-btn-danger");
+        del.getStyleClass().add(UiStyles.LINK_BTN_DANGER);
         actions.getChildren().add(del);
 
         // 弹性占位把「来源 + 分隔线 + 操作按钮」整体压到卡片底部，同瓦片高度的卡片按钮行齐平
@@ -310,10 +311,10 @@ public class SkillsView {
         b.getStyleClass().add("badge");
         if (EnabledStatus.isEnabled(s.getEnabled())) {
             b.setText(I18n.t("skills.badge.enabled"));
-            b.getStyleClass().add("badge-green");
+            b.getStyleClass().add(UiStyles.BADGE_GREEN);
         } else {
             b.setText(I18n.t("skills.badge.disabled"));
-            b.getStyleClass().add("badge-gray");
+            b.getStyleClass().add(UiStyles.BADGE_GRAY);
         }
         return b;
     }
@@ -332,14 +333,14 @@ public class SkillsView {
 
     private Node emptyState(boolean allDeleted) {
         VBox box = new VBox();
-        box.getStyleClass().add("empty-state");
+        box.getStyleClass().add(UiStyles.EMPTY_STATE);
         box.setMaxWidth(Double.MAX_VALUE);
         Label icon = new Label("\uE945");
-        icon.getStyleClass().add("empty-icon");
+        icon.getStyleClass().add(UiStyles.EMPTY_ICON);
         Label t = new Label(allDeleted ? I18n.t("skills.empty.none") : I18n.t("skills.empty.noMatch"));
-        t.getStyleClass().add("empty-title");
+        t.getStyleClass().add(UiStyles.EMPTY_TITLE);
         Label d = new Label(allDeleted ? I18n.t("skills.empty.noneDesc") : I18n.t("skills.empty.noMatchDesc"));
-        d.getStyleClass().add("empty-desc");
+        d.getStyleClass().add(UiStyles.EMPTY_DESC);
         d.setWrapText(true);
         d.setMaxWidth(460);
         box.getChildren().addAll(icon, t, d);
@@ -422,7 +423,7 @@ public class SkillsView {
         GimDialog.Shell shell = GimDialog.shell(owner, I18n.t("skills.detailTitle", s.getSkillCode()));
 
         Label head = new Label(s.getSkillName() + "（" + s.getSkillCode() + "）");
-        head.getStyleClass().add("dialog-header");
+        head.getStyleClass().add(UiStyles.DIALOG_HEADER);
         TextArea content = new TextArea(skillService.readContent(s.getSkillCode()));
         content.setEditable(false);
         content.setWrapText(true);
@@ -443,7 +444,7 @@ public class SkillsView {
 
     private Button iconButton(String iconText, Runnable action) {
         Button b = new Button();
-        b.getStyleClass().add("icon-btn");
+        b.getStyleClass().add(UiStyles.ICON_BTN);
         b.setTooltip(new javafx.scene.control.Tooltip());
         Label icon = new Label(iconText);
         icon.getStyleClass().add("icon");
@@ -454,7 +455,7 @@ public class SkillsView {
 
     private Button linkButton(String text, Runnable action) {
         Button b = new Button(text);
-        b.getStyleClass().add("link-btn");
+        b.getStyleClass().add(UiStyles.LINK_BTN);
         b.setOnAction(e -> action.run());
         return b;
     }

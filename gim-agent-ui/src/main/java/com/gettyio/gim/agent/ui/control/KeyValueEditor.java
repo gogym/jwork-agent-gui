@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.ui.control;
 
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.beans.property.ReadOnlyDoubleProperty;
 import javafx.beans.property.SimpleDoubleProperty;
 import javafx.collections.ListChangeListener;
@@ -72,7 +73,7 @@ public final class KeyValueEditor {
         this.namePrompt = namePrompt;
         this.valuePrompt = valuePrompt;
         root.getStyleClass().add("kv-editor");
-        addBtn.getStyleClass().add("link-btn");
+        addBtn.getStyleClass().add(UiStyles.LINK_BTN);
         addBtn.setGraphic(icon(GLYPH_ADD));
         addBtn.setText(I18n.t("settings.mcp.kv.add"));
         addBtn.setOnAction(e -> addRow());
@@ -194,7 +195,7 @@ public final class KeyValueEditor {
             HBox.setHgrow(valueBox, Priority.ALWAYS);
 
             Button remove = new Button();
-            remove.getStyleClass().addAll("link-btn", "link-btn-danger");
+            remove.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
             remove.setFocusTraversable(false);
             remove.setGraphic(icon(GLYPH_REMOVE));
             remove.setTooltip(new Tooltip(I18n.t("settings.mcp.kv.remove")));

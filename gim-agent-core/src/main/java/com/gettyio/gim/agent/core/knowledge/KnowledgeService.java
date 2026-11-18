@@ -20,6 +20,8 @@ import com.gettyio.gim.agent.core.chat.FileTextExtractor;
 import com.gettyio.gim.agent.core.chat.MultiAgentGateway;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
+import com.gettyio.gim.agent.domain.util.FileKinds;
+import com.gettyio.gim.agent.domain.util.HttpMedia;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -399,17 +401,17 @@ public class KnowledgeService {
 
     private static String guessMime(String name) {
         String n = name.toLowerCase(Locale.ROOT);
-        if (n.endsWith(".pdf")) {
-            return "application/pdf";
+        if (n.endsWith(FileKinds.PDF)) {
+            return HttpMedia.APPLICATION_PDF;
         }
-        if (n.endsWith(".csv")) {
-            return "text/csv";
+        if (n.endsWith(FileKinds.CSV)) {
+            return HttpMedia.TEXT_CSV;
         }
-        if (n.endsWith(".md") || n.endsWith(".markdown")) {
-            return "text/markdown";
+        if (n.endsWith(FileKinds.MD) || n.endsWith(FileKinds.MARKDOWN)) {
+            return HttpMedia.TEXT_MARKDOWN;
         }
-        if (n.endsWith(".txt")) {
-            return "text/plain";
+        if (n.endsWith(FileKinds.TXT)) {
+            return HttpMedia.TEXT_PLAIN;
         }
         return null;
     }
@@ -428,7 +430,7 @@ public class KnowledgeService {
             HttpRequest req = HttpRequest.newBuilder(uri)
                     .timeout(Duration.ofSeconds(20))
                     .header("User-Agent", "Mozilla/5.0 (Jwork Desktop)")
-                    .header("Accept", "text/html,application/xhtml+xml,text/plain")
+                    .header(HttpMedia.ACCEPT, "text/html,application/xhtml+xml,text/plain")
                     .GET()
                     .build();
             HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));

@@ -21,6 +21,7 @@ import com.gettyio.gim.agent.domain.entity.ScheduledTask;
 import com.gettyio.gim.agent.domain.entity.TaskRun;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
@@ -28,6 +29,7 @@ import com.gettyio.gim.agent.ui.config.TaskAdminService;
 import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.desktop.KeepAwakeService;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.geometry.Pos;
@@ -101,8 +103,8 @@ public class TasksView {
     /** 「查看会话」回调（由 MainController 注入）：跳转对话页并打开对应会话。 */
     private Consumer<String> sessionOpener;
 
-    private static final DateTimeFormatter FMT_FULL = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final DateTimeFormatter FMT_MIN = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final DateTimeFormatter FMT_FULL = TimeFormats.DISPLAY_TIMESTAMP;
+    private static final DateTimeFormatter FMT_MIN = TimeFormats.MINUTE_TIMESTAMP;
     private static final DateTimeFormatter FMT_HM = DateTimeFormatter.ofPattern("HH:mm");
 
     /** 常见 cron 形态识别（与 TaskFormDialog 的生成规则对称），用于卡片上的友好文案。 */
@@ -188,7 +190,7 @@ public class TasksView {
         refreshButton = iconButton("\uE72C", this::reload);
         refreshButton.setMinWidth(Region.USE_PREF_SIZE);
         createButton = new Button();
-        createButton.getStyleClass().add("btn-primary");
+        createButton.getStyleClass().add(UiStyles.BTN_PRIMARY);
         createButton.setMinWidth(Region.USE_PREF_SIZE);
         createButton.setOnAction(e -> openForm(null, null));
 
@@ -200,7 +202,7 @@ public class TasksView {
 
         HBox header = new HBox(headText);
         HBox.setHgrow(headText, Priority.ALWAYS);
-        header.getStyleClass().add("page-header");
+        header.getStyleClass().add(UiStyles.PAGE_HEADER);
 
         banner = buildKeepAwakeBanner();
 
@@ -429,14 +431,14 @@ public class TasksView {
         sched.getStyleClass().add("automation-sched");
 
         Label prompt = new Label(truncate(t.getPrompt(), 140));
-        prompt.getStyleClass().add("card-desc");
+        prompt.getStyleClass().add(UiStyles.CARD_DESC);
         prompt.setWrapText(true);
 
         card.getChildren().addAll(top, sched, prompt);
         String timeline = timelineText(t);
         if (!timeline.isEmpty()) {
             Label meta = new Label(timeline);
-            meta.getStyleClass().add("card-meta");
+            meta.getStyleClass().add(UiStyles.CARD_META);
             card.getChildren().add(meta);
         }
         if (t.getEndAt() != null) {
@@ -494,15 +496,15 @@ public class TasksView {
         switch (s) {
             case "READY" -> {
                 b.setText(I18n.t("tasks.status.ready"));
-                b.getStyleClass().add("badge-green");
+                b.getStyleClass().add(UiStyles.BADGE_GREEN);
             }
             case "PAUSED" -> {
                 b.setText(I18n.t("tasks.status.paused"));
-                b.getStyleClass().add("badge-gray");
+                b.getStyleClass().add(UiStyles.BADGE_GRAY);
             }
             case "FINISHED" -> {
                 b.setText(I18n.t("tasks.status.finished"));
-                b.getStyleClass().add("badge-gray");
+                b.getStyleClass().add(UiStyles.BADGE_GRAY);
             }
             case "FAILED" -> {
                 b.setText(I18n.t("tasks.status.failed"));
@@ -510,7 +512,7 @@ public class TasksView {
             }
             default -> {
                 b.setText(s);
-                b.getStyleClass().add("badge-gray");
+                b.getStyleClass().add(UiStyles.BADGE_GRAY);
             }
         }
         return b;
@@ -599,18 +601,18 @@ public class TasksView {
         boolean enabled = EnabledStatus.isEnabled(tp.getEnabled());
         Label name = new Label(tp.getTemplateName() == null || tp.getTemplateName().isBlank()
                 ? tp.getTemplateCode() : tp.getTemplateName());
-        name.getStyleClass().add("provider-card-title");
+        name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
         Label badge = new Label(I18n.t(enabled ? "settings.template.enabled" : "settings.template.disabled"));
-        badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
+        badge.getStyleClass().addAll("badge", enabled ? UiStyles.BADGE_GREEN : UiStyles.BADGE_GRAY);
         Button use = CardKit.iconTextButton("\uE73E", I18n.t("tasks.templates.use"),
                 () -> openForm(null, tp.getContent()));
-        use.getStyleClass().add("link-btn");
+        use.getStyleClass().add(UiStyles.LINK_BTN);
 
         VBox card = new VBox(8, CardKit.cardHeadRow(name, badge, use),
                 CardKit.kvLine(I18n.t("tasks.templates.code"), tp.getTemplateCode()),
                 CardKit.kvLine(I18n.t("settings.template.desc"), truncate(tp.getDescription(), 72)),
                 CardKit.kvLine(I18n.t("tasks.templates.content"), truncate(tp.getContent(), 120)));
-        card.getStyleClass().add("provider-card");
+        card.getStyleClass().add(UiStyles.PROVIDER_CARD);
         card.setPrefWidth(400);
         card.setMaxWidth(400);
         return card;
@@ -640,7 +642,7 @@ public class TasksView {
         row.getStyleClass().add("task-card");
 
         Label badge = new Label(I18n.t(r.isSuccess() ? "tasks.runs.ok" : "tasks.runs.fail"));
-        badge.getStyleClass().addAll("badge", r.isSuccess() ? "badge-green" : "badge-red");
+        badge.getStyleClass().addAll("badge", r.isSuccess() ? UiStyles.BADGE_GREEN : "badge-red");
 
         Label name = new Label(taskName);
         name.getStyleClass().add("card-title");
@@ -649,7 +651,7 @@ public class TasksView {
         HBox.setHgrow(name, Priority.ALWAYS);
 
         Label time = new Label(runTimeText(r));
-        time.getStyleClass().add("card-meta");
+        time.getStyleClass().add(UiStyles.CARD_META);
 
         HBox head = new HBox(10, badge, name, time);
         head.setAlignment(Pos.CENTER_LEFT);
@@ -657,7 +659,7 @@ public class TasksView {
 
         String detail = r.isSuccess() ? r.getSummary() : r.getError();
         Label text = new Label(truncate(detail, 200));
-        text.getStyleClass().add("card-desc");
+        text.getStyleClass().add(UiStyles.CARD_DESC);
         text.setWrapText(true);
         row.getChildren().add(text);
 
@@ -699,19 +701,19 @@ public class TasksView {
         VBox list = new VBox(6);
         if (runs.isEmpty()) {
             Label none = new Label(I18n.t("tasks.history.empty"));
-            none.getStyleClass().add("card-desc");
+            none.getStyleClass().add(UiStyles.CARD_DESC);
             list.getChildren().add(none);
         }
         for (TaskRun r : runs) {
             Label time = new Label(r.getStartedAt() == null ? "-" : FMT_FULL.format(r.getStartedAt()));
-            time.getStyleClass().add("card-meta");
+            time.getStyleClass().add(UiStyles.CARD_META);
             Label status = new Label(I18n.t(r.isSuccess() ? "tasks.history.ok" : "tasks.history.fail"));
-            status.getStyleClass().addAll("badge", r.isSuccess() ? "badge-green" : "badge-red");
+            status.getStyleClass().addAll("badge", r.isSuccess() ? UiStyles.BADGE_GREEN : "badge-red");
             String detail = r.isSuccess()
                     ? (r.getSummary() == null ? "" : r.getSummary())
                     : (r.getError() == null ? "" : r.getError());
             Label bodyLabel = new Label(truncate(detail, 200));
-            bodyLabel.getStyleClass().add("card-desc");
+            bodyLabel.getStyleClass().add(UiStyles.CARD_DESC);
             bodyLabel.setWrapText(true);
             bodyLabel.setMaxWidth(440);
             HBox head = new HBox(10, time, status);
@@ -746,18 +748,18 @@ public class TasksView {
 
     private Node emptyState(String title, String desc) {
         VBox box = new VBox();
-        box.getStyleClass().add("empty-state");
+        box.getStyleClass().add(UiStyles.EMPTY_STATE);
         box.setMaxWidth(Double.MAX_VALUE);
         // 子项不拉满宽度：图标/标题/描述按自身宽度水平居中（配合 .empty-state 的 -fx-alignment: center）
         box.setFillWidth(false);
         // 撑满 body 剩余高度：整块（图标+文字）在页面垂直方向居中
         VBox.setVgrow(box, Priority.ALWAYS);
         Label icon = new Label("\uE823");
-        icon.getStyleClass().add("empty-icon");
+        icon.getStyleClass().add(UiStyles.EMPTY_ICON);
         Label t = new Label(title);
-        t.getStyleClass().add("empty-title");
+        t.getStyleClass().add(UiStyles.EMPTY_TITLE);
         Label d = new Label(desc);
-        d.getStyleClass().add("empty-desc");
+        d.getStyleClass().add(UiStyles.EMPTY_DESC);
         d.setWrapText(true);
         d.setMaxWidth(460);
         box.getChildren().addAll(icon, t, d);
@@ -774,7 +776,7 @@ public class TasksView {
 
     private Button iconButton(String iconText, Runnable action) {
         Button b = new Button();
-        b.getStyleClass().add("icon-btn");
+        b.getStyleClass().add(UiStyles.ICON_BTN);
         b.setTooltip(new Tooltip());
         Label icon = new Label(iconText);
         icon.getStyleClass().add("icon");
@@ -787,7 +789,7 @@ public class TasksView {
 
     private Button linkButton(String text, Runnable action) {
         Button b = new Button(text);
-        b.getStyleClass().add("link-btn");
+        b.getStyleClass().add(UiStyles.LINK_BTN);
         b.setOnAction(e -> action.run());
         return b;
     }

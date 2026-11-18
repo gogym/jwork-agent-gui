@@ -17,13 +17,13 @@
 package com.gettyio.gim.agent.ui.desktop;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.sun.jna.platform.win32.User32;
 import com.sun.jna.platform.win32.WinUser;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.HashSet;
-import java.util.Locale;
 import java.util.Set;
 import java.util.concurrent.LinkedBlockingQueue;
 
@@ -88,7 +88,7 @@ public class GlobalHotkeyService {
 
     /** 当前平台能否使用全局热键（仅 Windows）。 */
     public boolean isSupported() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        return OsPlatform.current().isWindows();
     }
 
     /** 热键当前是否启用（读持久化开关）。 */

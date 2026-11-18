@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.core.chat;
 
+import com.gettyio.gim.agent.domain.util.FileKinds;
 import org.apache.pdfbox.Loader;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -53,10 +54,7 @@ public final class FileTextExtractor {
 
     /** 该文件名/ MIME 是否属于可抽取的文档类型。 */
     public static boolean supports(String fileName, String mime) {
-        String n = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
-        return n.endsWith(".pdf") || n.endsWith(".docx") || n.endsWith(".xlsx")
-                || n.endsWith(".txt") || n.endsWith(".md") || n.endsWith(".markdown")
-                || n.endsWith(".csv") || isPlainTextMime(mime);
+        return FileKinds.isExtractableDocument(fileName) || isPlainTextMime(mime);
     }
 
     private static boolean isPlainTextMime(String mime) {
@@ -73,11 +71,11 @@ public final class FileTextExtractor {
         String n = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
         String text;
         try {
-            if (n.endsWith(".pdf")) {
+            if (n.endsWith(FileKinds.PDF)) {
                 text = extractPdf(bytes);
-            } else if (n.endsWith(".docx")) {
+            } else if (n.endsWith(FileKinds.DOCX)) {
                 text = extractDocx(bytes);
-            } else if (n.endsWith(".xlsx")) {
+            } else if (n.endsWith(FileKinds.XLSX)) {
                 text = extractXlsx(bytes);
             } else {
                 // txt/md/csv 及未知文本类：按 UTF-8 解码

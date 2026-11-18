@@ -20,6 +20,7 @@ import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.domain.enums.TimeRange;
 import com.gettyio.gim.agent.ui.config.UsageStatsService;
 import com.gettyio.gim.agent.ui.config.UsageStatsService.UsageRow;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -29,7 +30,6 @@ import javafx.scene.control.ScrollPane;
 import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
-import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -110,7 +110,7 @@ public class UsageView {
 
         HBox header = new HBox(headText);
         HBox.setHgrow(headText, Priority.ALWAYS);
-        header.getStyleClass().add("page-header");
+        header.getStyleClass().add(UiStyles.PAGE_HEADER);
 
         summaryBox.getStyleClass().add("usage-summary");
 
@@ -360,7 +360,7 @@ public class UsageView {
 
     private Button iconButton(String glyph, Runnable action) {
         Button b = new Button();
-        b.getStyleClass().add("icon-btn");
+        b.getStyleClass().add(UiStyles.ICON_BTN);
         b.setTooltip(new Tooltip());
         Label icon = new Label(glyph);
         icon.getStyleClass().add("icon");

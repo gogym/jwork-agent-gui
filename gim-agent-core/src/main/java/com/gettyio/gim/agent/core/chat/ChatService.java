@@ -28,6 +28,7 @@ import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.SessionStatus;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
+import com.gettyio.gim.agent.domain.util.FileKinds;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
@@ -872,7 +873,7 @@ public class ChatService {
         if (mime != null && mime.contains("/")) {
             return "." + mime.substring(mime.indexOf('/') + 1).split("[;+]")[0];
         }
-        return ".png";
+        return FileKinds.PNG;
     }
 
     private void persistAssistant(String sessionId, String agentCode, String modelCode, String assistantText, String thinking,

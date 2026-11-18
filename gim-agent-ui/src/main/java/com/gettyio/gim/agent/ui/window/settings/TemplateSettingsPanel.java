@@ -22,6 +22,7 @@ import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
@@ -59,7 +60,7 @@ final class TemplateSettingsPanel {
 
     VBox build() {
         VBox box = new VBox();
-        box.getStyleClass().add("settings-page");
+        box.getStyleClass().add(UiStyles.SETTINGS_PAGE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setMaxHeight(Double.MAX_VALUE);
 
@@ -72,7 +73,7 @@ final class TemplateSettingsPanel {
         headText.getChildren().addAll(title, subtitle);
 
         Button addBtn = new Button(I18n.t("settings.template.add"));
-        addBtn.getStyleClass().add("btn-primary");
+        addBtn.getStyleClass().add(UiStyles.BTN_PRIMARY);
         Label addIcon = new Label("\uE710");
         addIcon.getStyleClass().add("icon");
         addBtn.setGraphic(addIcon);
@@ -106,16 +107,16 @@ final class TemplateSettingsPanel {
 
     private VBox templateEmptyState() {
         VBox box = new VBox();
-        box.getStyleClass().add("empty-state");
+        box.getStyleClass().add(UiStyles.EMPTY_STATE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setFillWidth(false);
         Label icon = new Label("\uE73A");
-        icon.getStyleClass().add("empty-icon");
+        icon.getStyleClass().add(UiStyles.EMPTY_ICON);
         Label t = new Label(I18n.t("settings.template.empty"));
-        t.getStyleClass().add("empty-title");
+        t.getStyleClass().add(UiStyles.EMPTY_TITLE);
         t.setTextAlignment(TextAlignment.CENTER);
         Label d = new Label(I18n.t("settings.template.emptyDesc"));
-        d.getStyleClass().add("empty-desc");
+        d.getStyleClass().add(UiStyles.EMPTY_DESC);
         d.setWrapText(true);
         d.setTextAlignment(TextAlignment.CENTER);
         d.setMaxWidth(460);
@@ -127,9 +128,9 @@ final class TemplateSettingsPanel {
         boolean enabled = EnabledStatus.isEnabled(t.getEnabled());
         Label name = new Label(t.getTemplateName() == null || t.getTemplateName().isBlank()
                 ? t.getTemplateCode() : t.getTemplateName());
-        name.getStyleClass().add("provider-card-title");
+        name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
         Label badge = new Label(I18n.t(enabled ? "settings.template.enabled" : "settings.template.disabled"));
-        badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
+        badge.getStyleClass().addAll("badge", enabled ? UiStyles.BADGE_GREEN : UiStyles.BADGE_GRAY);
 
         ToggleSwitch toggle = new ToggleSwitch();
         toggle.setSelected(enabled);
@@ -140,9 +141,9 @@ final class TemplateSettingsPanel {
         });
 
         Button edit = CardKit.iconTextButton("\uE70F", I18n.t("common.edit"), () -> openTemplateDialog(t));
-        edit.getStyleClass().add("link-btn");
+        edit.getStyleClass().add(UiStyles.LINK_BTN);
         Button del = CardKit.iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteTemplate(t));
-        del.getStyleClass().addAll("link-btn", "link-btn-danger");
+        del.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         // 卡片首行：名称可压缩 + 徽标 + 操作区（启停开关 + 编辑 + 删除）钉住首选宽度
         name.setMinWidth(0);
         name.setTextOverrun(OverrunStyle.ELLIPSIS);
@@ -165,7 +166,7 @@ final class TemplateSettingsPanel {
         VBox card = new VBox(8, head,
                 CardKit.kvLine(I18n.t("settings.template.desc"), t.getDescription()),
                 CardKit.kvLine(I18n.t("settings.template.content"), SettingsLayout.preview(t.getContent())));
-        card.getStyleClass().add("provider-card");
+        card.getStyleClass().add(UiStyles.PROVIDER_CARD);
         card.setPrefWidth(SettingsLayout.CARD_WIDTH);
         card.setMaxWidth(SettingsLayout.CARD_WIDTH);
         return card;
@@ -198,7 +199,7 @@ final class TemplateSettingsPanel {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setOnAction(e -> {
             String name = nameField.getText() == null ? "" : nameField.getText().trim();
             String content = contentArea.getText() == null ? "" : contentArea.getText().trim();
@@ -218,7 +219,7 @@ final class TemplateSettingsPanel {
             shell.stage().close();
         });
         HBox btns = new HBox(8, cancel, save);
-        btns.getStyleClass().add("dialog-actions");
+        btns.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         btns.setAlignment(Pos.CENTER_RIGHT);
 
         shell.body().getChildren().addAll(form, btns);

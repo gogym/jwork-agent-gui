@@ -22,7 +22,11 @@ import com.gettyio.gim.agent.core.net.AddressPolicy;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
+import com.gettyio.gim.agent.domain.enums.McpConnectionStatus;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
+import com.gettyio.gim.agent.domain.util.FileTrees;
+import com.gettyio.gim.agent.domain.util.HttpMedia;
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.gettyio.gim.agent.tools.skill.SkillService;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
@@ -53,7 +57,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.DoubleConsumer;
-import java.util.stream.Stream;
 
 /**
  * 在线市场服务：技能市场直连 GitHub 仓库检索、MCP 市场直连公共 MCP 目录，下载后安装。
@@ -144,11 +147,6 @@ public class MarketService {
     }
 
     // ===================== 配置 =====================
-
-    /** 市场基地址（与更新服务共用 gim-server-ai 配置）。 */
-    public String serverBaseUrl() {
-        return updateChecker.getServerBaseUrl();
-    }
 
     public boolean isServerConfigured() {
         return updateChecker.isServerConfigured();
@@ -345,7 +343,7 @@ public class MarketService {
     private JsonNode registryGet(String url) throws IOException {
         HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                 .timeout(Duration.ofSeconds(15))
-                .header("Accept", "application/json")
+                .header(HttpMedia.ACCEPT, HttpMedia.APPLICATION_JSON)
                 .header("User-Agent", "Jwork/" + UpdateChecker.appVersion())
                 .GET()
                 .build();
@@ -530,7 +528,7 @@ public class MarketService {
         cfg.setHeadersJson(mapper.writeValueAsString(m.headers()));
         cfg.setTimeout(30);
         cfg.setEnabled(1);
-        cfg.setStatus("UNKNOWN");
+        cfg.setStatus(McpConnectionStatus.UNKNOWN.name());
         mcpAdminService.save(cfg);
         return cfg;
     }
@@ -558,7 +556,7 @@ public class MarketService {
 
     private static boolean probeOne(String name) {
         try {
-            String probe = "windows".equals(UpdateChecker.detectPlatform()) ? "where" : "which";
+            String probe = OsPlatform.current().isWindows() ? "where" : "which";
             Process p = new ProcessBuilder(probe, name).redirectErrorStream(true).start();
             p.getInputStream().readAllBytes();
             if (!p.waitFor(3, TimeUnit.SECONDS)) {
@@ -668,13 +666,8 @@ public class MarketService {
     }
 
     private static void deleteRecursively(Path dir) {
-        if (dir == null || !Files.exists(dir)) {
-            return;
-        }
-        try (Stream<Path> walk = Files.walk(dir)) {
-            for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
-                Files.deleteIfExists(p);
-            }
+        try {
+            FileTrees.deleteRecursively(dir);
         } catch (IOException e) {
             log.debug("临时目录清理失败: {}", e.getMessage());
         }

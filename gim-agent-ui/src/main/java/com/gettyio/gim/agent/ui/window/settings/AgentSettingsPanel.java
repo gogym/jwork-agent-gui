@@ -22,6 +22,7 @@ import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.AgentDialog;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.geometry.Pos;
@@ -59,7 +60,7 @@ final class AgentSettingsPanel {
 
     VBox build() {
         VBox box = new VBox();
-        box.getStyleClass().add("settings-page");
+        box.getStyleClass().add(UiStyles.SETTINGS_PAGE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setMaxHeight(Double.MAX_VALUE);
 
@@ -72,7 +73,7 @@ final class AgentSettingsPanel {
         headText.getChildren().addAll(title, subtitle);
 
         Button addBtn = new Button(I18n.t("settings.agent.add"));
-        addBtn.getStyleClass().add("btn-primary");
+        addBtn.getStyleClass().add(UiStyles.BTN_PRIMARY);
         Label addIcon = new Label("\uE710");
         addIcon.getStyleClass().add("icon");
         addBtn.setGraphic(addIcon);
@@ -122,16 +123,16 @@ final class AgentSettingsPanel {
 
     private VBox agentEmptyState() {
         VBox box = new VBox();
-        box.getStyleClass().add("empty-state");
+        box.getStyleClass().add(UiStyles.EMPTY_STATE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setFillWidth(false);
         Label icon = new Label("\uE99A");
-        icon.getStyleClass().add("empty-icon");
+        icon.getStyleClass().add(UiStyles.EMPTY_ICON);
         Label t = new Label(I18n.t("settings.agent.empty"));
-        t.getStyleClass().add("empty-title");
+        t.getStyleClass().add(UiStyles.EMPTY_TITLE);
         t.setTextAlignment(TextAlignment.CENTER);
         Label d = new Label(I18n.t("settings.agent.emptyDesc"));
-        d.getStyleClass().add("empty-desc");
+        d.getStyleClass().add(UiStyles.EMPTY_DESC);
         d.setWrapText(true);
         d.setTextAlignment(TextAlignment.CENTER);
         d.setMaxWidth(460);
@@ -144,19 +145,19 @@ final class AgentSettingsPanel {
 
         Label name = new Label(a.getAgentName() == null || a.getAgentName().isBlank()
                 ? a.getAgentCode() : a.getAgentName());
-        name.getStyleClass().add("provider-card-title");
+        name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
         Label badge = new Label(I18n.t(builtIn ? "settings.agent.builtIn" : "settings.agent.custom"));
-        badge.getStyleClass().addAll("badge", builtIn ? "badge-green" : "badge-gray");
+        badge.getStyleClass().addAll("badge", builtIn ? UiStyles.BADGE_GREEN : UiStyles.BADGE_GRAY);
 
         Button edit = CardKit.iconTextButton("\uE70F", I18n.t("common.edit"), () -> openAgentDialog(a));
-        edit.getStyleClass().add("link-btn");
+        edit.getStyleClass().add(UiStyles.LINK_BTN);
         HBox head;
         if (builtIn) {
             // 内置默认智能体不可删：它是所有未指定智能体的会话/任务的回退目标
             head = CardKit.cardHeadRow(name, badge, edit);
         } else {
             Button del = CardKit.iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteAgent(a));
-            del.getStyleClass().addAll("link-btn", "link-btn-danger");
+            del.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
             head = CardKit.cardHeadRow(name, badge, edit, del);
         }
 
@@ -178,7 +179,7 @@ final class AgentSettingsPanel {
                 CardKit.kvLine(I18n.t("settings.agent.usage"), I18n.t("settings.agent.usageValue",
                         SettingsLayout.str(agentAdminService.sessionUsage(a.getAgentCode())),
                         SettingsLayout.str(agentAdminService.taskUsage(a.getAgentCode())))));
-        card.getStyleClass().add("provider-card");
+        card.getStyleClass().add(UiStyles.PROVIDER_CARD);
         card.setPrefWidth(SettingsLayout.CARD_WIDTH);
         card.setMaxWidth(SettingsLayout.CARD_WIDTH);
         return card;

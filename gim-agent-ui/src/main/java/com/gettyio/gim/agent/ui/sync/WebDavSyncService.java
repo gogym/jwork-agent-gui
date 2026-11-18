@@ -21,6 +21,7 @@ import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.backup.DbBackupService;
 import com.gettyio.gim.agent.domain.backup.SqliteSnapshotValidator;
 import com.gettyio.gim.agent.domain.security.SecretStore;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -91,8 +92,8 @@ public class WebDavSyncService {
     /** 加密载荷文件名后缀：界面据此识别加密快照 */
     public static final String ENC_SUFFIX = ".enc";
 
-    private static final DateTimeFormatter TS_FORMAT = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
-    private static final DateTimeFormatter DISPLAY_FORMAT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter TS_FORMAT = TimeFormats.FILE_TIMESTAMP;
+    private static final DateTimeFormatter DISPLAY_FORMAT = TimeFormats.DISPLAY_TIMESTAMP;
     /** workspace 压缩包在远端的固定名（覆盖式上传，只保留最新一份） */
     private static final String WORKSPACE_ZIP_NAME = "jwork-workspace-latest.zip";
     /** 数据库快照文件名前后缀（与 DbBackupService 命名一致），用于远端识别与滚动清理 */

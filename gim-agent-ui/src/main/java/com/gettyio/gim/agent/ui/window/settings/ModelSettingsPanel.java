@@ -22,11 +22,13 @@ import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
 import com.gettyio.gim.agent.domain.enums.ApiProtocol;
 import com.gettyio.gim.agent.domain.enums.AuthMethod;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.ui.control.CardKit;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.ModelPriceCatalog;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.collections.FXCollections;
@@ -51,7 +53,6 @@ import javafx.scene.layout.VBox;
 import javafx.scene.text.TextAlignment;
 
 import java.math.BigDecimal;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -168,7 +169,7 @@ final class ModelSettingsPanel {
 
     VBox buildProviderPage() {
         VBox box = new VBox();
-        box.getStyleClass().add("settings-page");
+        box.getStyleClass().add(UiStyles.SETTINGS_PAGE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setMaxHeight(Double.MAX_VALUE);
 
@@ -181,7 +182,7 @@ final class ModelSettingsPanel {
         headText.getChildren().addAll(title, subtitle);
 
         Button addBtn = new Button(I18n.t("settings.provider.add"));
-        addBtn.getStyleClass().add("btn-primary");
+        addBtn.getStyleClass().add(UiStyles.BTN_PRIMARY);
         Label addIcon = new Label("\uE710");
         addIcon.getStyleClass().add("icon");
         addBtn.setGraphic(addIcon);
@@ -222,16 +223,16 @@ final class ModelSettingsPanel {
     /** 空状态：大图标 + 标题 + 描述（对齐技能模块 emptyState 样式）。 */
     private VBox providerEmptyState() {
         VBox box = new VBox();
-        box.getStyleClass().add("empty-state");
+        box.getStyleClass().add(UiStyles.EMPTY_STATE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setFillWidth(false);
         Label icon = new Label("\uE753");
-        icon.getStyleClass().add("empty-icon");
+        icon.getStyleClass().add(UiStyles.EMPTY_ICON);
         Label t = new Label(I18n.t("settings.provider.empty"));
-        t.getStyleClass().add("empty-title");
+        t.getStyleClass().add(UiStyles.EMPTY_TITLE);
         t.setTextAlignment(TextAlignment.CENTER);
         Label d = new Label(I18n.t("settings.provider.emptyDesc"));
-        d.getStyleClass().add("empty-desc");
+        d.getStyleClass().add(UiStyles.EMPTY_DESC);
         d.setWrapText(true);
         d.setTextAlignment(TextAlignment.CENTER);
         d.setMaxWidth(460);
@@ -244,14 +245,14 @@ final class ModelSettingsPanel {
 
         Label name = new Label(p.getProviderName() == null || p.getProviderName().isBlank()
                 ? p.getProviderCode() : p.getProviderName());
-        name.getStyleClass().add("provider-card-title");
+        name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
         Label badge = new Label(I18n.t(enabled ? "settings.provider.enabled" : "settings.provider.disabled"));
-        badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
+        badge.getStyleClass().addAll("badge", enabled ? UiStyles.BADGE_GREEN : UiStyles.BADGE_GRAY);
 
         Button edit = CardKit.iconTextButton("\uE70F", I18n.t("common.edit"), () -> openProviderDialog(p));
-        edit.getStyleClass().add("link-btn");
+        edit.getStyleClass().add(UiStyles.LINK_BTN);
         Button del = CardKit.iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteProvider(p));
-        del.getStyleClass().addAll("link-btn", "link-btn-danger");
+        del.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         HBox head = CardKit.cardHeadRow(name, badge, edit, del);
 
         VBox card = new VBox(8, head,
@@ -260,7 +261,7 @@ final class ModelSettingsPanel {
                 CardKit.kvLine(I18n.t("settings.provider.auth"), p.getAuthMethod()),
                 CardKit.kvLine(I18n.t("settings.provider.baseUrl"), p.getBaseUrl()),
                 CardKit.kvLine(I18n.t("settings.provider.remark"), p.getRemark()));
-        card.getStyleClass().add("provider-card");
+        card.getStyleClass().add(UiStyles.PROVIDER_CARD);
         card.setPrefWidth(SettingsLayout.CARD_WIDTH);
         card.setMaxWidth(SettingsLayout.CARD_WIDTH);
         return card;
@@ -283,7 +284,7 @@ final class ModelSettingsPanel {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setOnAction(e -> {
             if (commitProviderForm()) {
                 shell.stage().close();
@@ -300,7 +301,7 @@ final class ModelSettingsPanel {
 
     VBox buildModelPage() {
         VBox box = new VBox();
-        box.getStyleClass().add("settings-page");
+        box.getStyleClass().add(UiStyles.SETTINGS_PAGE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setMaxHeight(Double.MAX_VALUE);
 
@@ -313,7 +314,7 @@ final class ModelSettingsPanel {
         headText.getChildren().addAll(title, subtitle);
 
         Button addBtn = new Button(I18n.t("settings.model.add"));
-        addBtn.getStyleClass().add("btn-primary");
+        addBtn.getStyleClass().add(UiStyles.BTN_PRIMARY);
         Label addIcon = new Label("\uE710");
         addIcon.getStyleClass().add("icon");
         addBtn.setGraphic(addIcon);
@@ -347,16 +348,16 @@ final class ModelSettingsPanel {
 
     private VBox modelEmptyState() {
         VBox box = new VBox();
-        box.getStyleClass().add("empty-state");
+        box.getStyleClass().add(UiStyles.EMPTY_STATE);
         box.setMaxWidth(Double.MAX_VALUE);
         box.setFillWidth(false);
         Label icon = new Label("\uE7B8");
-        icon.getStyleClass().add("empty-icon");
+        icon.getStyleClass().add(UiStyles.EMPTY_ICON);
         Label t = new Label(I18n.t("settings.model.empty"));
-        t.getStyleClass().add("empty-title");
+        t.getStyleClass().add(UiStyles.EMPTY_TITLE);
         t.setTextAlignment(TextAlignment.CENTER);
         Label d = new Label(I18n.t("settings.model.emptyDesc"));
-        d.getStyleClass().add("empty-desc");
+        d.getStyleClass().add(UiStyles.EMPTY_DESC);
         d.setWrapText(true);
         d.setTextAlignment(TextAlignment.CENTER);
         d.setMaxWidth(460);
@@ -368,14 +369,14 @@ final class ModelSettingsPanel {
         boolean enabled = EnabledStatus.isEnabled(m.getEnabled());
         Label name = new Label(m.getModelName() == null || m.getModelName().isBlank()
                 ? m.getModelCode() : m.getModelName());
-        name.getStyleClass().add("provider-card-title");
+        name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
         Label badge = new Label(I18n.t(enabled ? "settings.model.enabled" : "settings.model.disabled"));
-        badge.getStyleClass().addAll("badge", enabled ? "badge-green" : "badge-gray");
+        badge.getStyleClass().addAll("badge", enabled ? UiStyles.BADGE_GREEN : UiStyles.BADGE_GRAY);
 
         Button edit = CardKit.iconTextButton("\uE70F", I18n.t("common.edit"), () -> openModelDialog(m));
-        edit.getStyleClass().add("link-btn");
+        edit.getStyleClass().add(UiStyles.LINK_BTN);
         Button del = CardKit.iconTextButton("\uE74D", I18n.t("common.delete"), () -> handleDeleteModel(m));
-        del.getStyleClass().addAll("link-btn", "link-btn-danger");
+        del.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         HBox head = CardKit.cardHeadRow(name, badge, edit, del);
 
         VBox card = new VBox(8, head,
@@ -386,7 +387,7 @@ final class ModelSettingsPanel {
                 CardKit.kvNodeLine(I18n.t("common.status"), SettingsLayout.statusIconValue(m.getStatus())),
                 CardKit.kvNodeLine(I18n.t("settings.model.multimodal"), SettingsLayout.visionIconValue(m.getSupportsVision())),
                 lastTestRow(m));
-        card.getStyleClass().add("provider-card");
+        card.getStyleClass().add(UiStyles.PROVIDER_CARD);
         card.setPrefWidth(SettingsLayout.CARD_WIDTH);
         card.setMaxWidth(SettingsLayout.CARD_WIDTH);
         return card;
@@ -414,7 +415,7 @@ final class ModelSettingsPanel {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setOnAction(e -> {
             if (commitModelForm()) {
                 shell.stage().close();
@@ -527,7 +528,7 @@ final class ModelSettingsPanel {
         if (m.getLastTestAt() == null) {
             return CardKit.kvLine(key, "-");
         }
-        String time = m.getLastTestAt().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+        String time = m.getLastTestAt().format(TimeFormats.MINUTE_TIMESTAMP);
         String detail = m.getLastTestResult();
         Label summary = new Label(time);
         summary.getStyleClass().add("provider-card-val");
@@ -535,7 +536,7 @@ final class ModelSettingsPanel {
             return CardKit.kvNodeLine(key, summary);
         }
         Button detailBtn = new Button(I18n.t("common.detail"));
-        detailBtn.getStyleClass().add("link-btn");
+        detailBtn.getStyleClass().add(UiStyles.LINK_BTN);
         detailBtn.setMinWidth(Region.USE_PREF_SIZE);
         detailBtn.setOnAction(e -> openLastTestDetail(m, time, detail));
         HBox value = new HBox(8, summary, detailBtn);
@@ -549,7 +550,7 @@ final class ModelSettingsPanel {
         String name = m.getModelName() == null || m.getModelName().isBlank()
                 ? m.getModelCode() : m.getModelName();
         Label head = new Label(name + " · " + time);
-        head.getStyleClass().add("dialog-header");
+        head.getStyleClass().add(UiStyles.DIALOG_HEADER);
         TextArea content = new TextArea(detail);
         content.setEditable(false);
         content.setWrapText(true);
@@ -568,8 +569,8 @@ final class ModelSettingsPanel {
 
     /** 默认模型卡片：当前默认模型 + 修改入口，置于模型列表上方。 */
     private VBox defaultModelCard() {
-        if (!defaultModelInfoLabel.getStyleClass().contains("row-value")) {
-            defaultModelInfoLabel.getStyleClass().add("row-value");
+        if (!defaultModelInfoLabel.getStyleClass().contains(UiStyles.ROW_VALUE)) {
+            defaultModelInfoLabel.getStyleClass().add(UiStyles.ROW_VALUE);
         }
         Button changeBtn = CardKit.iconTextButton("\uE70F",
                 I18n.t("settings.default.change"), this::openDefaultModelPicker);
@@ -646,7 +647,7 @@ final class ModelSettingsPanel {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button ok = new Button(I18n.t("common.ok"));
-        ok.getStyleClass().add("btn-primary");
+        ok.getStyleClass().add(UiStyles.BTN_PRIMARY);
         ok.setOnAction(e -> {
             ModelConfig picked = listView.getSelectionModel().getSelectedItem();
             if (picked == null) {

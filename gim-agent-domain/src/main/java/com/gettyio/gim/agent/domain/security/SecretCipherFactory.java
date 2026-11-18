@@ -16,6 +16,8 @@
 
 package com.gettyio.gim.agent.domain.security;
 
+import com.gettyio.gim.agent.domain.util.OsPlatform;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,7 +56,6 @@ public final class SecretCipherFactory {
     }
 
     public static boolean isWindows() {
-        String os = System.getProperty("os.name", "").toLowerCase();
-        return os.contains("win");
+        return OsPlatform.current().isWindows();
     }
 }

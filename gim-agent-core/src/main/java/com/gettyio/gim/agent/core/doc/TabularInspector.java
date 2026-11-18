@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.core.doc;
 
+import com.gettyio.gim.agent.domain.util.FileKinds;
 import org.apache.poi.openxml4j.opc.OPCPackage;
 import org.apache.poi.openxml4j.opc.PackageAccess;
 import org.apache.poi.ss.usermodel.DataFormatter;
@@ -98,9 +99,7 @@ public final class TabularInspector {
 
     /** 该文件名是否属于可按行探查的表格类型。 */
     public static boolean isTabular(String fileName) {
-        String n = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
-        return n.endsWith(".xlsx") || n.endsWith(".xlsm")
-                || n.endsWith(".csv") || n.endsWith(".tsv") || n.endsWith(".tab");
+        return FileKinds.isTabular(fileName);
     }
 
     /**
@@ -503,7 +502,7 @@ public final class TabularInspector {
     // ---- csv / tsv ----
 
     private static boolean isCsv(String lowerName) {
-        return lowerName.endsWith(".csv") || lowerName.endsWith(".tsv") || lowerName.endsWith(".tab");
+        return FileKinds.isTextTabular(lowerName);
     }
 
     private static List<List<String>> csvRows(Path file, int offset, int count) throws IOException {

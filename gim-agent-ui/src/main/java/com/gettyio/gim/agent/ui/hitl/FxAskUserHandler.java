@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.hitl;
 
 import com.gettyio.gim.agent.tools.hitl.AskUserHandler;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
@@ -74,7 +75,7 @@ public class FxAskUserHandler implements AskUserHandler {
         GimDialog.Shell shell = GimDialog.shell(stage, I18n.t("ask.title"));
 
         Label head = new Label(question);
-        head.getStyleClass().add("dialog-header");
+        head.getStyleClass().add(UiStyles.DIALOG_HEADER);
         head.setWrapText(true);
         head.setMaxWidth(CONTENT_MAX_WIDTH);
         shell.body().getChildren().add(head);
@@ -89,7 +90,7 @@ public class FxAskUserHandler implements AskUserHandler {
         }
 
         HBox actions = new HBox(8);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         actions.getChildren().addAll(
                 answerButton(shell.stage(), I18n.t("ask.other"), CUSTOM, picked),
                 answerButton(shell.stage(), I18n.t("ask.youDecide"), AskUserHandler.YOU_DECIDE, picked));

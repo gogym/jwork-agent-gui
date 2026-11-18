@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.ui.window.settings;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.desktop.GlobalHotkeyService;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.AppLifecycle;
 import javafx.scene.Node;
 import javafx.scene.control.ComboBox;
@@ -81,7 +82,7 @@ final class GeneralSettingsPanel {
             autoControl = autostart;
         } else {
             Label na = new Label(I18n.t("settings.autostart.unavailable"));
-            na.getStyleClass().add("row-value");
+            na.getStyleClass().add(UiStyles.ROW_VALUE);
             autoControl = na;
         }
 
@@ -99,7 +100,7 @@ final class GeneralSettingsPanel {
     private Node hotkeyControl() {
         if (!globalHotkeyService.isSupported()) {
             Label na = new Label(I18n.t("settings.hotkey.unavailable"));
-            na.getStyleClass().add("row-value");
+            na.getStyleClass().add(UiStyles.ROW_VALUE);
             return na;
         }
         ToggleSwitch hotkey = new ToggleSwitch();

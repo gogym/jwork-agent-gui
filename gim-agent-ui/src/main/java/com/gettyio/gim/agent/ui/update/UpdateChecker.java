@@ -16,6 +16,9 @@
 
 package com.gettyio.gim.agent.ui.update;
 
+import com.gettyio.gim.agent.domain.util.FileKinds;
+import com.gettyio.gim.agent.domain.util.HttpMedia;
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gettyio.gim.agent.core.net.AddressPolicy;
@@ -215,21 +218,6 @@ public class UpdateChecker {
 
     // ===================== 平台探测 =====================
 
-    /** 探测当前平台：windows / macos / linux。 */
-    public static String detectPlatform() {
-        String name = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
-        if (name.contains("win")) {
-            return "windows";
-        }
-        if (name.contains("mac") || name.contains("darwin")) {
-            return "macos";
-        }
-        if (name.contains("nux") || name.contains("nix")) {
-            return "linux";
-        }
-        return "";
-    }
-
     /** 探测当前架构：x64 / arm64；未知返回空串。 */
     public static String detectArch() {
         String arch = System.getProperty("os.arch", "").toLowerCase(Locale.ROOT);
@@ -258,13 +246,13 @@ public class UpdateChecker {
         try {
             Map<String, Object> body = new LinkedHashMap<>();
             body.put("appId", APP_ID);
-            body.put("platform", detectPlatform());
+            body.put("platform", OsPlatform.current().code());
             body.put("arch", detectArch());
             body.put("currentVersion", currentVersion());
 
             HttpRequest req = HttpRequest.newBuilder(URI.create(base + CHECK_PATH))
                     .timeout(Duration.ofSeconds(12))
-                    .header("Content-Type", "application/json")
+                    .header(HttpMedia.CONTENT_TYPE, HttpMedia.APPLICATION_JSON)
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body), StandardCharsets.UTF_8))
                     .build();
             HttpResponse<String> resp = http.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -386,8 +374,8 @@ public class UpdateChecker {
         if (file == null || !Files.exists(file)) {
             return false;
         }
-        if ("windows".equals(detectPlatform())
-                && file.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".msi")) {
+        if (OsPlatform.current().isWindows()
+                && file.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(FileKinds.MSI)) {
             try {
                 new ProcessBuilder("msiexec", "/i", file.toAbsolutePath().toString(),
                         "/qn", "/norestart").start();
@@ -411,8 +399,7 @@ public class UpdateChecker {
         }
         try {
             file.toFile().setExecutable(true, false);
-            String os = detectPlatform();
-            if ("linux".equals(os) && isArchiveLike(file.getFileName().toString())) {
+            if (OsPlatform.current() == OsPlatform.LINUX && isArchiveLike(file.getFileName().toString())) {
                 new ProcessBuilder("xdg-open", file.toString()).inheritIO().start();
                 return true;
             }

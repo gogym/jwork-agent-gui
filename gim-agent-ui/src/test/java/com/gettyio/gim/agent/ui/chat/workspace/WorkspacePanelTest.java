@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.ui.chat.workspace;
 
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -138,11 +139,11 @@ class WorkspacePanelTest {
     void chooserCommandOnlyOnWindows() {
         Path p = Paths.get("ws").resolve("a.xlsx");
         assertEquals(List.of("rundll32.exe", "shell32.dll,OpenAs_RunDLL", p.toAbsolutePath().toString()),
-                WorkspacePanel.chooserCommand(p, "Windows 11"));
+                WorkspacePanel.chooserCommand(p, OsPlatform.WINDOWS));
         // 非 Windows 无 shell 选择器：返回 null 供调用方降级默认关联
-        assertNull(WorkspacePanel.chooserCommand(p, "Linux"));
-        assertNull(WorkspacePanel.chooserCommand(p, "Mac OS X"));
-        assertNull(WorkspacePanel.chooserCommand(null, "Windows 11"));
+        assertNull(WorkspacePanel.chooserCommand(p, OsPlatform.LINUX));
+        assertNull(WorkspacePanel.chooserCommand(p, OsPlatform.MACOS));
+        assertNull(WorkspacePanel.chooserCommand(null, OsPlatform.WINDOWS));
         assertNull(WorkspacePanel.chooserCommand(p, null));
     }
 

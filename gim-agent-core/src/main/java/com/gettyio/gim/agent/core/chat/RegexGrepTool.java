@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.core.chat;
 
+import com.gettyio.gim.agent.domain.util.FileKinds;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.tool.Tool;
 import io.agentscope.core.tool.ToolParam;
@@ -94,16 +95,16 @@ public final class RegexGrepTool {
             Map.entry("js", List.of(".js", ".jsx", ".mjs")),
             Map.entry("ts", List.of(".ts", ".tsx")),
             Map.entry("vue", List.of(".vue")),
-            Map.entry("json", List.of(".json")),
+            Map.entry("json", List.of(FileKinds.JSON)),
             Map.entry("yaml", List.of(".yaml", ".yml")),
-            Map.entry("md", List.of(".md", ".markdown")),
+            Map.entry("md", List.of(FileKinds.MD, FileKinds.MARKDOWN)),
             Map.entry("sql", List.of(".sql")),
             Map.entry("sh", List.of(".sh", ".bash")),
-            Map.entry("html", List.of(".html", ".htm")),
+            Map.entry("html", List.of(FileKinds.HTML, FileKinds.HTM)),
             Map.entry("css", List.of(".css", ".scss", ".less")),
             Map.entry("xml", List.of(".xml", ".svg")),
-            Map.entry("csv", List.of(".csv", ".tsv")),
-            Map.entry("txt", List.of(".txt")));
+            Map.entry("csv", List.of(FileKinds.CSV, FileKinds.TSV)),
+            Map.entry("txt", List.of(FileKinds.TXT)));
 
     private static final String MODE_CONTENT = "content";
     private static final String MODE_FILES = "files_with_matches";

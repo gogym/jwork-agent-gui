@@ -27,6 +27,7 @@ import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.entity.ModelProviderConfig;
 import com.gettyio.gim.agent.domain.security.SecretStore;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -84,8 +85,8 @@ public class ExportService {
     private static final List<String> SECRET_KEY_HINTS =
             List.of("apikey", "password", "passphrase", "secret", "token");
 
-    private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
-    private static final DateTimeFormatter FILE_TS = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    private static final DateTimeFormatter TS = TimeFormats.DISPLAY_TIMESTAMP;
+    private static final DateTimeFormatter FILE_TS = TimeFormats.FILE_TIMESTAMP;
 
     private final GimDatabase db;
     private final SecretStore secrets;

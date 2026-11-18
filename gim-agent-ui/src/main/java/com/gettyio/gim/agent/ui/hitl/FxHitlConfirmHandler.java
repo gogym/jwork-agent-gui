@@ -22,6 +22,7 @@ import com.gettyio.gim.agent.core.chat.ToolConfirmRequest;
 import com.gettyio.gim.agent.domain.enums.PermissionDecision;
 import com.gettyio.gim.agent.tools.hitl.HitlConfirmHandler;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.AppShell;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
@@ -103,7 +104,7 @@ public class FxHitlConfirmHandler implements HitlConfirmHandler {
         GimDialog.Shell shell = GimDialog.shell(appShell.getStage(), I18n.t("hitl.title"));
 
         Label header = new Label(I18n.t("hitl.header", request.getToolName()));
-        header.getStyleClass().add("dialog-header");
+        header.getStyleClass().add(UiStyles.DIALOG_HEADER);
         header.setWrapText(true);
         shell.body().getChildren().add(header);
 
@@ -131,7 +132,7 @@ public class FxHitlConfirmHandler implements HitlConfirmHandler {
 
         int[] picked = {-1};
         HBox actions = new HBox(8);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         actions.setAlignment(Pos.CENTER_RIGHT);
         actions.getChildren().addAll(
                 diffButton(I18n.t("hitl.always"), shell.stage(), 0, picked),
@@ -153,7 +154,7 @@ public class FxHitlConfirmHandler implements HitlConfirmHandler {
     private Button diffButton(String text, javafx.stage.Stage stage, int index, int[] picked) {
         Button b = new Button(text);
         if (index == 2) {
-            b.getStyleClass().add("btn-primary");
+            b.getStyleClass().add(UiStyles.BTN_PRIMARY);
         }
         b.setMinWidth(76);
         b.setOnAction(e -> {

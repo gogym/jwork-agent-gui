@@ -21,9 +21,11 @@ import com.gettyio.gim.agent.core.chat.ChatService;
 import com.gettyio.gim.agent.core.chat.ImageAttachment;
 import com.gettyio.gim.agent.core.chat.StreamEvent;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
+import com.gettyio.gim.agent.domain.util.HttpMedia;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.util.ModelErrorText;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.voice.MicHoldButton;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
@@ -168,7 +170,7 @@ public class QuickAskWindow {
                 () -> GimDialog.message(stage, I18n.t("voice.title"), null, I18n.t("voice.notConfigured")),
                 (errTitle, msg) -> GimDialog.message(stage, errTitle, null, msg));
         Button send = new Button(I18n.t("quickask.send"));
-        send.getStyleClass().add("btn-primary");
+        send.getStyleClass().add(UiStyles.BTN_PRIMARY);
         send.setOnAction(e -> sendNow());
         HBox footer = new HBox(8, shot, mic, attachLabel, spacer(), send);
         footer.setAlignment(Pos.CENTER_LEFT);
@@ -214,7 +216,7 @@ public class QuickAskWindow {
     private void capture() {
         ScreenshotCapture.captureRegion(bytes -> Platform.runLater(() -> {
             String b64 = Base64.getEncoder().encodeToString(bytes);
-            pendingImages.add(new ImageAttachment("screenshot.png", "image/png", b64));
+            pendingImages.add(new ImageAttachment("screenshot.png", HttpMedia.IMAGE_PNG, b64));
             refreshAttachLabel();
             if (input != null) {
                 input.requestFocus();

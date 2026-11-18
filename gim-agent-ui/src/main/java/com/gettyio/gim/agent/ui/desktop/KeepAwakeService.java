@@ -17,11 +17,11 @@
 package com.gettyio.gim.agent.ui.desktop;
 
 import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.sun.jna.platform.win32.Kernel32;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.util.Locale;
 
 /**
  * 保持设备唤醒服务（仅 Windows）：运行期间阻止系统因空闲进入睡眠，避免错过计划或中断任务。
@@ -57,7 +57,7 @@ public class KeepAwakeService {
 
     /** 当前平台能否使用（仅 Windows）。 */
     public boolean isSupported() {
-        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+        return OsPlatform.current().isWindows();
     }
 
     /** 是否启用（读持久化开关）。 */

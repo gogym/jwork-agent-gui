@@ -21,6 +21,7 @@ import com.gettyio.gim.agent.core.capability.McpConnectionProbe;
 import com.gettyio.gim.agent.core.capability.McpSecrets;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
+import com.gettyio.gim.agent.domain.enums.McpConnectionStatus;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 
@@ -65,7 +66,7 @@ public class McpAdminService {
             m.setTimeout(30);
         }
         if (m.getStatus() == null || m.getStatus().isBlank()) {
-            m.setStatus("UNKNOWN");
+            m.setStatus(McpConnectionStatus.UNKNOWN.name());
         }
         // 密钥值加密入库：入参约定为明文 JSON（表单 / 市场模板）；已密文值不二次加密，重复保存幂等
         m.setEnvJson(encryptMap(m.getEnvJson()));
@@ -95,7 +96,7 @@ public class McpAdminService {
     /** 探测结果回写连接状态（「测试连接」用）；状态未变化不发多余 UPDATE。 */
     public void recordStatus(String serverCode, boolean connected) {
         db.mcpServerDao().findByCode(serverCode).ifPresent(m -> {
-            String next = connected ? "CONNECTED" : "DISCONNECTED";
+            String next = McpConnectionStatus.of(connected).name();
             if (!next.equals(m.getStatus())) {
                 m.setStatus(next);
                 db.mcpServerDao().update(m);

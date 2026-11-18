@@ -22,6 +22,7 @@ import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
+import com.gettyio.gim.agent.domain.enums.McpConnectionStatus;
 import com.gettyio.gim.agent.domain.security.SecretCipher;
 import io.agentscope.harness.agent.tools.McpServerRegistrationResult;
 import io.agentscope.harness.agent.tools.ToolsConfig;
@@ -54,10 +55,6 @@ import java.util.Set;
 public class AgentCapabilityResolver {
 
     private static final Logger log = LoggerFactory.getLogger(AgentCapabilityResolver.class);
-
-    /** 回写 mcp_servers.status 的取值：与 MCP 管理页展示的 CONNECTED / DISCONNECTED 对齐 */
-    private static final String STATUS_CONNECTED = "CONNECTED";
-    private static final String STATUS_DISCONNECTED = "DISCONNECTED";
 
     private final GimDatabase db;
     /** MCP env/headers 值入库加密，翻译配置时解密回明文；null 按明文读（单测） */
@@ -151,7 +148,7 @@ public class AgentCapabilityResolver {
         }
         try {
             db.mcpServerDao().findByCode(code).ifPresent(row -> {
-                row.setStatus(success ? STATUS_CONNECTED : STATUS_DISCONNECTED);
+                row.setStatus(McpConnectionStatus.of(success).name());
                 db.mcpServerDao().update(row);
             });
         } catch (RuntimeException e) {

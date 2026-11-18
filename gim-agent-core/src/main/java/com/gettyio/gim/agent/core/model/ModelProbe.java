@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.core.model;
 
+import com.gettyio.gim.agent.domain.util.HttpMedia;
 import io.agentscope.core.message.Base64Source;
 import io.agentscope.core.message.ContentBlock;
 import io.agentscope.core.message.ImageBlock;
@@ -56,7 +57,7 @@ public class ModelProbe {
     private static final String PING = "ping";
     /** 多模态探测：发一张纯色小图问颜色，端点若不支持图片输入会直接报错，支持则给出回答。 */
     private static final String VISION_PROMPT = "这张图片是什么颜色？只回答一个词。";
-    private static final String VISION_MEDIA_TYPE = "image/png";
+    private static final String VISION_MEDIA_TYPE = HttpMedia.IMAGE_PNG;
 
     private final AgentScopeModelFactory modelFactory;
 

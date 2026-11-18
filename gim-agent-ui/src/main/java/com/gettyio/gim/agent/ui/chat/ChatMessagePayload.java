@@ -24,6 +24,8 @@ import com.gettyio.gim.agent.core.chat.SessionArtifactDelivery;
 import com.gettyio.gim.agent.core.chat.StoredAttachment;
 import com.gettyio.gim.agent.core.chat.ToolCallRecordCodec;
 import com.gettyio.gim.agent.core.fs.CanonicalPath;
+import com.gettyio.gim.agent.domain.util.HttpMedia;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatFile;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatImage;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatMessage;
@@ -61,7 +63,7 @@ public final class ChatMessagePayload {
 
     private static final Logger log = LoggerFactory.getLogger(ChatMessagePayload.class);
     private static final ObjectMapper MAPPER = new ObjectMapper();
-    private static final DateTimeFormatter TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
+    private static final DateTimeFormatter TIME = TimeFormats.MINUTE_TIMESTAMP;
     /** 单张内联图片字节上限（8MB）：与附件条口径一致，超限丢弃避免撑爆脚本字符串。 */
     private static final long MAX_EMBED_BYTES = 8L * 1024 * 1024;
     /** Markdown 图片语法：{@code ![alt](dest)}，dest 可含尖括号包裹的含空格路径。 */
@@ -405,6 +407,6 @@ public final class ChatMessagePayload {
         if (n.endsWith(".svg")) {
             return "image/svg+xml";
         }
-        return "image/png";
+        return HttpMedia.IMAGE_PNG;
     }
 }

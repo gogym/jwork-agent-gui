@@ -27,6 +27,7 @@ import com.gettyio.gim.agent.domain.entity.TaskRun;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
 import com.gettyio.gim.agent.domain.enums.TaskOutputMode;
 import com.gettyio.gim.agent.domain.enums.TaskStatus;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import io.agentscope.core.permission.PermissionMode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,7 +64,7 @@ public class AgentTaskExecutor {
     static final int MAX_CONSECUTIVE_FAILURES = 3;
 
     /** 独立输出模式的新会话后缀格式 */
-    private static final DateTimeFormatter SEPARATE_SUFFIX = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    private static final DateTimeFormatter SEPARATE_SUFFIX = TimeFormats.FILE_TIMESTAMP;
 
     private final GimDatabase db;
     private final ChatService chatService;

@@ -20,6 +20,8 @@ import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
+import com.gettyio.gim.agent.domain.util.FileKinds;
+import com.gettyio.gim.agent.domain.util.FileTrees;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -126,10 +128,10 @@ public class SkillService {
             throw new IllegalArgumentException("文件不存在: " + file);
         }
         String name = file.getFileName().toString().toLowerCase(Locale.ROOT);
-        if (name.endsWith(".zip")) {
+        if (name.endsWith(FileKinds.ZIP)) {
             return importFromZip(file, "INSTALLED");
         }
-        if (name.endsWith(".md")) {
+        if (name.endsWith(FileKinds.MD)) {
             return importFromMarkdown(file);
         }
         throw new IllegalArgumentException("仅支持 .md 或 .zip 文件: " + file.getFileName());
@@ -143,7 +145,7 @@ public class SkillService {
         if (!Files.isRegularFile(zip)) {
             throw new IllegalArgumentException("市场技能包不存在: " + zip);
         }
-        if (!zip.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".zip")) {
+        if (!zip.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(FileKinds.ZIP)) {
             throw new IllegalArgumentException("市场技能包必须是 .zip: " + zip.getFileName());
         }
         return importFromZip(zip, "MARKETPLACE");
@@ -374,13 +376,6 @@ public class SkillService {
     }
 
     private static void deleteRecursively(Path dir) throws IOException {
-        if (!Files.exists(dir)) {
-            return;
-        }
-        try (Stream<Path> walk = Files.walk(dir)) {
-            for (Path p : walk.sorted(Comparator.reverseOrder()).toList()) {
-                Files.deleteIfExists(p);
-            }
-        }
+        FileTrees.deleteRecursively(dir);
     }
 }

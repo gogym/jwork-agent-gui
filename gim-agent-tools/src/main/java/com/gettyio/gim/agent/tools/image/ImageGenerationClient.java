@@ -16,6 +16,8 @@
 
 package com.gettyio.gim.agent.tools.image;
 
+import com.gettyio.gim.agent.domain.util.FileKinds;
+import com.gettyio.gim.agent.domain.util.HttpMedia;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -91,7 +93,7 @@ public class ImageGenerationClient {
             body.put("response_format", "b64_json");
             HttpRequest.Builder builder = HttpRequest.newBuilder(URI.create(endpoint(cfg.baseUrl())))
                     .timeout(GENERATE_TIMEOUT)
-                    .header("Content-Type", "application/json")
+                    .header(HttpMedia.CONTENT_TYPE, HttpMedia.APPLICATION_JSON)
                     .POST(HttpRequest.BodyPublishers.ofString(MAPPER.writeValueAsString(body), StandardCharsets.UTF_8));
             if (cfg.apiKey() != null && !cfg.apiKey().isBlank()) {
                 builder.header("Authorization", "Bearer " + cfg.apiKey().trim());
@@ -122,7 +124,7 @@ public class ImageGenerationClient {
     /** 把生成结果落盘到 {@code dir}（{@code gim-<时间戳>-<随机>.png}），返回文件路径；工具与聊天页入口共用。 */
     public static Path save(Path dir, byte[] bytes) throws IOException {
         Files.createDirectories(dir);
-        String name = "gim-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8) + ".png";
+        String name = "gim-" + System.currentTimeMillis() + "-" + UUID.randomUUID().toString().substring(0, 8) + FileKinds.PNG;
         Path file = dir.resolve(name);
         Files.write(file, bytes);
         return file;

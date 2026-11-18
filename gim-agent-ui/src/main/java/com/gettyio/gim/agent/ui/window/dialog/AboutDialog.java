@@ -17,9 +17,11 @@
 package com.gettyio.gim.agent.ui.window.dialog;
 
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.update.UpdateChecker;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.geometry.Pos;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
@@ -82,16 +84,16 @@ public final class AboutDialog {
         VBox info = new VBox(10,
                 infoRow(I18n.t("about.dataDir"), String.valueOf(paths.root())),
                 infoRow(I18n.t("about.runtime"), "Java " + System.getProperty("java.version", "?")
-                        + " · " + System.getProperty("os.name", "?")));
+                        + " · " + OsPlatform.rawName()));
         info.getStyleClass().add("about-info-card");
         info.setPrefWidth(CONTENT_WIDTH);
 
         Button ok = new Button(I18n.t("common.ok"));
-        ok.getStyleClass().add("btn-primary");
+        ok.getStyleClass().add(UiStyles.BTN_PRIMARY);
         ok.setMinWidth(76);
         ok.setOnAction(e -> onConfirm.run());
         HBox actions = new HBox(ok);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
 
         body.getChildren().addAll(hero, intro, info, actions);
     }

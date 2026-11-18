@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.ui.market;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
@@ -96,7 +97,7 @@ public class SkillsMarketDialog {
     public void show() {
         GimDialog.Shell shell = GimDialog.shell(owner, I18n.t("market.skills.title"));
 
-        refreshButton.getStyleClass().add("icon-btn");
+        refreshButton.getStyleClass().add(UiStyles.ICON_BTN);
         Label refreshIcon = new Label("\uE72C");
         refreshIcon.getStyleClass().add("icon");
         refreshButton.setGraphic(refreshIcon);
@@ -130,7 +131,7 @@ public class SkillsMarketDialog {
         content.setMinSize(CONTENT_WIDTH, CONTENT_HEIGHT);
         content.getChildren().setAll(scroller);
 
-        loadMore.getStyleClass().add("link-btn");
+        loadMore.getStyleClass().add(UiStyles.LINK_BTN);
         loadMore.setVisible(false);
         loadMore.setManaged(false);
         loadMore.setOnAction(e -> loadPage(true));
@@ -249,13 +250,13 @@ public class SkillsMarketDialog {
 
     private Node card(MarketService.MarketSkill s) {
         VBox card = new VBox(8);
-        card.getStyleClass().add("provider-card");
+        card.getStyleClass().add(UiStyles.PROVIDER_CARD);
         card.setMaxWidth(Double.MAX_VALUE);
         card.setPrefHeight(212);
 
         // 名称（最多两行截断）+ 版本徽章 + star 徽章（右侧固定）
         Label name = new Label(s.skillName().isBlank() ? s.skillCode() : s.skillName());
-        name.getStyleClass().add("provider-card-title");
+        name.getStyleClass().add(UiStyles.PROVIDER_CARD_TITLE);
         name.setMinWidth(0);
         name.setWrapText(true);
         name.setMaxHeight(44);
@@ -271,7 +272,7 @@ public class SkillsMarketDialog {
             titleRow.getChildren().add(titleSpacer);
             spaced = true;
             Label ver = new Label("v" + oneLine(s.version()));
-            ver.getStyleClass().addAll("badge", "badge-gray");
+            ver.getStyleClass().addAll("badge", UiStyles.BADGE_GRAY);
             ver.setMinWidth(Region.USE_PREF_SIZE);
             ver.setMaxWidth(Region.USE_PREF_SIZE);
             titleRow.getChildren().add(ver);
@@ -281,14 +282,14 @@ public class SkillsMarketDialog {
                 titleRow.getChildren().add(titleSpacer);
             }
             Label star = new Label(I18n.t("market.stars", String.valueOf(s.downloadCount())));
-            star.getStyleClass().addAll("badge", "badge-gray");
+            star.getStyleClass().addAll("badge", UiStyles.BADGE_GRAY);
             star.setMinWidth(Region.USE_PREF_SIZE);
             star.setMaxWidth(Region.USE_PREF_SIZE);
             titleRow.getChildren().add(star);
         }
 
         Label desc = new Label(s.description().isBlank() ? I18n.t("skills.noDesc") : oneLine(s.description()));
-        desc.getStyleClass().add("card-desc");
+        desc.getStyleClass().add(UiStyles.CARD_DESC);
         desc.setWrapText(true);
         desc.setMaxHeight(40);
         desc.setTextOverrun(OverrunStyle.ELLIPSIS);
@@ -300,7 +301,7 @@ public class SkillsMarketDialog {
             tagRow.setAlignment(Pos.CENTER_LEFT);
             for (String tag : s.tags()) {
                 Label t = new Label(tag);
-                t.getStyleClass().addAll("badge", "badge-gray");
+                t.getStyleClass().addAll("badge", UiStyles.BADGE_GRAY);
                 tagRow.getChildren().add(t);
             }
             card.getChildren().add(tagRow);
@@ -313,7 +314,7 @@ public class SkillsMarketDialog {
         // 作者（发布者）单行摘要
         if (!s.author().isBlank()) {
             Label metaLine = new Label(I18n.t("market.author", s.author()));
-            metaLine.getStyleClass().add("card-meta");
+            metaLine.getStyleClass().add(UiStyles.CARD_META);
             metaLine.setMaxWidth(Double.MAX_VALUE);
             metaLine.setTextOverrun(OverrunStyle.ELLIPSIS);
             card.getChildren().add(metaLine);
@@ -327,7 +328,7 @@ public class SkillsMarketDialog {
             metaRow.setAlignment(Pos.CENTER_LEFT);
             if (hasMeta) {
                 Label updated = new Label(I18n.t("market.updatedAt", s.updatedAt()));
-                updated.getStyleClass().add("card-meta");
+                updated.getStyleClass().add(UiStyles.CARD_META);
                 metaRow.getChildren().add(updated);
             }
             Region msp = new Region();
@@ -354,7 +355,7 @@ public class SkillsMarketDialog {
     /** 文字链接按钮：点击用系统浏览器打开给定 URL。 */
     private Button linkButton(String text, String url) {
         Button b = new Button(text);
-        b.getStyleClass().add("link-btn");
+        b.getStyleClass().add(UiStyles.LINK_BTN);
         b.setMinWidth(Region.USE_PREF_SIZE);
         b.setOnAction(e -> openUrl(url));
         return b;
@@ -366,16 +367,16 @@ public class SkillsMarketDialog {
         if (local != null && !MarketService.hasNewerVersion(local.getVersion(), s.version())) {
             Label installed = new Label(I18n.t("market.installedVersion",
                     local.getVersion() == null || local.getVersion().isBlank() ? "" : local.getVersion()));
-            installed.getStyleClass().addAll("badge", "badge-green");
+            installed.getStyleClass().addAll("badge", UiStyles.BADGE_GREEN);
             Button placeholder = new Button();
             placeholder.setGraphic(installed);
-            placeholder.getStyleClass().add("link-btn");
+            placeholder.getStyleClass().add(UiStyles.LINK_BTN);
             placeholder.setDisable(true);
             return placeholder;
         }
         boolean update = local != null;
         Button action = new Button(I18n.t(update ? "market.update" : "market.install"));
-        action.getStyleClass().add(update ? "link-btn" : "btn-primary");
+        action.getStyleClass().add(update ? UiStyles.LINK_BTN : UiStyles.BTN_PRIMARY);
         action.setMinWidth(Region.USE_PREF_SIZE);
         action.setOnAction(e -> install(s, action));
         return action;
@@ -471,7 +472,7 @@ public class SkillsMarketDialog {
             Label retryIcon = new Label("\uE72C");
             retryIcon.getStyleClass().add("icon");
             retry.setGraphic(retryIcon);
-            retry.getStyleClass().add("btn-primary");
+            retry.getStyleClass().add(UiStyles.BTN_PRIMARY);
             retry.setOnAction(e -> reload());
             box.getChildren().add(retry);
         }

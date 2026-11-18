@@ -21,6 +21,8 @@ import com.gettyio.gim.agent.core.chat.FileTextExtractor;
 import com.gettyio.gim.agent.core.chat.SessionArtifactDelivery;
 import com.gettyio.gim.agent.core.doc.TabularInspector;
 import com.gettyio.gim.agent.core.fs.CanonicalPath;
+import com.gettyio.gim.agent.domain.util.FileKinds;
+import com.gettyio.gim.agent.domain.util.OsPlatform;
 import com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import javafx.application.Platform;
@@ -797,7 +799,7 @@ public final class WorkspacePanel {
 
     /** 「选择其他程序」：Windows shell 的「打开方式」对话框；非 Windows 或拉起失败降级默认关联。 */
     private void openWithChooser(Path path) {
-        List<String> cmd = chooserCommand(path, System.getProperty("os.name", ""));
+        List<String> cmd = chooserCommand(path, OsPlatform.current());
         if (cmd == null) {
             openWithSystem(path);
             return;
@@ -811,8 +813,8 @@ public final class WorkspacePanel {
     }
 
     /** 纯函数：Windows「打开方式」选择器命令（rundll32 OpenAs_RunDLL）；非 Windows 返回 null。包私有便于单测。 */
-    static List<String> chooserCommand(Path path, String osName) {
-        if (path == null || osName == null || !osName.toLowerCase(Locale.ROOT).contains("win")) {
+    static List<String> chooserCommand(Path path, OsPlatform os) {
+        if (path == null || os != OsPlatform.WINDOWS) {
             return null;
         }
         return List.of("rundll32.exe", "shell32.dll,OpenAs_RunDLL", path.toAbsolutePath().toString());
@@ -822,18 +824,16 @@ public final class WorkspacePanel {
 
     /** 按扩展名分派阅读类型；未知一律按纯文本尝试（二进制在读取阶段兜底）。包私有便于单测。 */
     static RenderKind classify(String fileName) {
-        String n = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
-        if (n.endsWith(".md") || n.endsWith(".markdown")) {
+        if (FileKinds.isMarkdown(fileName)) {
             return RenderKind.MARKDOWN;
         }
         if (ArtifactPreviewWindow.isPreviewableFile(fileName)) {
             return RenderKind.HTML;
         }
-        if (n.endsWith(".png") || n.endsWith(".jpg") || n.endsWith(".jpeg") || n.endsWith(".gif")
-                || n.endsWith(".bmp") || n.endsWith(".webp")) {
+        if (FileKinds.isImage(fileName)) {
             return RenderKind.IMAGE;
         }
-        if (n.endsWith(".pdf") || n.endsWith(".docx")) {
+        if (FileKinds.isBinaryDocument(fileName)) {
             return RenderKind.DOC;
         }
         if (TabularInspector.isTabular(fileName)) {

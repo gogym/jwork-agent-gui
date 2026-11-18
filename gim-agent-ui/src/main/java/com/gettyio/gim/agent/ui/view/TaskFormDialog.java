@@ -27,6 +27,7 @@ import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.TaskAdminService;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.voice.MicHoldButton;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
@@ -104,7 +105,7 @@ final class TaskFormDialog {
                 ? I18n.t("tasks.form.newTitle") : I18n.t("tasks.form.editTitle"));
 
         Label subtitle = new Label(I18n.t("tasks.form.subtitle"));
-        subtitle.getStyleClass().add("row-desc");
+        subtitle.getStyleClass().add(UiStyles.ROW_DESC);
 
         // ---- 左栏：名称 + 指令编辑器 + 工具条 ----
         TextField nameField = new TextField(editing == null ? "" : editing.getTaskName());
@@ -150,7 +151,7 @@ final class TaskFormDialog {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
         Button save = new Button(editing == null ? I18n.t("tasks.form.create") : I18n.t("common.save"));
-        save.getStyleClass().add("btn-primary");
+        save.getStyleClass().add(UiStyles.BTN_PRIMARY);
         save.setMinWidth(76);
         save.setOnAction(e -> {
             String error = submit(editing, nameField.getText(), promptArea.getText(), sched, expire, out,

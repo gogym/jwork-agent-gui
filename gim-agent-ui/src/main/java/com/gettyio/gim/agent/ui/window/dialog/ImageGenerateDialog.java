@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.ui.window.dialog;
 
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.TextArea;
@@ -61,7 +62,7 @@ public final class ImageGenerateDialog {
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setMinWidth(76);
         Button ok = new Button(I18n.t("image.dialog.confirm"));
-        ok.getStyleClass().add("btn-primary");
+        ok.getStyleClass().add(UiStyles.BTN_PRIMARY);
         ok.setMinWidth(76);
         ok.setDisable(true);
         area.textProperty().addListener((obs, o, n) -> ok.setDisable(n == null || n.isBlank()));
@@ -75,7 +76,7 @@ public final class ImageGenerateDialog {
         });
 
         HBox actions = new HBox(8, cancel, ok);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         VBox form = new VBox(4, cap, area);
         shell.body().getChildren().addAll(form, actions);
         shell.showAndWait();

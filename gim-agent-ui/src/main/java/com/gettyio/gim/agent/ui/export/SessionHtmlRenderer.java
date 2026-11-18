@@ -18,8 +18,10 @@ package com.gettyio.gim.agent.ui.export;
 
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec;
 import com.gettyio.gim.agent.core.chat.ToolCallsCodec.ToolCallView;
+import com.gettyio.gim.agent.domain.util.FileKinds;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
+import com.gettyio.gim.agent.domain.util.TimeFormats;
 import com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import org.commonmark.ext.gfm.tables.TablesExtension;
@@ -47,7 +49,7 @@ import java.util.Map;
  */
 public final class SessionHtmlRenderer {
 
-    private static final DateTimeFormatter TS = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    private static final DateTimeFormatter TS = TimeFormats.DISPLAY_TIMESTAMP;
 
     /** 内嵌图片的单张大小上限：超过则不内嵌（原样保留路径，避免 HTML 体积失控）。 */
     private static final long MAX_EMBED_IMAGE_BYTES = 8L * 1024 * 1024;
@@ -188,23 +190,7 @@ public final class SessionHtmlRenderer {
 
     /** 可内嵌的图片 MIME；不是位图（含 {@code svg}——导出的 HTML 里不该夹别人的脚本）返回 null。 */
     private static String mimeOf(Path path) {
-        String name = path.getFileName().toString().toLowerCase(Locale.ROOT);
-        if (name.endsWith(".jpg") || name.endsWith(".jpeg")) {
-            return "image/jpeg";
-        }
-        if (name.endsWith(".gif")) {
-            return "image/gif";
-        }
-        if (name.endsWith(".webp")) {
-            return "image/webp";
-        }
-        if (name.endsWith(".bmp")) {
-            return "image/bmp";
-        }
-        if (name.endsWith(".png")) {
-            return "image/png";
-        }
-        return null;
+        return FileKinds.imageMime(path.getFileName().toString());
     }
 
     private static boolean notBlank(String s) {

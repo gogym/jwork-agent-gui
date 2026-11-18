@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.window.dialog;
 
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import com.gettyio.gim.agent.ui.window.FrostedBackdrop;
 import javafx.beans.value.ChangeListener;
 import javafx.geometry.Pos;
@@ -74,7 +75,7 @@ public final class GimDialog {
     public static void message(Window owner, String title, String header, String message, Level level) {
         Frame f = messageFrame(owner, title, header, message, level);
         HBox actions = new HBox(8);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         Button ok = actionButton(I18n.t("common.ok"), true);
         ok.setOnAction(e -> f.stage.close());
         actions.getChildren().add(ok);
@@ -93,7 +94,7 @@ public final class GimDialog {
         boolean[] result = {false};
         Frame f = messageFrame(owner, title, header, message);
         HBox actions = new HBox(8);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         Button cancel = actionButton(I18n.t("common.cancel"), false);
         cancel.setOnAction(e -> f.stage.close());
         Button ok = actionButton(I18n.t("common.ok"), true);
@@ -113,7 +114,7 @@ public final class GimDialog {
         int[] result = {-1};
         Frame f = messageFrame(owner, title, header, message);
         HBox actions = new HBox(8);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         for (int i = 0; i < options.length; i++) {
             int index = i;
             Button b = actionButton(options[i], false);
@@ -138,7 +139,7 @@ public final class GimDialog {
         int[] result = {-1};
         Frame f = messageFrame(owner, title, header, message);
         HBox actions = new HBox(8);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         for (int i = 0; i < options.length; i++) {
             int index = i;
             Button b = actionButton(options[i], i == 0);
@@ -208,7 +209,7 @@ public final class GimDialog {
         Label h = null;
         if (header != null && !header.isBlank()) {
             h = new Label(header);
-            h.getStyleClass().add("dialog-header");
+            h.getStyleClass().add(UiStyles.DIALOG_HEADER);
             h.setWrapText(true);
         }
         Label m = new Label(message == null ? "" : message);
@@ -391,7 +392,7 @@ public final class GimDialog {
         field.setOnAction(e -> ok.fire());
 
         HBox actions = new HBox(8, cancel, ok);
-        actions.getStyleClass().add("dialog-actions");
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
         f.body.getChildren().addAll(form, actions);
         prepare(f.stage);
         f.stage.showAndWait();
@@ -417,7 +418,7 @@ public final class GimDialog {
     private static Button actionButton(String text, boolean primary) {
         Button b = new Button(text);
         if (primary) {
-            b.getStyleClass().add("btn-primary");
+            b.getStyleClass().add(UiStyles.BTN_PRIMARY);
         }
         b.setMinWidth(76);
         return b;

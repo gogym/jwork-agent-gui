@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.control;
 
 import com.gettyio.gim.agent.domain.security.SecretStore;
 import com.gettyio.gim.agent.ui.i18n.I18n;
+import com.gettyio.gim.agent.ui.util.UiStyles;
 import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
@@ -65,8 +66,8 @@ public final class SecretField {
         this.stateRead = stateRead;
         this.writer = writer;
         this.clearer = clearer;
-        stateLabel.getStyleClass().add("row-desc");
-        clearButton.getStyleClass().addAll("link-btn", "link-btn-danger");
+        stateLabel.getStyleClass().add(UiStyles.ROW_DESC);
+        clearButton.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         clearButton.setOnAction(e -> {
             clearer.run();
             field.clear();
@@ -126,10 +127,10 @@ public final class SecretField {
         String key = tokenOf(stateRead.get());
         stateLabel.setText(I18n.t("settings.secret." + key));
         stateLabel.setTooltip(new Tooltip(I18n.t("settings.secret." + key + ".tip")));
-        stateLabel.getStyleClass().removeAll("status-ok", "status-bad", "status-unknown");
+        stateLabel.getStyleClass().removeAll("status-ok", UiStyles.STATUS_BAD, "status-unknown");
         stateLabel.getStyleClass().add(switch (key) {
             case "none" -> "status-unknown";
-            case "unreadable" -> "status-bad";
+            case "unreadable" -> UiStyles.STATUS_BAD;
             default -> "status-ok";
         });
         boolean configured = !"none".equals(key);

@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.doc.TabularInspector;
+import com.gettyio.gim.agent.domain.util.FileKinds;
 import io.agentscope.core.agent.RuntimeContext;
 import io.agentscope.core.message.Base64Source;
 import io.agentscope.core.message.ContentBlock;
@@ -39,7 +40,6 @@ import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.List;
-import java.util.Locale;
 import java.util.function.BooleanSupplier;
 
 /**
@@ -291,29 +291,12 @@ public final class LineNumberedReadFileTool {
 
     /** 该后缀是否属于要抽正文的文档（pdf/docx；xlsx 已由表格分支接走）。 */
     private static boolean isDocument(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        return n.endsWith(".pdf") || n.endsWith(".docx");
+        return FileKinds.isBinaryDocument(name);
     }
 
     /** 图片后缀 → MIME；非图片返回 null。 */
     private static String imageMimeType(String name) {
-        String n = name.toLowerCase(Locale.ROOT);
-        if (n.endsWith(".png")) {
-            return "image/png";
-        }
-        if (n.endsWith(".jpg") || n.endsWith(".jpeg")) {
-            return "image/jpeg";
-        }
-        if (n.endsWith(".webp")) {
-            return "image/webp";
-        }
-        if (n.endsWith(".gif")) {
-            return "image/gif";
-        }
-        if (n.endsWith(".bmp")) {
-            return "image/bmp";
-        }
-        return null;
+        return FileKinds.imageMime(name);
     }
 
     /** 按内容判定二进制：前若干字节里出现 NUL 即不按文本渲染（后缀会说谎，扩展名不可信）。 */
