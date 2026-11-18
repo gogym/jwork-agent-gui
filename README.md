@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="gim-agent-ui/src/main/resources/icons/brand-mark.png" width="104" alt="Jwork logo">
+  <img src="jwork-agent-ui/src/main/resources/icons/brand-mark.png" width="104" alt="Jwork logo">
 </p>
 
 # Jwork
 
 **Your local-first AI workbench for Windows — it does the chores, you keep the decisions.**
 
-Jwork (formerly Gim Agent) is a desktop AI assistant that actually gets work done on your machine: it reads and writes real files, runs commands under your approval, answers from your own documents, searches the web, executes scheduled jobs, and remembers your context across sessions. Everything lives in `~/.jwork/` on your disk — no account, no cloud dependency. Plug in any OpenAI-compatible provider, or a local model server (Ollama / LM Studio), and start delegating.
+Jwork is a desktop AI assistant that actually gets work done on your machine: it reads and writes real files, runs commands under your approval, answers from your own documents, searches the web, executes scheduled jobs, and remembers your context across sessions. Everything lives in `~/.jwork/` on your disk — no account, no cloud dependency. Plug in any OpenAI-compatible provider, or a local model server (Ollama / LM Studio), and start delegating.
 
 ## What it does for you
 
@@ -68,11 +68,11 @@ Jwork (formerly Gim Agent) is a desktop AI assistant that actually gets work don
 
 | Module | Responsibility |
 | --- | --- |
-| `gim-agent-domain` | SQLite persistence (schema, DAOs, entities), backup/restore, security primitives |
-| `gim-agent-core` | Agent runtime (AgentScope harness gateway), chat services, memory / knowledge / plan, capability resolution |
-| `gim-agent-tools` | Tool guards, HITL confirmation, Docker sandbox, skills, web search, image generation |
-| `gim-agent-scheduler` | Quartz-based scheduling service and agent-facing schedule tools |
-| `gim-agent-ui` | JavaFX application: JCEF-rendered chat, workspace & terminal, settings, desktop integrations, sync, voice |
+| `jwork-agent-domain` | SQLite persistence (schema, DAOs, entities), backup/restore, security primitives |
+| `jwork-agent-core` | Agent runtime (AgentScope harness gateway), chat services, memory / knowledge / plan, capability resolution |
+| `jwork-agent-tools` | Tool guards, HITL confirmation, Docker sandbox, skills, web search, image generation |
+| `jwork-agent-scheduler` | Quartz-based scheduling service and agent-facing schedule tools |
+| `jwork-agent-ui` | JavaFX application: JCEF-rendered chat, workspace & terminal, settings, desktop integrations, sync, voice |
 
 Module dependency direction: `ui → scheduler / tools / core → domain`.
 
@@ -98,10 +98,10 @@ Module dependency direction: `ui → scheduler / tools / core → domain`.
 mvn -q -DskipTests install
 
 # Launch the application
-mvn -pl gim-agent-ui javafx:run
+mvn -pl jwork-agent-ui javafx:run
 ```
 
-Alternatively, open the project in IntelliJ IDEA and run `com.gettyio.gim.agent.ui.GimAgentApplication` (the module exports required by JCEF/OSR are preconfigured in `.run/`).
+Alternatively, open the project in IntelliJ IDEA and run `com.gettyio.jwork.agent.ui.JworkAgentApplication` (the module exports required by JCEF/OSR are preconfigured in `.run/`).
 
 ### Build a Windows package
 

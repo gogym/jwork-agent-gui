@@ -1,0 +1,239 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.Button?>
+<?import javafx.scene.control.ComboBox?>
+<?import javafx.scene.control.Label?>
+<?import javafx.scene.control.ProgressBar?>
+<?import javafx.scene.control.ScrollPane?>
+<?import javafx.scene.control.Separator?>
+<?import javafx.scene.control.SplitPane?>
+<?import javafx.scene.control.ToggleButton?>
+<?import javafx.scene.control.ToggleGroup?>
+<?import javafx.scene.layout.BorderPane?>
+<?import javafx.scene.layout.FlowPane?>
+<?import javafx.scene.layout.HBox?>
+<?import javafx.scene.layout.Region?>
+<?import javafx.scene.layout.StackPane?>
+<?import javafx.scene.layout.VBox?>
+
+<BorderPane xmlns="http://javafx.com/javafx/17" xmlns:fx="http://javafx.com/fxml/1"
+            fx:controller="com.gettyio.jwork.agent.ui.controller.MainController"
+            prefWidth="1060.0" prefHeight="702.0" styleClass="content-area">
+    <fx:define>
+        <ToggleGroup fx:id="pageGroup"/>
+    </fx:define>
+    <left>
+        <StackPane fx:id="sidebarMargin" alignment="CENTER_LEFT" styleClass="sidebar-margin">
+            <VBox fx:id="sidebarVBox" prefWidth="250.0" minWidth="250.0" maxWidth="250.0" styleClass="sidebar">
+                <VBox styleClass="agent-switch-wrap">
+                <HBox fx:id="agentSwitcher" styleClass="agent-switch" alignment="CENTER_LEFT" spacing="10.0">
+                    <Label fx:id="agentAvatar" styleClass="agent-switch-avatar" text="G"/>
+                    <VBox spacing="2" maxWidth="Infinity" HBox.hgrow="ALWAYS">
+                        <Label fx:id="agentNameLabel" styleClass="agent-switch-name" maxWidth="Infinity"
+                               ellipsisString="&#x2026;"/>
+                        <Label fx:id="agentDescLabel" styleClass="agent-switch-desc" maxWidth="Infinity"
+                               ellipsisString="&#x2026;"/>
+                    </VBox>
+                    <Label styleClass="agent-switch-caret" text="&#x25BC;"/>
+                </HBox>
+            </VBox>
+            <ToggleButton fx:id="navChat" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup"
+                          selected="true" onAction="#handleNewSession">
+                <graphic>
+                    <HBox spacing="10.0" alignment="CENTER_LEFT">
+                        <Label styleClass="icon" text="&#xE710;"/>
+                        <Label fx:id="navChatLabel" text="新任务"/>
+                    </HBox>
+                </graphic>
+            </ToggleButton>
+            <!-- 会话搜索：按钮触发命令面板（弹层内搜索当前智能体的会话） -->
+            <HBox styleClass="session-search-bar" alignment="CENTER_LEFT">
+                <Button fx:id="searchButton" styleClass="session-search-btn" maxWidth="Infinity"
+                        HBox.hgrow="ALWAYS" onAction="#handleOpenSearch">
+                    <graphic>
+                        <Label styleClass="icon" text="&#xE721;"/>
+                    </graphic>
+                </Button>
+            </HBox>
+            <ScrollPane fx:id="sidebarScroll" styleClass="sidebar-scroll" fitToWidth="true"
+                        hbarPolicy="NEVER" VBox.vgrow="ALWAYS">
+                <content>
+                    <VBox>
+                        <HBox fx:id="sessionsHeader" styleClass="section-header" alignment="CENTER_LEFT">
+                            <Label fx:id="sessionsSectionCaret" text="&#x25BC;" styleClass="ws-caret"/>
+                            <Label fx:id="sectionSessions" text="会话" styleClass="section-title"/>
+                            <Label fx:id="sessionsCount" styleClass="section-count"/>
+                            <Region HBox.hgrow="ALWAYS"/>
+                        </HBox>
+                        <VBox fx:id="sessionsBox" spacing="2" styleClass="session-box"/>
+                        <!-- 最近会话：与「会话」平级的独立顶层区（当前智能体最近更新前 10 条），置于会话区下方 -->
+                        <HBox fx:id="recentHeader" styleClass="section-header" alignment="CENTER_LEFT">
+                            <Label fx:id="recentSectionCaret" text="&#x25BC;" styleClass="ws-caret"/>
+                            <Label fx:id="sectionRecent" text="最近会话" styleClass="section-title"/>
+                            <Region HBox.hgrow="ALWAYS"/>
+                        </HBox>
+                        <VBox fx:id="recentBox" spacing="2" styleClass="session-box"/>
+                    </VBox>
+                </content>
+            </ScrollPane>
+            <Separator styleClass="sidebar-sep"/>
+            <ToggleButton fx:id="navTasks" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup">
+                <graphic>
+                    <HBox spacing="10.0" alignment="CENTER_LEFT">
+                        <Label styleClass="icon" text="&#xE823;"/>
+                        <Label fx:id="navTasksLabel" text="定时任务"/>
+                    </HBox>
+                </graphic>
+            </ToggleButton>
+            <ToggleButton fx:id="navSkills" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup">
+                <graphic>
+                    <HBox spacing="10.0" alignment="CENTER_LEFT">
+                        <Label styleClass="icon" text="&#xE945;"/>
+                        <Label fx:id="navSkillsLabel" text="技能"/>
+                    </HBox>
+                </graphic>
+            </ToggleButton>
+            <ToggleButton fx:id="navUsage" styleClass="nav-item" maxWidth="Infinity" toggleGroup="$pageGroup">
+                <graphic>
+                    <HBox spacing="10.0" alignment="CENTER_LEFT">
+                        <Label styleClass="icon" text="&#xE9D9;"/>
+                        <Label fx:id="navUsageLabel" text="用量"/>
+                    </HBox>
+                </graphic>
+            </ToggleButton>
+            <HBox styleClass="user-bar">
+                <!-- 账号 chip：头像 + 账号名（初始化后由控制器填入登录账号），点击直达设置「账号」页 -->
+                <HBox fx:id="userChip" styleClass="user-chip" alignment="CENTER_LEFT" spacing="6.0">
+                    <Label fx:id="userAvatar" text="G" styleClass="avatar"/>
+                    <Label fx:id="userNameLabel" text="本地用户" styleClass="user-name"
+                           maxWidth="140.0" ellipsisString="&#x2026;"/>
+                </HBox>
+                <Region HBox.hgrow="ALWAYS"/>
+                <Button fx:id="themeMenuButton" styleClass="nav-item">
+                    <graphic>
+                        <Label styleClass="icon" text="&#xE713;"/>
+                    </graphic>
+                </Button>
+            </HBox>
+            </VBox>
+        </StackPane>
+    </left>
+    <center>
+        <StackPane fx:id="contentMargin" styleClass="content-margin">
+            <StackPane fx:id="mainPages" styleClass="content-panel">
+            <BorderPane fx:id="chatPage">
+                <center>
+                    <!-- 外层横向分栏：左聊天列（标题头/横幅/纵向终端抽屉），右工作区面板（控制器动态挂入，初始收起不占位）。
+                         标题头归属聊天列：右侧面板展开时开关按钮停在聊天列右上角，不越到面板上方 -->
+                    <SplitPane fx:id="workspaceSplit" orientation="HORIZONTAL" styleClass="workspace-split">
+                        <items>
+                    <VBox>
+                        <HBox fx:id="chatHeader" styleClass="chat-header" alignment="CENTER_LEFT">
+                            <Label fx:id="sessionTitleLabel" styleClass="chat-header-title"
+                                   maxWidth="Infinity" ellipsisString="&#x2026;" HBox.hgrow="ALWAYS"/>
+                            <Button fx:id="workspaceButton" styleClass="terminal-button" onAction="#handleToggleWorkspace">
+                                <graphic>
+                                    <Label styleClass="icon" text="&#xE8B7;"/>
+                                </graphic>
+                            </Button>
+                            <Button fx:id="terminalButton" styleClass="terminal-button" onAction="#handleToggleTerminal">
+                                <graphic>
+                                    <Label styleClass="icon" text="&#xE756;"/>
+                                </graphic>
+                            </Button>
+                        </HBox>
+                        <!-- 尚未配置模型时的常驻提示：只要无启用模型就一直显示，配置好后自动消失 -->
+                        <HBox fx:id="modelBanner" styleClass="model-banner" alignment="CENTER_LEFT"
+                              visible="false" managed="false">
+                            <Label styleClass="model-banner-icon" text="&#xE7BA;"/>
+                            <Label fx:id="modelBannerText" styleClass="model-banner-text"
+                                   maxWidth="Infinity" wrapText="true" HBox.hgrow="ALWAYS"/>
+                            <Button fx:id="modelBannerAction" styleClass="model-banner-action"
+                                    onAction="#handleBannerConfigureModel"/>
+                        </HBox>
+                        <!-- 规划轮跑完后的「计划待确认」横幅：PLAN.md 预览 + 编辑/确认执行 -->
+                        <VBox fx:id="planBanner" styleClass="plan-banner" spacing="6"
+                              visible="false" managed="false">
+                            <HBox styleClass="plan-banner-head" alignment="CENTER_LEFT">
+                                <Label styleClass="plan-banner-icon" text="&#xE9D5;"/>
+                                <Label fx:id="planBannerTitle" styleClass="plan-banner-title"
+                                       maxWidth="Infinity" HBox.hgrow="ALWAYS"/>
+                                <Button fx:id="planEditButton" styleClass="link-btn" onAction="#handlePlanEdit"/>
+                                <Button fx:id="planConfirmButton" styleClass="btn-primary" onAction="#handlePlanConfirm"/>
+                            </HBox>
+                            <ScrollPane fx:id="planPreviewScroll" styleClass="plan-preview"
+                                        fitToWidth="true" hbarPolicy="NEVER" maxHeight="240.0" prefHeight="160.0">
+                                <content>
+                                    <VBox fx:id="planPreview" styleClass="messages"/>
+                                </content>
+                            </ScrollPane>
+                        </VBox>
+                        <SplitPane fx:id="chatSplit" orientation="VERTICAL" styleClass="chat-split" VBox.vgrow="ALWAYS">
+                        <items>
+                            <VBox styleClass="chat-main">
+                                <StackPane VBox.vgrow="ALWAYS">
+                                    <!-- 聊天整页 WebView 宿主：控制器注入 ChatWebView 并撑满，自带文档滚动 -->
+                                    <StackPane fx:id="chatHost"/>
+                                    <VBox fx:id="welcomePane" styleClass="welcome" maxWidth="640.0" mouseTransparent="true">
+                                        <Label fx:id="welcomeTitle" text="不止于对话" styleClass="welcome-title"/>
+                                        <Label fx:id="welcomeSubtitle" text="用 Jwork 把日常事务交给 AI" styleClass="welcome-subtitle"/>
+                                    </VBox>
+                                    <!-- 回到底部：滚动离开最新消息时显现，点击平滑滑回底部 -->
+                                    <Button fx:id="scrollBottomBtn" styleClass="scroll-bottom-btn"
+                                            visible="false" managed="false">
+                                        <graphic>
+                                            <Label styleClass="icon" text="&#xE70D;"/>
+                                        </graphic>
+                                    </Button>
+                                </StackPane>
+                                <VBox styleClass="input-wrap">
+                                    <VBox styleClass="input-card">
+                                        <FlowPane fx:id="attachChipsBox" styleClass="attach-chips"/>
+                                        <!-- 输入框占位：控制器在此挂入 JcefComposer（contenteditable，彩色 emoji）；占位高度对齐原 TextArea 两行 -->
+                                        <StackPane fx:id="inputFieldHost" styleClass="input-field"
+                                                   prefHeight="52.0" minHeight="52.0"/>
+                                        <HBox styleClass="card-footer">
+                                            <Button fx:id="attachButton" styleClass="attach-button" onAction="#handleAttach">
+                                                <graphic>
+                                                    <Label styleClass="icon" text="&#xE723;"/>
+                                                </graphic>
+                                            </Button>
+                                            <Button fx:id="templateButton" styleClass="attach-button" onAction="#showTemplateMenu">
+                                                <graphic>
+                                                    <Label styleClass="icon" text="&#xE73A;"/>
+                                                </graphic>
+                                            </Button>
+                                            <Button fx:id="approvalButton" styleClass="approval-combo" onAction="#showApprovalMenu"/>
+                                            <Button fx:id="compareButton" styleClass="compare-button" onAction="#showCompareMenu"/>
+                                            <Region HBox.hgrow="ALWAYS"/>
+                                            <HBox fx:id="contextStats" styleClass="context-stats" alignment="CENTER_RIGHT" spacing="8.0">
+                                                <ProgressBar fx:id="contextGauge" styleClass="context-gauge" prefWidth="30.0" maxWidth="30.0" progress="0.0" managed="false" visible="false"/>
+                                                <Label fx:id="contextBar" styleClass="context-bar" managed="false" visible="false"/>
+                                            </HBox>
+                                            <Button fx:id="modelButton" styleClass="model-button" onAction="#showModelMenu"/>
+                                            <Button fx:id="micButton" styleClass="attach-button"/>
+                                            <Button fx:id="sendButton" styleClass="send-button" onAction="#handleSendOrStop">
+                                                <graphic>
+                                                    <Label styleClass="send-icon" text="&#xE74A;"/>
+                                                </graphic>
+                                            </Button>
+                                        </HBox>
+                                    </VBox>
+                                    <!-- 卡片下方（非卡内）左下元信息行：隐私提示 + 本轮用量 -->
+                                    <HBox styleClass="input-meta">
+                                        <Label fx:id="privacyHint" text="本地优先 · 数据不出本机" styleClass="model-hint"/>
+                                        <Label fx:id="usageBar" styleClass="usage-bar" managed="false" visible="false"/>
+                                    </HBox>
+                                </VBox>
+                            </VBox>
+                        </items>
+                    </SplitPane>
+                    </VBox>
+                        </items>
+                    </SplitPane>
+                </center>
+            </BorderPane>
+            </StackPane>
+        </StackPane>
+    </center>
+</BorderPane>

@@ -1,0 +1,189 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.gettyio.jwork</groupId>
+        <artifactId>jwork-agent-gui</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>jwork-agent-ui</artifactId>
+    <name>jwork-agent-ui</name>
+    <description>JavaFX 客户端 + 组合根装配（AppContext）</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.gettyio.jwork</groupId>
+            <artifactId>jwork-agent-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.gettyio.jwork</groupId>
+            <artifactId>jwork-agent-tools</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.gettyio.jwork</groupId>
+            <artifactId>jwork-agent-scheduler</artifactId>
+        </dependency>
+
+        <!-- 日志实现（原经 spring-boot-starter 传递引入；slf4j 门面在根 pom 统一声明） -->
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+        <!-- 日志桥（原经 spring-boot-starter-logging 传递引入）：POI 等经 log4j-api 的日志路由到 slf4j -->
+        <dependency>
+            <groupId>org.apache.logging.log4j</groupId>
+            <artifactId>log4j-to-slf4j</artifactId>
+            <scope>runtime</scope>
+        </dependency>
+
+        <!-- 导出全库 JSON 时序列化 LocalDateTime（版本由根 pom 的 jackson-bom 管理） -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.datatype</groupId>
+            <artifactId>jackson-datatype-jsr310</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-controls</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-fxml</artifactId>
+        </dependency>
+        <!-- 语音播报：TtsService 依赖 javafx.scene.media（MediaPlayer） -->
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-media</artifactId>
+        </dependency>
+        <!-- JCEF（Chromium OSR）：聊天区彩色 emoji 渲染引擎（全面取代旧 javafx-web） -->
+        <dependency>
+            <groupId>me.friwi</groupId>
+            <artifactId>jcefmaven</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>io.github.mkpaz</groupId>
+            <artifactId>atlantafx-base</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.techsenger.jeditermfx</groupId>
+            <artifactId>jeditermfx-core</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>com.techsenger.jeditermfx</groupId>
+            <artifactId>jeditermfx-ui</artifactId>
+            <exclusions>
+                <!-- 该库自带 JavaFX 19 传递依赖，项目统一用主 pom 管理的 JavaFX 版本，排除以免版本冲突 -->
+                <exclusion>
+                    <groupId>org.openjfx</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Markdown 渲染：commonmark 核心解析 + 表格扩展 -->
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.commonmark</groupId>
+            <artifactId>commonmark-ext-gfm-tables</artifactId>
+        </dependency>
+
+        <!-- WebDAV 云同步客户端（put/list/exists），版本由父 pom dependencyManagement 统一管理 -->
+        <dependency>
+            <groupId>com.github.lookfirst</groupId>
+            <artifactId>sardine</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+   <build>
+        <resources>
+            <!-- 默认资源不过滤（含 fxml/css/i18n/图标等，避免二进制被破坏） -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>false</filtering>
+                <excludes>
+                    <exclude>version.properties</exclude>
+                </excludes>
+            </resource>
+            <!-- 仅 version.properties 走过滤，注入 ${project.version} 作为版本单一来源 -->
+            <resource>
+                <directory>src/main/resources</directory>
+                <filtering>true</filtering>
+                <includes>
+                    <include>version.properties</include>
+                </includes>
+            </resource>
+        </resources>
+        <plugins>
+            <plugin>
+                <groupId>org.openjfx</groupId>
+                <artifactId>javafx-maven-plugin</artifactId>
+                <configuration>
+                    <mainClass>com.gettyio.jwork.agent.ui.JworkAgentApplication</mainClass>
+                    <!-- JCEF OSR（JOGL）在 JDK16+ 需要的模块开放参数，否则聊天区 GLCanvas 无法确定 GraphicsConfiguration -->
+                    <options>
+                        <option>--add-exports=java.base/java.lang=ALL-UNNAMED</option>
+                        <option>--add-exports=java.desktop/sun.awt=ALL-UNNAMED</option>
+                        <option>--add-exports=java.desktop/sun.java2d=ALL-UNNAMED</option>
+                        <option>--add-opens=java.desktop/sun.awt=ALL-UNNAMED</option>
+                    </options>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- 打包档：将全部运行时依赖平铺到 target/lib，供 jpackage 以扁平 classpath 使用
+             （JavaFX 原生库在嵌套 fat-jar 中无法解压，必须平铺）。用法：mvn -Ppackage package -->
+        <profile>
+            <id>package</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-jar-plugin</artifactId>
+                        <configuration>
+                            <archive>
+                                <manifest>
+                                    <mainClass>com.gettyio.jwork.agent.ui.Launcher</mainClass>
+                                    <addClasspath>true</addClasspath>
+                                    <classpathPrefix>lib/</classpathPrefix>
+                                </manifest>
+                            </archive>
+                        </configuration>
+                    </plugin>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-dependency-plugin</artifactId>
+                        <version>3.8.1</version>
+                        <executions>
+                            <execution>
+                                <id>copy-runtime-libs</id>
+                                <phase>package</phase>
+                                <goals>
+                                    <goal>copy-dependencies</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.directory}/lib</outputDirectory>
+                                    <includeScope>runtime</includeScope>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

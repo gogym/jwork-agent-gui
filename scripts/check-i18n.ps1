@@ -1,6 +1,6 @@
 $ErrorActionPreference = 'Stop'
-$root = 'D:\GitHub\gim-agent-gui'
-$i18nDir = Join-Path $root 'gim-agent-ui\src\main\resources\i18n'
+$root = Split-Path -Parent $PSScriptRoot
+$i18nDir = Join-Path $root 'jwork-agent-ui\src\main\resources\i18n'
 $files = Get-ChildItem -Path $i18nDir -Filter 'messages*.properties' | Sort-Object Name
 
 function Get-Keys($path) {
@@ -28,7 +28,7 @@ foreach ($name in ($sets.Keys | Sort-Object)) {
 
 $q = [char]34
 $pattern = "I18n\.t\(\s*" + $q + "([A-Za-z0-9_.]+)" + $q
-$javaFiles = Get-ChildItem -Path (Join-Path $root 'gim-agent-ui\src') -Recurse -Filter '*.java'
+$javaFiles = Get-ChildItem -Path (Join-Path $root 'jwork-agent-ui\src') -Recurse -Filter '*.java'
 $used = @()
 foreach ($j in $javaFiles) {
   foreach ($line in Get-Content -LiteralPath $j.FullName -Encoding UTF8) {

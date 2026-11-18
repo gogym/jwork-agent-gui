@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+    <parent>
+        <groupId>com.gettyio.jwork</groupId>
+        <artifactId>jwork-agent-gui</artifactId>
+        <version>1.0-SNAPSHOT</version>
+    </parent>
+
+    <artifactId>jwork-agent-scheduler</artifactId>
+    <name>jwork-agent-scheduler</name>
+    <description>Quartz 嵌入式调度、任务表恢复、主动消息投递</description>
+
+    <dependencies>
+        <dependency>
+            <groupId>com.gettyio.jwork</groupId>
+            <artifactId>jwork-agent-core</artifactId>
+        </dependency>
+        <!-- Quartz 裸依赖（原经 spring-boot-starter-quartz 传递引入；调度器由 AppContext 显式装配） -->
+        <dependency>
+            <groupId>org.quartz-scheduler</groupId>
+            <artifactId>quartz</artifactId>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+</project>

@@ -1,0 +1,2126 @@
+/* ============================================================
+ * Jwork 浅色主题（对标 Qoder 风格）
+ * 所有颜色收敛为 -jwork-* 语义变量；
+ * 深色模式仅需 jwork-agent-dark.css 覆盖变量值。
+ * ============================================================ */
+
+.root {
+    /* ---------- 语义色板（可被深色主题覆盖） ---------- */
+    -jwork-accent: #2f9e5f;
+    -jwork-accent-hover: #27864f;
+    -jwork-accent-press: #1f7142;
+    -jwork-accent-disabled: #bfe0c9;
+    -jwork-faint-focus: #2f9e5f22;
+
+    -jwork-bg: #ffffff;
+    -jwork-panel: #f6f6f3;
+    -jwork-panel-2: #fbfbfa;
+    /* 统一程序背景（侧栏/标题栏/主体同色）与内容区整块白 */
+    -jwork-canvas: #f2f2ef;
+    -jwork-content: #ffffff;
+    /* 弹窗磨玻璃背景上的那层薄 veil */
+    -jwork-frost-veil: rgba(246, 246, 243, 0.55);
+    -jwork-hover: #ebebe7;
+    -jwork-press: #e0e0db;
+
+    -jwork-btn: #f2f2f0;
+    -jwork-btn-hover: #e8e8e5;
+    -jwork-btn-press: #dededa;
+
+    -jwork-border: #e6e6e2;
+    -jwork-border-2: #dcdcd8;
+    -jwork-border-3: #e2e2df;
+    -jwork-border-4: #e8e8e4;
+    -jwork-border-5: #e9e9e6;
+    -jwork-border-6: #eaeae6;
+    -jwork-border-hover: #bcd8c2;
+
+    -jwork-text: #262626;
+    -jwork-text-strong: #1a1a18;
+    -jwork-text-title: #1d1d1b;
+    -jwork-text-2: #3a3a3a;
+    -jwork-text-3: #4d4d47;
+    -jwork-text-4: #8a8a83;
+    -jwork-text-5: #a8a8a0;
+    -jwork-text-nav: #33332f;
+    -jwork-icon: #55554f;
+
+    -jwork-tint: #e7f2ea;
+    -jwork-tint-2: #dcecdf;
+    -jwork-tint-3: #eef4ef;
+    -jwork-tint-4: #e4e4de;
+    -jwork-tint-5: #e9efe9;
+    -jwork-tint-fg: #1f7142;
+    -jwork-tint-fg-2: #1f3326;
+    -jwork-tint-fg-3: #1d5c37;
+    -jwork-tint-fg-4: #2f3b33;
+
+    -jwork-scrollbar: #cfcfca;
+    -jwork-scrollbar-hover: #b5b5b0;
+
+    -jwork-badge-green-bg: #e0f0e4;
+    -jwork-badge-gray-bg: #efefec;
+    -jwork-badge-gray-fg: #77776f;
+    -jwork-badge-blue-bg: #e4eef9;
+    -jwork-badge-blue-fg: #2f5f8a;
+    -jwork-badge-red-bg: #f9e5e4;
+    -jwork-badge-red-fg: #b3403f;
+
+    /* 计划待确认横幅的信息蓝底色 */
+    -jwork-info-bg: #eaf1f8;
+
+    /* 常驻提醒条（如「尚未配置模型」）的琥珀语义色 */
+    -jwork-warn-bg: #fdf3e0;
+    -jwork-warn-border: #f0dcae;
+    -jwork-warn-icon: #cf8a2a;
+    -jwork-warn-fg: #7a5320;
+
+    -jwork-empty-icon: #cfcfc8;
+    -jwork-check-border: #c9c9c4;
+    -jwork-arrow: #6b6b64;
+    -jwork-section: #9a9a93;
+    -jwork-subtitle: #b3b3ab;
+    -jwork-mono-fg: #7a7a72;
+    /* 代码块 / 行内码 / 引用：跨明暗两主题的语义色 */
+    -jwork-code-bg: #f4f4f1;
+    -jwork-code-fg: #2a2a26;
+    -jwork-code-border: #e2e2dd;
+    -jwork-inline-code-bg: #ecece7;
+    -jwork-quote-bar: #cfcfc8;
+    -jwork-quote-fg: #5d5d56;
+    -jwork-desc: #5d5d56;
+    -jwork-cell-hover: #f0f0ee;
+    -jwork-selection-nonfocus: #eef3ef;
+    -jwork-input-bg: #ffffff;
+
+    /* ---------- Modena 基础色 ---------- */
+    -fx-font-family: "Microsoft YaHei UI", "Segoe UI", sans-serif;
+    -fx-font-size: 13px;
+    -fx-background: -jwork-bg;
+    -fx-base: #f3f3f1;
+    -fx-control-inner-background: -jwork-input-bg;
+    -fx-text-base-color: -jwork-text;
+    -fx-accent: -jwork-accent;
+    -fx-focus-color: -jwork-accent;
+    -fx-faint-focus-color: -jwork-faint-focus;
+    -fx-selection-bar: -jwork-tint;
+    -fx-selection-bar-non-focused: -jwork-selection-nonfocus;
+    -fx-font-smoothing-type: gray;
+}
+
+.label { -fx-text-fill: -jwork-text; }
+
+/* ---------- 通用按钮 ---------- */
+.button {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 8;
+    -fx-padding: 6 14 6 14;
+    -fx-text-fill: -jwork-text-2;
+    -fx-cursor: hand;
+}
+.button:hover    { -fx-background-color: -jwork-btn-hover; }
+.button:pressed  { -fx-background-color: -jwork-btn-press; }
+.button:disabled { -fx-opacity: 0.55; }
+
+/* ---------- 文本输入 ---------- */
+.text-field, .password-field, .combo-box, .text-area {
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-border-color: -jwork-border-2;
+    -fx-background-color: -jwork-input-bg;
+}
+.text-field:focused, .password-field:focused,
+.combo-box:focused, .text-area:focused { -fx-border-color: -jwork-accent; }
+.text-area { -fx-highlight-fill: -jwork-tint; -fx-highlight-text-fill: -jwork-text; }
+.text-area .content {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+}
+.combo-box .list-cell { -fx-padding: 4 8 4 8; -fx-background-color: transparent; -fx-text-fill: -jwork-text; }
+.combo-box .arrow { -fx-background-color: -jwork-arrow; }
+.combo-box .arrow-button { -fx-background-color: transparent; }
+
+/* 下拉弹出层：显式实心底色，避免 .list-view/.list-cell 的 transparent 穿透导致透明 */
+.combo-box-popup {
+    -fx-background-color: -jwork-input-bg;
+    -fx-background-insets: 0;
+    -fx-background-radius: 8;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 8;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.14), 14, 0, 0, 4);
+}
+.combo-box-popup .list-view {
+    -fx-background-color: -jwork-input-bg;
+    -fx-border-color: transparent;
+    -fx-padding: 3;
+}
+.combo-box-popup .list-view .list-cell {
+    -fx-background-color: -jwork-input-bg;
+    -fx-text-fill: -jwork-text-2;
+    -fx-padding: 6 10 6 10;
+    -fx-background-radius: 6;
+}
+.combo-box-popup .list-view .list-cell:empty { -fx-opacity: 1; -fx-background-color: -jwork-input-bg; }
+.combo-box-popup .list-view .list-cell:filled:hover    { -fx-background-color: -jwork-cell-hover; }
+.combo-box-popup .list-view .list-cell:filled:selected { -fx-background-color: -jwork-tint; -fx-text-fill: -jwork-text-title; }
+
+/* ---------- 列表 ---------- */
+.list-view {
+    -fx-background-color: transparent;
+    -fx-border-color: -jwork-border-3;
+    -fx-border-radius: 10;
+    -fx-padding: 2;
+}
+.list-view .list-cell {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jwork-text-2;
+    -fx-padding: 8 12 8 12;
+    -fx-background-radius: 8;
+}
+.list-view .list-cell:filled:hover    { -fx-background-color: -jwork-cell-hover; }
+.list-view .list-cell:filled:selected { -fx-background-color: -jwork-tint; -fx-text-fill: -jwork-text-title; }
+
+/* ---------- 滚动条 ---------- */
+.scroll-pane { -fx-background-color: transparent; -fx-border-color: transparent; }
+.scroll-pane > .viewport { -fx-background-color: transparent; }
+.scroll-bar { -fx-background-color: transparent; }
+.scroll-bar .thumb { -fx-background-color: -jwork-scrollbar; -fx-background-radius: 4; }
+.scroll-bar .thumb:hover { -fx-background-color: -jwork-scrollbar-hover; }
+.scroll-bar .track { -fx-background-color: transparent; }
+.scroll-bar .increment-button, .scroll-bar .decrement-button {
+    -fx-background-color: transparent; -fx-padding: 2;
+}
+.scroll-bar .increment-arrow, .scroll-bar .decrement-arrow { -fx-background-color: -jwork-scrollbar-hover; }
+
+/* ---------- 工具栏 / 复选框 ---------- */
+.tool-bar {
+    -fx-background-color: -jwork-panel-2;
+    -fx-border-color: transparent transparent -jwork-border-5 transparent;
+    -fx-padding: 8 10 8 10;
+    -fx-spacing: 8;
+}
+.check-box { -fx-text-fill: -jwork-text; }
+.check-box .box {
+    -fx-background-color: -jwork-input-bg;
+    -fx-border-color: -jwork-check-border;
+    -fx-border-radius: 4;
+    -fx-background-radius: 4;
+}
+.check-box:selected .box  { -fx-background-color: -jwork-accent; -fx-border-color: -jwork-accent; }
+.check-box:selected .mark { -fx-background-color: -jwork-bg; }
+
+/* ---------- 弹出菜单（齿轮菜单/右键菜单） ---------- */
+.context-menu {
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 10;
+    -fx-padding: 6;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.12), 16, 0, 0, 4);
+}
+.menu-item {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 7 12 7 12;
+}
+.menu-item:hover, .menu-item:focused { -fx-background-color: -jwork-hover; }
+.menu-item .label { -fx-text-fill: -jwork-text; }
+.menu-item:disabled .label { -fx-opacity: 0.4; }
+.menu-item .right-container { -fx-text-fill: -jwork-text-4; }
+.menu-item .arrow { -fx-background-color: -jwork-icon; }
+.radio-menu-item .radio {
+    -fx-background-color: transparent;
+    -fx-border-color: -jwork-check-border;
+    -fx-border-radius: 999;
+    -fx-padding: 3;
+}
+.radio-menu-item:selected .radio { -fx-border-color: -jwork-accent; }
+.radio-menu-item:selected .radio .dot { -fx-background-color: -jwork-accent; }
+.separator .line { -fx-border-color: -jwork-border-5 transparent transparent transparent; -fx-border-width: 1 0 0 0; }
+
+/* ============================================================
+ * 主窗口：侧边栏
+ * ============================================================ */
+.content-area { -fx-background-color: -jwork-canvas; }
+
+/* 右侧内容区：右/下留出空隙，内容面板圆角 + 轻投影（圆角靠裁剪，见 MainController）；右边距与侧栏左边距一致 */
+.content-margin { -fx-padding: 0 8 12 0; }
+/* 侧栏收起时：左侧也补上 8，与右侧对称（展开态左沿留白由 sidebar-margin 负责，内容区紧贴侧栏） */
+.content-margin.no-sidebar { -fx-padding: 0 8 12 8; }
+.content-panel {
+    -fx-background-color: -jwork-content;
+    -fx-background-radius: 14;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 12, 0.06, 0, 2);
+}
+
+/* 侧栏外部空隙：左/右不留白（侧栏紧贴窗体左沿），仅下方留 12；左右 8 的空隙只留给内容区 */
+.sidebar-margin { -fx-padding: 0 0 12 0; -fx-background-color: transparent; }
+
+.sidebar {
+    -fx-background-color: -jwork-canvas;
+    -fx-background-radius: 14;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 14 10 10 10;
+    -fx-spacing: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 12, 0.06, 0, 2);
+    -fx-alignment: top-center;
+}
+
+.brand { -fx-padding: 2 6 12 6; -fx-spacing: 8; -fx-alignment: center-left; }
+.brand-avatar {
+    -fx-background-color: -jwork-accent;
+    -fx-background-radius: 999;
+    -fx-min-width: 26px; -fx-min-height: 26px;
+    -fx-pref-width: 26px; -fx-pref-height: 26px;
+    -fx-alignment: center;
+    -fx-text-fill: -jwork-bg;
+    -fx-font-weight: bold;
+    -fx-font-size: 13px;
+}
+.brand-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-text-title;
+}
+
+/* Segoe 图标字体（Windows 自带，私有区码点） */
+.icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 15px;
+    -fx-text-fill: -jwork-icon;
+}
+
+.nav-item {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 8 12 8 12;
+    -fx-alignment: center-left;
+    -fx-graphic-text-gap: 0;
+}
+/* 键盘焦点不额外着色：导航项的状态只由「选中当前页」与悬停表达，获得焦点时外观与未获得焦点一致
+   （模态按钮的 :focused 规则优先级高于 .nav-item，不覆盖就会被系统焦点样式接管）。
+   Tab 键仍可正常聚焦，仅不画焦点外观。 */
+.nav-item:focused            { -fx-background-color: transparent; }
+.nav-item:hover,
+.nav-item:focused:hover      { -fx-background-color: -jwork-hover; }
+.nav-item:pressed,
+.nav-item:selected,
+.nav-item:focused:pressed,
+.nav-item:focused:selected   { -fx-background-color: -jwork-press; }
+.nav-item .label           { -fx-text-fill: -jwork-text-nav; -fx-font-size: 13px; }
+.nav-item:selected .label  { -fx-text-fill: -jwork-text-title; -fx-font-weight: bold; }
+
+/* 「新任务」项（nav-item + nav-new-task）：它在对话页恒为选中态，常驻底色会被读成「一直聚焦」，
+   故只给悬停与按下反馈（按下即点亮，松手回到常态）；当前在哪个会话由会话行的选中态表达。
+   文字强调（字色与加粗）仍走 .nav-item:selected，作为页面归属提示。
+   声明顺序：常态/选中 → 悬停 → 按下，靠后者赢前者，选中项被悬停时仍能给出反馈。 */
+.nav-new-task,
+.nav-new-task:focused,
+.nav-new-task:selected,
+.nav-new-task:focused:selected   { -fx-background-color: transparent; }
+.nav-new-task:hover,
+.nav-new-task:focused:hover      { -fx-background-color: -jwork-hover; }
+.nav-new-task:pressed,
+.nav-new-task:focused:pressed    { -fx-background-color: -jwork-press; }
+
+.section-title {
+    -fx-text-fill: -jwork-section;
+    -fx-font-size: 12px;
+    -fx-padding: 12 12 2 12;
+}
+
+/* 侧栏中段滚动区：工作区 + 最近任务（底部菜单固定，内容溢出时出现滚动条） */
+.sidebar-scroll { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 0; }
+.sidebar-scroll > .viewport { -fx-background-color: transparent; }
+.session-box { -fx-padding: 0 8 0 6; }
+
+.sidebar-sep { -fx-padding: 6 4 6 4; -fx-opacity: 1.0; }
+.sidebar-sep .line {
+    -fx-border-color: -jwork-border-3 transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+    -fx-padding: 0;
+}
+
+.user-bar { -fx-padding: 8 6 0 2; -fx-spacing: 8; -fx-alignment: center-left; }
+/* 账号 chip（头像 + 账号名）：整块可点直达设置「账号」页；悬停浅底 + 手型光标。
+   chip 左内衬 4 + user-bar 左衬 2 = 6，头像视觉位置与改造前一致 */
+.user-chip {
+    -fx-background-radius: 8;
+    -fx-padding: 2 8 2 4;
+    -fx-spacing: 6;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+.user-chip:hover            { -fx-background-color: -jwork-hover; }
+.user-chip:pressed          { -fx-background-color: -jwork-press; }
+.user-chip:hover .user-name { -fx-text-fill: -jwork-text-2; }
+.user-bar .avatar {
+    -fx-background-color: -jwork-tint-4;
+    -fx-background-radius: 999;
+    -fx-min-width: 24px; -fx-min-height: 24px;
+    -fx-pref-width: 24px; -fx-pref-height: 24px;
+    -fx-alignment: center;
+    -fx-text-fill: -jwork-tint-fg-3;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+.user-bar .user-name { -fx-text-fill: -jwork-text-3; -fx-font-size: 12px; }
+
+/* ============================================================
+ * 主窗口：欢迎页 / 消息区 / 输入卡片
+ * ============================================================ */
+.welcome {
+    -fx-alignment: center;
+    -fx-spacing: 14;
+    -fx-padding: 30;
+}
+.welcome-title {
+    -fx-font-size: 30px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-text-strong;
+}
+.welcome-subtitle {
+    -fx-font-size: 19px;
+    -fx-text-fill: -jwork-text-5;
+}
+
+/* 聊天阅读区：整体用更柔和圆润的中文字体栈——Noto Sans SC 是可变字体（VF），JavaFX
+   枚举不到，由 UiTheme#ensureChatFont 启动时注册（优先随包字体 resources/fonts，未安装
+   字体的机器观感也一致；资源缺失时才回退本机安装路径）；JavaFX 字体族仅取列表首项、
+   不做逐项回退，全部缺失时自然回退系统字体。字号/行距在 markdown 与气泡规则中统一抬升，
+   营造舒适阅读感；正文基准 14px（= 根字号 +1），档位缩放由 jwork-agent-font-small /
+   font-large.css 同步覆盖 */
+.messages {
+    -fx-padding: 16 24 16 24;
+    -fx-spacing: 10;
+    -fx-font-family: "Noto Sans SC", "Microsoft YaHei UI", "Segoe UI", sans-serif;
+}
+/* 「回到底部」悬浮按钮：消息列底部中央的圆形按钮，滚动离开最新消息时显现 */
+.scroll-bottom-btn {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 17;
+    -fx-min-width: 34;
+    -fx-min-height: 34;
+    -fx-pref-width: 34;
+    -fx-pref-height: 34;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 10, 0, 0, 2);
+}
+.scroll-bottom-btn:hover { -fx-background-color: -jwork-hover; }
+.scroll-bottom-btn .icon { -fx-font-size: 14px; -fx-text-fill: -jwork-text-2; }
+/* 拖拽投放提示层（从系统拖入文件悬停时浮出）：半透明罩层 + 虚线描边圈出可投放范围 */
+.drop-overlay {
+    -fx-background-color: -jwork-faint-focus;
+    -fx-background-radius: 12;
+    -fx-border-color: -jwork-accent;
+    -fx-border-width: 2;
+    -fx-border-style: segments(8, 6) line-cap round;
+    -fx-border-radius: 12;
+}
+.drop-overlay .label {
+    -fx-text-fill: -jwork-tint-fg;
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+}
+
+/* ---------- Markdown 渲染（工作区预览 / 计划横幅 / 导出共用） ---------- */
+.md-p {
+    -fx-line-spacing: 6;
+    -fx-font-size: 14px;
+    /* 段落上下各留 2：相邻段落间形成 4px 呼吸间隙，整段更舒展 */
+    -fx-padding: 2 0 2 0;
+}
+/* 段落内联文本的实际着色：-fx-text-fill 对 TextFlow 无效，必须落到子节点上；且 JavaFX
+   原生 Text 不带 "text" 样式类（那是控件内部文本才有），故行内文本统一挂自定义基类
+   md-text（见 MarkdownRenderer.mdText）。不强调的正文一律同色（-jwork-text，与标题同为
+   一等色、明暗自动切换）；强调只体现在字重与字体族上（加粗加字重、行内码等宽字体 + 淡底
+   chip），仅链接保留主题色 */
+.md-p .md-text { -fx-fill: -jwork-text; }
+.md-p .md-bold { -fx-fill: -jwork-text; }
+.md-p .md-link { -fx-fill: -jwork-accent; }
+.md-p .md-image-alt { -fx-fill: -jwork-text-4; }
+/* emoji 段：聊天区物理字体 Noto Sans SC 不覆盖 emoji，JavaFX 又不做逐字形回退，
+   故由 MarkdownRenderer.mdTexts 把 emoji 切给此类走系统 emoji 字体（Windows 恒有），避免豆腐块 ⊠ */
+.md-emoji { -fx-font-family: "Segoe UI Emoji"; }
+.md-h1, .md-h2, .md-h3, .md-h4 {
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-text-title;
+}
+/* 标题已改为 TextFlow：-fx-text-fill 不落到子 Text，需显式给 -fx-fill（emoji 段同带 md-text） */
+.md-h1 .md-text, .md-h2 .md-text, .md-h3 .md-text, .md-h4 .md-text { -fx-fill: -jwork-text-title; }
+.md-h1 { -fx-font-size: 21px; -fx-padding: 10 0 5 0; }
+.md-h2 { -fx-font-size: 18px; -fx-padding: 9 0 4 0; }
+.md-h3 { -fx-font-size: 16px; -fx-padding: 7 0 3 0; }
+.md-h4 { -fx-font-size: 15px; -fx-padding: 6 0 2 0; }
+.md-bold { -fx-font-weight: bold; }
+.md-italic { -fx-font-style: italic; }
+.md-link { -fx-fill: -jwork-accent; -fx-underline: true; }
+.md-image-alt { -fx-fill: -jwork-text-4; -fx-font-style: italic; }
+/* 本地图片块（AI 生成图等，见 MarkdownRenderer.imageBlock）：限宽展示、点击用系统程序打开 */
+.md-image {
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 12, 0, 0, 3);
+}
+/* 行内码 chip（对齐 QwenPaw/Spark 做法）：正文同色 + 淡底 + 细边框 + 小圆角 + 等宽字体。
+   节点为 Label（内嵌 TextFlow，见 MarkdownRenderer.appendInline）——JavaFX 原生 Text
+   只有字形能力做不出底色；-fx-fill 仅作 Text 场合兜底，Label 实际吃 -fx-text-fill */
+.md-inline-code {
+    -fx-fill: -jwork-text;
+    -fx-text-fill: -jwork-text;
+    -fx-background-color: -jwork-inline-code-bg;
+    -fx-background-radius: 4;
+    -fx-border-color: -jwork-code-border;
+    -fx-border-radius: 4;
+    -fx-border-width: 1;
+    -fx-padding: 1 5 1 5;
+    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    -fx-font-size: 12px;
+}
+.md-list { -fx-padding: 2 0 2 4; }
+.md-bullet { -fx-text-fill: -jwork-text; -fx-font-size: 14px; -fx-font-family: "Consolas", monospace; }
+.md-quote {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 6;
+    -fx-padding: 6 10 6 12;
+    -fx-border-color: transparent transparent transparent -jwork-quote-bar;
+    -fx-border-width: 0 0 0 3;
+}
+.md-quote .md-p .md-text { -fx-fill: -jwork-text; }
+.md-rule { -fx-padding: 6 0 6 0; }
+.md-rule .line { -fx-background-color: -jwork-border-2; }
+.md-table {
+    -fx-background-color: -jwork-code-border;
+    -fx-padding: 1;
+    -fx-background-radius: 6;
+}
+.md-th, .md-td {
+    -fx-background-color: -jwork-bg;
+    -fx-padding: 6 10 6 10;
+    -fx-font-size: 14px;
+    -fx-text-fill: -jwork-text;
+}
+.md-th { -fx-font-weight: bold; -fx-background-color: -jwork-panel-2; -fx-text-fill: -jwork-text-title; }
+.md-code-block { -fx-padding: 4 0 4 0; }
+.md-code-area {
+    -fx-background-color: -jwork-code-bg;
+    -fx-background-radius: 8;
+    -fx-border-color: -jwork-code-border;
+    -fx-border-radius: 8;
+    -fx-padding: 8 10 8 10;
+    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-code-fg;
+    -fx-highlight-fill: -jwork-tint;
+    -fx-highlight-text-fill: -jwork-code-fg;
+}
+.md-code-area > .content { -fx-background-color: transparent; }
+
+/* 着色代码块（TextFlow 版）：底色圆角挂在 viewport 上，token 色由明暗两套各给一份。
+   注意：ScrollPane viewport 的 -fx-padding 不参与 content 布局（实测无效），
+   内边距必须挂在 .md-code-flow 上才对文本生效 */
+.md-code-scroll { -fx-background-color: transparent; }
+.md-code-scroll > .viewport {
+    -fx-background-color: -jwork-code-bg;
+    -fx-background-radius: 8;
+    -fx-border-color: -jwork-code-border;
+    -fx-border-radius: 8;
+}
+.md-code-flow {
+    -fx-font-family: "Consolas", "Cascadia Mono", "Courier New", monospace;
+    -fx-font-size: 13px;
+    -fx-line-spacing: 2;
+    /* 内边距：上/左/下留白，避免文字贴住卡片边缘（右侧 0，宽度随视口撑满） */
+    -fx-padding: 12 0 12 14;
+}
+.md-code-txt { -fx-fill: -jwork-code-fg; }
+.md-code-kw  { -fx-fill: #a626a4; -fx-font-weight: bold; }
+.md-code-str { -fx-fill: #50a14f; }
+.md-code-num { -fx-fill: #986801; }
+.md-code-com { -fx-fill: #a0a1a7; -fx-font-style: italic; }
+.md-copy-btn {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 6;
+    -fx-padding: 3 6 3 6;
+    -fx-min-width: 24;
+    -fx-min-height: 24;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+}
+.md-copy-btn:hover { -fx-background-color: -jwork-btn-hover; }
+.md-copy-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 13px;
+    -fx-text-fill: -jwork-icon;
+}
+
+/* ---------- 多模型对比：输入条「对比」按钮 ---------- */
+/* 输入卡片工具条的对比文字按钮：常态弱色，勾选 ≥2 个模型后高亮为强调色 */
+.compare-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -jwork-text-3;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-cursor: hand;
+}
+.compare-button:hover { -fx-background-color: -jwork-hover; }
+.compare-button.compare-on { -fx-text-fill: -jwork-accent; -fx-font-weight: bold; }
+
+/* ---------- Artifacts 预览：HTML/SVG 代码块预览按钮触发的独立预览窗 ---------- */
+.artifact-root { -fx-background-color: -jwork-panel-2; }
+.artifact-toolbar {
+    -fx-padding: 8 12 8 14;
+    -fx-spacing: 8;
+    -fx-background-color: -jwork-panel-2;
+    -fx-border-color: -jwork-border-6;
+    -fx-border-width: 0 0 1 0;
+}
+.artifact-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-strong; }
+.artifact-tool {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 6;
+    -fx-text-fill: -jwork-text-3;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-cursor: hand;
+}
+.artifact-tool:hover { -fx-background-color: -jwork-btn-hover; -fx-text-fill: -jwork-text; }
+
+/* ---------- 划词助手浮出操作条（Ctrl+Alt+D：抓取选中文本后在光标旁弹出） ---------- */
+.selection-bar {
+    -fx-background-color: -jwork-input-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 10;
+    -fx-padding: 6 8 6 12;
+    -fx-spacing: 6;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 14, 0, 0, 4);
+}
+.selection-preview { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+.selection-action {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 7;
+    -fx-text-fill: -jwork-text-2;
+    -fx-font-size: 12px;
+    -fx-padding: 4 10 4 10;
+    -fx-cursor: hand;
+}
+.selection-action:hover { -fx-background-color: -jwork-btn-hover; }
+.selection-action:pressed { -fx-background-color: -jwork-btn-press; }
+
+/* ---------- 对话区顶部：当前会话标题 ---------- */
+.chat-header {
+    -fx-padding: 14 24 4 24;
+    -fx-alignment: center-left;
+}
+.chat-header-title {
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-text-3;
+}
+
+/* ---------- 尚未配置模型的常驻提醒条（chat-header 下方，全局状态驱动显隐） ---------- */
+.model-banner {
+    -fx-background-color: -jwork-warn-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -jwork-warn-border;
+    -fx-border-radius: 10;
+    -fx-padding: 8 14 8 12;
+    -fx-spacing: 10;
+    /* 节点占满宽，但圆角底/描边向内缩回，与上方标题、下方消息区两侧对齐 */
+    -fx-background-insets: 4 24 6 24;
+    -fx-border-insets: 4 24 6 24;
+}
+.model-banner-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 15px;
+    -fx-text-fill: -jwork-warn-icon;
+}
+.model-banner-text {
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-warn-fg;
+}
+.model-banner-action {
+    -fx-background-color: -jwork-accent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -jwork-bg;
+    -fx-font-size: 12px;
+    -fx-padding: 4 12 4 12;
+    -fx-cursor: hand;
+}
+.model-banner-action:hover    { -fx-background-color: -jwork-accent-hover; }
+.model-banner-action:pressed  { -fx-background-color: -jwork-accent-press; }
+
+/* ---------- 计划待确认横幅（规划轮跑完后展示，PLAN.md 预览 + 编辑/确认执行） ---------- */
+.plan-banner {
+    -fx-background-color: -jwork-info-bg, -jwork-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -jwork-border-4;
+    -fx-border-radius: 10;
+    -fx-padding: 10 14 10 12;
+    /* 与 model-banner 同一内缩口径：与上方标题、下方消息区两侧对齐 */
+    -fx-background-insets: 4 24 6 24;
+    -fx-border-insets: 4 24 6 24;
+}
+.plan-banner-head { -fx-spacing: 10; }
+.plan-banner-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 15px;
+    -fx-text-fill: -jwork-accent;
+}
+.plan-banner-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-text-2;
+}
+.plan-preview {
+    -fx-background-color: transparent;
+    -fx-border-color: -jwork-border-4;
+    -fx-border-radius: 8;
+    -fx-background-radius: 8;
+    -fx-padding: 6 10 6 10;
+}
+
+/* 右上角终端开关按钮：与附件按钮同族（图标透明底、悬停转淡） */
+.terminal-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 4 8 4 8;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+}
+.terminal-button:hover { -fx-background-color: -jwork-hover; }
+.terminal-button .icon { -fx-text-fill: -jwork-text-3; }
+
+/* 标题栏右侧侧栏开关按钮：与终端按钮同族（透明底 + hover 淡色），适配 38px 标题栏高度 */
+.sidebar-toggle {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-min-width: 32;
+    -fx-min-height: 38;
+    -fx-pref-height: 38;
+    -fx-padding: 0 8 0 8;
+    -fx-graphic-text-gap: 0;
+    -fx-content-display: graphic-only;
+    -fx-cursor: hand;
+    -fx-alignment: center;
+}
+.sidebar-toggle:hover { -fx-background-color: -jwork-hover; }
+.sidebar-toggle:pressed { -fx-background-color: -jwork-press; }
+/* 图标由 Rectangle + Line 绘制（PanelLeft 风格），描边色跟随标题文字色阶 */
+.sidebar-icon-stroke { -fx-stroke: -jwork-text-2; }
+
+/* ---------- 底部内嵌终端抽屉（参考 Qoder 底部终端样式） ---------- */
+.chat-split { -fx-padding: 0; -fx-background-color: transparent; -fx-box-border: transparent; }
+.chat-split > .split-pane-divider {
+    -fx-background-color: -jwork-border-4;
+    -fx-background-insets: 0;
+    -fx-padding: 0 1 0 1;
+}
+.chat-main { -fx-background-color: transparent; }
+.terminal-drawer { -fx-background-color: -jwork-bg; }
+.terminal-drawer-bar {
+    -fx-padding: 6 10 4 10;
+    -fx-alignment: center-left;
+    -fx-background-color: transparent;
+}
+/* 页签胶囊：浅灰圆角底 + 小图标 + 文本 */
+.terminal-tab {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 6;
+    -fx-padding: 3 8 3 8;
+}
+.terminal-tab-icon { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+.terminal-tab-text { -fx-font-size: 12px; -fx-text-fill: -jwork-text-3; }
+.terminal-drawer-close {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-min-width: 26;
+    -fx-min-height: 26;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+.terminal-drawer-close:hover { -fx-background-color: -jwork-hover; }
+.terminal-drawer-close .icon { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+.terminal-drawer-theme {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-min-width: 26;
+    -fx-min-height: 26;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+.terminal-drawer-theme:hover { -fx-background-color: -jwork-hover; }
+.terminal-drawer-theme .icon { -fx-font-size: 13px; -fx-text-fill: -jwork-text-4; }
+.terminal-host { -fx-padding: 12 8 10 8; -fx-background-color: -jwork-bg; }
+.terminal-error { -fx-text-fill: -jwork-badge-red-fg; -fx-padding: 12; }
+
+/* ---------- 工作区右侧栏（文件树 + 就地阅读） ---------- */
+/* 外层横向分栏：分隔线本体透明——可见左线由面板 1px 左边框承担（与顶线同规格），
+   2px 宽仅作拖拽区 */
+.workspace-split { -fx-padding: 0; -fx-background-color: transparent; -fx-box-border: transparent; }
+.workspace-split > .split-pane-divider {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-padding: 0 1 0 1;
+}
+.workspace-panel {
+    -fx-background-color: -jwork-bg;   /* 白底（对标参考风格：面板与阅读区同纯白，仅以细边框分隔） */
+    /* 顶边框：路径（面包屑）上方的细分割线，与页面标题行分隔；左边框：与聊天区侧分隔 */
+    -fx-border-color: -jwork-border-4 transparent transparent -jwork-border-4;
+    -fx-border-width: 1;
+    -fx-min-width: 260;
+}
+.workspace-header {
+    -fx-padding: 8 8 8 12;
+    -fx-alignment: center-left;
+    -fx-border-color: transparent transparent -jwork-border-4 transparent;
+    -fx-border-width: 0 0 1 0;
+}
+.workspace-crumb { -fx-font-size: 12px; -fx-text-fill: -jwork-text-2; }
+.workspace-tool {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-min-width: 26;
+    -fx-min-height: 26;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+    -fx-alignment: center;
+    -fx-cursor: hand;
+}
+.workspace-tool:hover { -fx-background-color: -jwork-hover; }
+.workspace-tool .icon { -fx-font-size: 13px; -fx-text-fill: -jwork-text-4; }
+/* 过滤开关激活态（产物视图）：底色常驻 + 图标取强调色，一眼区别于普通工具按钮 */
+.workspace-tool-on { -fx-background-color: -jwork-hover; }
+.workspace-tool-on:hover { -fx-background-color: -jwork-cell-hover; }
+.workspace-tool-on .icon { -fx-text-fill: -jwork-accent; }
+.workspace-inner { -fx-background-color: transparent; -fx-box-border: transparent; -fx-padding: 0; }
+.workspace-inner > .split-pane-divider { -fx-background-color: -jwork-border-4; -fx-padding: 0 1 0 1; }
+.workspace-tree-pane { -fx-background-color: transparent; }
+.workspace-tree { -fx-background-color: transparent; -fx-border-color: transparent; -fx-padding: 4; }
+.workspace-tree .tree-cell { -fx-background-color: transparent; -fx-text-fill: -jwork-text; -fx-font-size: 12px; }
+.workspace-tree .tree-cell:filled:hover { -fx-background-color: -jwork-cell-hover; }
+.workspace-tree .tree-cell:selected { -fx-background-color: -jwork-hover; -fx-text-fill: -jwork-text-title; }
+.workspace-tree-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 13px;
+    -fx-text-fill: -jwork-text-4;
+}
+/* 产物空态提示行：灰字无图标，去掉悬停/选中底色与手型光标，避免误读为可点文件 */
+.workspace-tree .tree-cell.workspace-tree-hint-cell { -fx-text-fill: -jwork-text-5; -fx-cursor: default; }
+.workspace-tree .tree-cell.workspace-tree-hint-cell:filled:hover,
+.workspace-tree .tree-cell.workspace-tree-hint-cell:selected {
+    -fx-background-color: transparent;
+    -fx-text-fill: -jwork-text-5;
+}
+.workspace-viewer { -fx-background-color: -jwork-bg; }
+.workspace-viewer-body { -fx-padding: 16; }
+.workspace-scroll { -fx-background-color: transparent; -fx-border-color: transparent; }
+.workspace-scroll > .viewport { -fx-background-color: transparent; }
+.workspace-code {
+    -fx-background-color: -jwork-bg;
+    -fx-text-fill: -jwork-text;
+    -fx-font-family: "Cascadia Code", "Consolas", monospace;
+    -fx-font-size: 12px;
+    -fx-border-color: transparent;
+}
+.workspace-code > .content { -fx-background-color: -jwork-bg; }
+.workspace-image { -fx-padding: 16; }
+.workspace-empty { -fx-padding: 24; -fx-alignment: center; }
+.workspace-hint { -fx-text-fill: -jwork-text-4; -fx-font-size: 13px; -fx-text-alignment: center; }
+.workspace-open-sys {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 8;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 8;
+    -fx-padding: 5 10 5 10;
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-text-2;
+    -fx-cursor: hand;
+}
+.workspace-open-sys:hover { -fx-background-color: -jwork-btn-hover; }
+/* 外部打开菜单按钮：GRAPHIC_ONLY 只留图标+箭头，与工具按钮同形；箭头随图标灰阶、弹出态常驻底色 */
+.workspace-tool.menu-button { -fx-padding: 0 4 0 0; }
+.workspace-tool.menu-button > .arrow-button { -fx-background-color: transparent; -fx-padding: 0 2 0 0; }
+.workspace-tool.menu-button > .arrow-button > .arrow { -fx-background-color: -jwork-text-4; -fx-padding: 2 3 2 3; }
+.workspace-tool.menu-button:hover > .arrow-button > .arrow,
+.workspace-tool.menu-button:showing > .arrow-button > .arrow { -fx-background-color: -jwork-text-2; }
+.workspace-tool.menu-button:showing { -fx-background-color: -jwork-hover; }
+/* 兜底页菜单按钮：文字/箭头锁次要灰，不被 modena 的 .menu-button 默认色接管 */
+.workspace-open-sys.menu-button > .label { -fx-text-fill: -jwork-text-2; }
+.workspace-open-sys.menu-button > .arrow-button { -fx-background-color: transparent; -fx-padding: 0 0 0 4; }
+.workspace-open-sys.menu-button > .arrow-button > .arrow { -fx-background-color: -jwork-text-4; -fx-padding: 2 3 2 3; }
+
+/* 输入区：卡片钉住最大宽度并居中，侧栏收起使聊天区变宽时输入框不跟着拉长 */
+.input-wrap { -fx-padding: 10 24 20 24; -fx-alignment: top-center; }
+.input-card {
+    -fx-max-width: 820;
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 16;
+    -fx-border-color: -jwork-border-4;
+    -fx-border-radius: 16;
+    -fx-padding: 14 16 10 16;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.07), 14, 0, 0, 3);
+}
+.input-field {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-font-size: 14px;
+    -fx-text-fill: -jwork-text-title;
+    -fx-prompt-text-fill: -jwork-text-5;
+    -fx-padding: 2 4 2 4;
+}
+.input-field:focused { -fx-border-color: transparent; -fx-background-color: transparent; }
+/* 多行 TextArea：内部 content 兑底透明，避免全局 .text-area 的 -jwork-input-bg 漏白，使输入区融入卡片 */
+.input-field > .content { -fx-background-color: transparent; }
+.card-footer { -fx-padding: 10 0 0 0; -fx-alignment: center-left; -fx-spacing: 8; }
+/* 卡片下方（非卡内）左下元信息行：隐私提示/本轮用量，宽度与卡片对齐并靠左 */
+.input-meta { -fx-max-width: 820; -fx-padding: 6 0 0 8; -fx-alignment: center-left; -fx-spacing: 8; }
+.model-hint { -fx-text-fill: -jwork-text-4; -fx-font-size: 12px; }
+.usage-bar {
+    -fx-text-fill: -jwork-text-4;
+    -fx-font-size: 11px;
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 8;
+    -fx-padding: 2 8 2 8;
+}
+
+/* ---------- 上下文占用条（百分比）与悬停浮层 ---------- */
+/* 占用区整体作为悬停触发区：鼠标进入即弹出明细浮层（已用量/上限 + 压缩按钮） */
+.context-stats { -fx-cursor: hand; }
+/* 占用条本体：长方形指示条（4px 圆角、无胶囊圆头；2px 在 12px 高度上视觉近似直角，故取高度的 1/3）。
+   max 压住 HBox fillHeight 的拉伸，min 防挤；重置 modena 默认的多层内缩底色，避免细条里的凹陷层糊在一起 */
+.context-gauge {
+    -fx-pref-height: 12;
+    -fx-min-height: 12;
+    -fx-max-height: 12;
+}
+.context-gauge > .track {
+    -fx-background-color: -jwork-border-3;
+    -fx-background-radius: 4;
+    -fx-background-insets: 0;
+}
+.context-gauge > .bar {
+    -fx-background-color: -jwork-accent;
+    -fx-background-radius: 4;
+    -fx-background-insets: 0;
+}
+/* 百分比文案缩到与左下用量行同档（11px），颜色用次要灰 */
+.context-bar { -fx-font-size: 11px; -fx-text-fill: -jwork-text-4; }
+/* 接近上限时百分比文案转警示色 */
+.context-bar-warn { -fx-text-fill: -jwork-badge-red-fg; }
+/* 悬停浮层卡片（Popup 窗口承载，样式表随主窗继承、明暗主题随动） */
+.context-popup {
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 10;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 10;
+    -fx-padding: 10 12 10 12;
+    -fx-spacing: 8;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.18), 16, 0.08, 0, 4);
+}
+.context-popup-info { -fx-font-size: 12px; -fx-text-fill: -jwork-text; }
+/* 后代选择器保证赢过全局 .button 的底色/圆角，压缩按钮为带描边的实底样式 */
+.context-popup .button {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 8;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 8;
+    -fx-padding: 5 10 5 10;
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-text-2;
+}
+.context-popup .button:hover { -fx-background-color: -jwork-btn-hover; }
+/* 压缩结果/失败回显行（默认中性灰，失败转红） */
+.context-popup-status { -fx-font-size: 11px; -fx-text-fill: -jwork-text-4; -fx-line-spacing: 1; }
+.context-popup-status-error { -fx-text-fill: -jwork-badge-red-fg; }
+/* 浮层标题行：左标题右总占比，同档加粗形成一眼可读的主信息 */
+.context-popup-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.context-popup-percent { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-2; }
+/* 说明文案：弱灰小字多行，解释浮层口径与压缩代价 */
+.context-popup-desc { -fx-font-size: 11px; -fx-text-fill: -jwork-text-4; -fx-line-spacing: 2; }
+/* 分类分段条：轨道与占用条同色，段按类着色、段间 2px 隙（与 Java 侧 SEG_GAP 同值） */
+.context-popup-bar {
+    -fx-background-color: -jwork-border-3;
+    -fx-background-radius: 3;
+    -fx-min-height: 6;
+    -fx-pref-height: 6;
+    -fx-max-height: 6;
+}
+.context-seg { -fx-background-radius: 3; -fx-min-height: 6; -fx-pref-height: 6; -fx-max-height: 6; }
+/* 四分类色板：蓝=系统提示词、琥珀=系统工具、紫=技能、绿=消息（主导段）；中饱和明暗主题均可读 */
+.context-seg-0, .context-dot-0 { -fx-background-color: #6E8EF7; }
+.context-seg-1, .context-dot-1 { -fx-background-color: #F2A33C; }
+.context-seg-2, .context-dot-2 { -fx-background-color: #C678DD; }
+.context-seg-3, .context-dot-3 { -fx-background-color: #4CAF7D; }
+/* 图例圆点：7px 圆点，与分段同色建立条↔行对应 */
+.context-dot {
+    -fx-min-width: 7;
+    -fx-pref-width: 7;
+    -fx-max-width: 7;
+    -fx-min-height: 7;
+    -fx-pref-height: 7;
+    -fx-max-height: 7;
+    -fx-background-radius: 3.5;
+}
+.context-popup-legend-name { -fx-font-size: 12px; -fx-text-fill: -jwork-text-2; }
+.context-popup-legend-pct { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+/* 单图标按钮：固定正方形（30×30），图标居中，与左侧附件组按钮行高一致 */
+.send-button {
+    -fx-background-color: -jwork-accent;
+    -fx-background-radius: 10;
+    -fx-min-width: 30;
+    -fx-pref-width: 30;
+    -fx-min-height: 30;
+    -fx-pref-height: 30;
+    -fx-padding: 0;
+    -fx-cursor: hand;
+}
+.send-button:hover    { -fx-background-color: -jwork-accent-hover; }
+.send-button:pressed  { -fx-background-color: -jwork-accent-press; }
+.send-button:disabled { -fx-background-color: -jwork-accent-disabled; }
+.send-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-bg;
+}
+/* 流式停止态：图标换成 Segoe Stop 字形(E71A)，与发送箭头同源故天然居中对齐；
+   同基线下略放大字号让实心方块更醒目（源序晚于 .send-icon，覆盖其字号） */
+.send-stop {
+    -fx-font-size: 16px;
+    -fx-text-alignment: center;
+    -fx-alignment: center;
+}
+
+/* ---------- 输入框工具条：附件 / 模型 / 审批 ---------- */
+.attach-chips { -fx-padding: 0 0 6 0; -fx-hgap: 8; -fx-vgap: 8; }
+.attach-button {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 5 8 5 8;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+}
+.attach-button:hover { -fx-background-color: -jwork-hover; }
+.attach-chip {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 8;
+    -fx-border-color: -jwork-border-4;
+    -fx-border-radius: 8;
+    -fx-padding: 3 4 3 3;
+    -fx-alignment: center;
+}
+.attach-thumb { -fx-background-radius: 6; }
+.attach-remove {
+    -fx-text-fill: -jwork-text-4;
+    -fx-font-size: 14px;
+    -fx-padding: 0 2 0 0;
+    -fx-cursor: hand;
+}
+.attach-remove:hover { -fx-text-fill: -jwork-badge-red-fg; }
+.model-button, .approval-combo {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 8;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 8;
+    -fx-padding: 0 8 0 12;
+    -fx-min-height: 28;
+    -fx-pref-height: 28;
+    -fx-font-size: 12px;
+    -fx-cursor: hand;
+}
+.model-button:hover, .approval-combo:hover {
+    -fx-background-color: -jwork-btn-hover;
+    -fx-border-color: -jwork-border-hover;
+}
+/* 键盘聚焦或菜单展开时描边转主色，明确「当前操作的是哪个选择器」 */
+.model-button:focused, .approval-combo:focused,
+.model-button:showing, .approval-combo:showing {
+    -fx-border-color: -jwork-accent;
+}
+
+/* 审批下拉富单元格：图标 + 标题/说明两行，当前选中项右侧带勾、危险项标红 */
+.approval-icon { -fx-font-size: 15px; -fx-text-fill: -jwork-icon; -fx-min-width: 18; }
+.approval-icon-danger { -fx-text-fill: -jwork-badge-red-fg; }
+.approval-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.approval-title-compact { -fx-font-size: 12px; -fx-text-fill: -jwork-text-2; }
+.approval-title-danger { -fx-text-fill: -jwork-badge-red-fg; }
+.approval-desc { -fx-font-size: 11px; -fx-text-fill: -jwork-text-4; -fx-line-spacing: 1; }
+.approval-check { -fx-text-fill: -jwork-accent; -fx-font-size: 12px; -fx-padding: 0 2 0 0; }
+.approval-caret { -fx-font-size: 9px; -fx-text-fill: -jwork-arrow; }
+/* 菜单项里的标签会被通用 .menu-item .label 的 text-fill 覆盖，用同级选择器按源序夺回颜色 */
+.approval-menu .approval-icon { -fx-text-fill: -jwork-icon; }
+.approval-menu .approval-icon.approval-icon-danger { -fx-text-fill: -jwork-badge-red-fg; }
+.approval-menu .approval-title { -fx-text-fill: -jwork-text-title; }
+.approval-menu .approval-title.approval-title-danger { -fx-text-fill: -jwork-badge-red-fg; }
+.approval-menu .approval-desc { -fx-text-fill: -jwork-text-4; }
+.approval-menu .approval-check { -fx-text-fill: -jwork-accent; }
+/* 模型名称右侧的多模态小标（E8B9 图片字形，蓝色）；菜单项里同样需夺回 .menu-item .label 的颜色 */
+.model-vision { -fx-font-size: 12px; -fx-text-fill: -jwork-badge-blue-fg; }
+.approval-menu .model-vision { -fx-text-fill: -jwork-badge-blue-fg; }
+/* 模型菜单复用 approval-* 富渲染类；「模型管理」底部条目与 .menu-item .label 同特异性，靠源序夺回图标颜色 */
+.model-manage .label { -fx-text-fill: -jwork-text-2; }
+/* 富菜单（审批/模型）：收紧右侧留白，让勾选更贴近菜单右缘（左/上/下保持呼吸感） */
+.rich-menu { -fx-padding: 6 5 6 6; }
+.rich-menu .menu-item { -fx-padding: 7 5 7 12; }
+
+/* 输入区文档芯片的大小副标（与 attach-ref-name 同族，弱化显示） */
+.attach-doc-size { -fx-font-size: 11px; -fx-text-fill: -jwork-text-4; }
+
+/* ---------- 状态栏 ---------- */
+.status-label { -fx-text-fill: -jwork-text-4; -fx-font-size: 12px; }
+
+/* ---------- 弹窗根容器 ---------- */
+.window-root { -fx-background-color: -jwork-bg; }
+.form-label { -fx-text-fill: -jwork-icon; }
+/* 表单内联错误提示（主题红，深浅色均可读） */
+.form-error { -fx-font-size: 12px; -fx-text-fill: -jwork-badge-red-fg; }
+
+/* 连接测试回显：默认中性，成功转绿、失败转红 */
+.probe-hint { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; -fx-line-spacing: 1; }
+.probe-hint.probe-ok { -fx-text-fill: -jwork-tint-fg-3; }
+.probe-hint.probe-fail { -fx-text-fill: -jwork-badge-red-fg; }
+
+/* 能力多选区（智能体表单）：搜索 + 计数 + 批量操作，两行行、限高内滚、细滚动条 */
+.cap-picker { -fx-spacing: 6; }
+.cap-search { -fx-font-size: 12px; -fx-padding: 5 10 5 10; }
+.cap-count { -fx-font-size: 11px; -fx-text-fill: -jwork-text-5; -fx-min-width: 56; -fx-alignment: center-right; }
+.cap-list {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 8;
+    -fx-border-color: -jwork-border;
+    -fx-border-radius: 8;
+    -fx-padding: 4;
+}
+.cap-list > .viewport { -fx-background-color: transparent; }
+.cap-list .scroll-bar { -fx-pref-width: 8; }
+.cap-list-box { -fx-spacing: 2; -fx-padding: 2; }
+.cap-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 5 8 5 6;
+    -fx-spacing: 10;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+.cap-row:hover { -fx-background-color: -jwork-hover; }
+.cap-row-on, .cap-row-on:hover { -fx-background-color: -jwork-faint-focus; }
+/* 小复选框：方格锁 14×14 px（行 fillHeight=false 保证控件不被拉伸，锁尺寸才生效）；
+   勾形内衬同步收 px；与文本间隙由行 spacing 承担 */
+.cap-row .check-box { -fx-font-size: 10px; -fx-padding: 0; }
+.cap-row .check-box > .box {
+    -fx-min-width: 14px; -fx-min-height: 14px;
+    -fx-pref-width: 14px; -fx-pref-height: 14px;
+    -fx-max-width: 14px; -fx-max-height: 14px;
+    -fx-padding: 2;
+}
+.cap-row .check-box > .box > .mark { -fx-padding: 2 3 2 3; }
+.cap-row-name { -fx-font-size: 12px; -fx-text-fill: -jwork-text; }
+.cap-row-code { -fx-font-size: 10px; -fx-text-fill: -jwork-text-5; }
+.cap-row-disabled .cap-row-name { -fx-text-fill: -jwork-text-5; }
+.cap-tag-disabled {
+    -fx-background-color: -jwork-warn-bg;
+    -fx-text-fill: -jwork-warn-fg;
+    -fx-padding: 1 8 1 8;
+    -fx-font-size: 10px;
+}
+.cap-empty { -fx-font-size: 12px; -fx-text-fill: -jwork-text-5; -fx-padding: 14; -fx-alignment: center; }
+
+/* ============================================================
+ * 自定义标题栏（无边框窗口，替代系统顶部程序 bar）
+ * ============================================================ */
+/* 外层：透明边距承载浅投影，使整窗四角呈现圆角 */
+.window-root-shell {
+    -fx-background-color: transparent;
+    -fx-padding: 10;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.14), 16, 0.05, 0, 0);
+}
+.window-root-shell.maximized { -fx-padding: 0; -fx-effect: null; }
+
+/* 内层：圆角主体（圆角半径与 AppShell 裁剪一致） */
+.window-shell {
+    -fx-background-color: -jwork-canvas;
+    -fx-background-radius: 10;
+    -fx-border-color: -jwork-border;
+    -fx-border-width: 1;
+    -fx-border-radius: 10;
+}
+.window-root-shell.maximized .window-shell {
+    -fx-background-radius: 0;
+    -fx-border-radius: 0;
+    -fx-border-width: 0;
+}
+
+/* 弹窗磨玻璃背景：veil 盖在被模糊的内容视图之上，标题栏不受影响（模糊半径见 AppShell 的 BoxBlur） */
+.frost-veil {
+    -fx-background-color: -jwork-frost-veil;
+}
+
+.title-bar {
+    -fx-background-color: -jwork-canvas;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-padding: 0 0 0 12;
+    -fx-min-height: 38;
+    -fx-pref-height: 38;
+    -fx-max-height: 38;
+}
+.title-bar-maximized { -fx-border-color: transparent; }
+.title-brand { -fx-alignment: center-left; -fx-spacing: 8; }
+.title-text { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+
+.window-controls { -fx-alignment: center; }
+.win-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-border-color: transparent;
+    -fx-min-width: 46px; -fx-min-height: 38px;
+    -fx-pref-width: 46px; -fx-pref-height: 38px;
+    -fx-padding: 0;
+    -fx-graphic-text-gap: 0;
+}
+.win-btn:hover   { -fx-background-color: -jwork-hover; }
+.win-btn:pressed { -fx-background-color: -jwork-press; }
+.win-btn-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-text-2;
+}
+.win-close:hover { -fx-background-color: #e81123; }
+.win-close:hover .win-btn-icon { -fx-text-fill: #ffffff; }
+
+/* ---------- 统一无边框对话框内容（JworkDialog） ---------- */
+.dialog-body {
+    -fx-background-color: -jwork-bg;
+    -fx-padding: 18 22 16 22;
+    -fx-spacing: 14;
+}
+.dialog-header { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-strong; }
+.dialog-message { -fx-font-size: 13px; -fx-text-fill: -jwork-text-2; -fx-line-spacing: 2; }
+.dialog-actions { -fx-alignment: center-right; -fx-padding: 4 0 0 0; }
+/* 消息型弹窗（message）：左侧语义图标徽标 + 右侧文本列；配色随明暗主题变量切换 */
+.dialog-state-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 15px;
+    /* Segoe Fluent Icons 字形在行框内偏上 1px，用顶部内边距补偿，保证字形与徽标同心 */
+    -fx-padding: 2 0 0 0;
+    -fx-background-radius: 8;
+    -fx-min-width: 32px; -fx-min-height: 32px;
+    -fx-pref-width: 32px; -fx-pref-height: 32px;
+    -fx-max-width: 32px; -fx-max-height: 32px;
+    -fx-alignment: center;
+}
+.dialog-state-info  { -fx-background-color: -jwork-tint-3;       -fx-text-fill: -jwork-tint-fg-3; }
+.dialog-state-warn  { -fx-background-color: -jwork-warn-bg;      -fx-text-fill: -jwork-warn-icon; }
+.dialog-state-error { -fx-background-color: -jwork-badge-red-bg; -fx-text-fill: -jwork-badge-red-fg; }
+
+/* ---------- 关于对话框（齿轮菜单「关于」）：图形标 + 版本胶囊 + 信息卡 + 开源卡 + 版权行 ---------- */
+.about-title { -fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.about-version {
+    -fx-background-color: -jwork-tint-3;
+    -fx-background-radius: 999;
+    -fx-padding: 2 10 2 10;
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-tint-fg-3;
+}
+.about-intro { -fx-font-size: 13px; -fx-text-fill: -jwork-text-3; -fx-line-spacing: 2; }
+.about-info-card {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -jwork-border-6;
+    -fx-border-radius: 10;
+    -fx-padding: 12 14 12 14;
+}
+.about-info-key { -fx-font-size: 12px; -fx-text-fill: -jwork-section; -fx-min-width: 64px; }
+.about-info-val { -fx-font-size: 12px; -fx-text-fill: -jwork-text-title; }
+/* 开源卡可点击值：主色链接观感，悬停下划线提示可点 */
+.about-link { -fx-font-size: 12px; -fx-text-fill: -jwork-tint-fg-3; -fx-cursor: hand; }
+.about-link:hover { -fx-underline: true; }
+.about-footer { -fx-font-size: 11px; -fx-text-fill: -jwork-text-5; }
+
+/* ---------- 登录门（独立认证小窗）：品牌区与表单卡片单列居中 ---------- */
+/* 同款标题栏（品牌标识）在上；内容列紧凑居中 */
+.auth-main { -fx-padding: 24 40 30 40; }
+.auth-hero-title { -fx-font-size: 24px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.auth-intro { -fx-font-size: 13px; -fx-text-fill: -jwork-text-3; -fx-line-spacing: 6; }
+/* 表单卡片：白底圆角浮于暖灰画布之上 */
+.auth-form-card {
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 14;
+    -fx-border-color: -jwork-border-5;
+    -fx-border-radius: 14;
+    -fx-padding: 22 24 24 24;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.06), 14, 0, 0, 3);
+}
+.auth-notice { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+/* 卡片内输入框：加宽横向内衬（聚焦描边由全局样式承担） */
+.auth-form-card .text-field, .auth-form-card .password-field { -fx-padding: 7 12 7 12; }
+/* 密码框「明文查看」：眼睛按钮叠放字段内部右缘，悬停淡底；字段加宽右内衬避让按钮 */
+.auth-reveal-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 4 5 4 5;
+    -fx-cursor: hand;
+}
+.auth-reveal-btn:hover { -fx-background-color: -jwork-cell-hover; }
+.auth-reveal-btn .icon { -fx-font-size: 13px; }
+.auth-reveal-btn.auth-reveal-on .icon { -fx-text-fill: -jwork-tint-fg-3; }
+.auth-form-card .text-field.has-reveal,
+.auth-form-card .password-field.has-reveal { -fx-padding: 7 34 7 12; }
+/* 账号行：浅绿底圆角行 + 首字圆徽 */
+.auth-account {
+    -fx-background-color: -jwork-tint-3;
+    -fx-background-radius: 10;
+    -fx-padding: 10 14 10 14;
+}
+.auth-account-avatar {
+    -fx-background-color: -jwork-accent;
+    -fx-background-radius: 999;
+    -fx-min-width: 26px; -fx-min-height: 26px;
+    -fx-pref-width: 26px; -fx-pref-height: 26px;
+    -fx-alignment: center;
+    -fx-text-fill: -jwork-bg;
+    -fx-font-weight: bold;
+    -fx-font-size: 12px;
+}
+.auth-account-name { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+/* 通栏主按钮 */
+.auth-submit { -fx-padding: 9 28 9 28; -fx-font-size: 14px; }
+/* 标题栏语言切换：图标 + 当前语言本族语名（与窗口按钮同高，悬停同款反馈） */
+.lang-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 0;
+    -fx-min-width: 92px;
+    -fx-min-height: 38px; -fx-pref-height: 38px;
+    -fx-padding: 0 12 0 10;
+    -fx-graphic-text-gap: 0;
+    -fx-cursor: hand;
+}
+.lang-btn:hover   { -fx-background-color: -jwork-hover; }
+.lang-btn:pressed { -fx-background-color: -jwork-press; }
+.lang-btn .icon   { -fx-font-size: 13px; -fx-text-fill: -jwork-text-2; }
+.lang-btn-text    { -fx-font-size: 12px; -fx-text-fill: -jwork-text-2; }
+
+/* ============================================================
+ * 设置窗口：左侧分类菜单 + 右侧内容页
+ * ============================================================ */
+.settings-menu {
+    -fx-background-color: -jwork-canvas;
+    -fx-padding: 16 10 12 10;
+    -fx-spacing: 2;
+    -fx-pref-width: 236;
+    -fx-min-width: 236;
+}
+/* 菜单滚动容器：底色同菜单本体（滚动条槽亦米色不留白），宽度与菜单本体一致；
+   焦点态同底色，避免默认焦点外环；滚动条窄化对齐能力列表口径 */
+.settings-menu-scroll { -fx-background-color: -jwork-canvas; -fx-padding: 0; -fx-pref-width: 236; -fx-min-width: 236; }
+.settings-menu-scroll:focused { -fx-background-color: -jwork-canvas; }
+.settings-menu-scroll > .viewport { -fx-background-color: transparent; }
+.settings-menu-scroll .scroll-bar { -fx-pref-width: 8; }
+.settings-search {
+    -fx-pref-width: 210;
+    -fx-max-width: 210;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-padding: 5 10 5 10;
+    -fx-font-size: 12px;
+}
+.settings-pages { -fx-background-color: -jwork-bg; }
+.settings-back {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-alignment: center-left;
+    -fx-padding: 8 12 8 8;
+    -fx-graphic-text-gap: 8;
+    -fx-text-fill: -jwork-text-nav;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+.settings-back:hover { -fx-background-color: -jwork-hover; }
+.settings-back .icon { -fx-text-fill: -jwork-icon; }
+
+/* 提供商页：信息卡片 */
+.provider-cards { -fx-padding: 6 0 0 0; }
+.provider-card {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 14;
+    -fx-border-color: -jwork-border-6;
+    -fx-border-radius: 14;
+    -fx-padding: 16 18 16 18;
+}
+.provider-card-title { -fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-strong; }
+.provider-card-key { -fx-font-size: 12px; -fx-text-fill: -jwork-section; -fx-min-width: 84; }
+.provider-card-val { -fx-font-size: 13px; -fx-text-fill: -jwork-text-title; }
+.provider-empty { -fx-font-size: 13px; -fx-text-fill: -jwork-section; -fx-padding: 28 0 0 2; }
+.settings-section {
+    -fx-text-fill: -jwork-section;
+    -fx-font-size: 12px;
+    -fx-padding: 12 12 2 12;
+}
+.settings-toggle {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-alignment: center-left;
+    -fx-padding: 8 12 8 12;
+    -fx-graphic-text-gap: 10;
+    -fx-text-fill: -jwork-text-nav;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+.settings-toggle:hover    { -fx-background-color: -jwork-hover; }
+.settings-toggle:selected { -fx-background-color: -jwork-tint-2; }
+.settings-toggle:selected { -fx-text-fill: -jwork-tint-fg-3; -fx-font-weight: bold; }
+.settings-toggle .icon    { -fx-text-fill: -jwork-icon; }
+.settings-toggle:selected .icon { -fx-text-fill: -jwork-tint-fg-3; }
+
+/* 安全页内子 Tab（工具防护/文件防护/授权管理）：横向胶囊切换条 */
+.settings-subtabs { -fx-padding: 2 0 4 0; }
+.settings-subtab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 999;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 999;
+    -fx-padding: 6 16 6 16;
+    -fx-text-fill: -jwork-text-nav;
+    -fx-font-size: 13px;
+    -fx-cursor: hand;
+}
+.settings-subtab:hover { -fx-background-color: -jwork-hover; }
+.settings-subtab:selected { -fx-background-color: -jwork-tint-2; -fx-text-fill: -jwork-tint-fg-3; -fx-font-weight: bold; }
+.settings-subtab-content { -fx-padding: 6 0 0 0; }
+.settings-subtab-page { -fx-padding: 4 0 0 0; }
+.dangerous-category {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-section;
+    -fx-padding: 8 2 0 2;
+}
+
+.settings-page {
+    -fx-background-color: -jwork-bg;
+    -fx-padding: 26 30 26 30;
+    -fx-spacing: 14;
+}
+/* 拓展页 Tab 内的 MCP 视图：顶距/间距对齐 .content-page（技能页），不改动设置页共用的 .settings-page */
+.settings-page.mcp-page {
+    -fx-padding: 8 30 18 30;
+    -fx-spacing: 18;
+}
+.page-title    { -fx-font-size: 19px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-strong; }
+.page-subtitle { -fx-font-size: 12px; -fx-text-fill: -jwork-section; }
+.form-card {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 12;
+    -fx-border-color: -jwork-border-6;
+    -fx-border-radius: 12;
+    -fx-padding: 16 18 16 18;
+    -fx-hgap: 10;
+    -fx-vgap: 10;
+}
+/* MCP 表单键值行（环境变量/请求头）：眼睛按钮叠放字段内部右缘，加宽右内衬避让（与登录页同口径） */
+.form-card .text-field.has-reveal,
+.form-card .password-field.has-reveal { -fx-padding: 7 34 7 12; }
+.kv-editor .kv-name { -fx-pref-width: 150; -fx-min-width: 110; }
+
+/* ---------- 设置：分组卡片 + 行式布局（对标 Qoder） ---------- */
+.settings-group-title {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-section;
+    -fx-padding: 6 2 0 2;
+}
+.settings-group {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 14;
+    -fx-border-color: -jwork-border-6;
+    -fx-border-radius: 14;
+    -fx-padding: 4 18 4 18;
+}
+.settings-row {
+    -fx-alignment: center-left;
+    -fx-padding: 14 0 14 0;
+    -fx-spacing: 16;
+}
+.settings-row-divider {
+    -fx-border-color: -jwork-border-5 transparent transparent transparent;
+    -fx-border-width: 1 0 0 0;
+}
+.row-text { -fx-spacing: 3; -fx-alignment: center-left; }
+.row-title { -fx-font-size: 13px; -fx-text-fill: -jwork-text-title; }
+.row-desc  { -fx-font-size: 12px; -fx-text-fill: -jwork-text-5; -fx-line-spacing: 1; }
+.row-control { -fx-alignment: center-right; -fx-spacing: 8; }
+
+/* 胶囊下拉（外观/通用页的选择控件） */
+.pill-combo {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 999;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 999;
+    -fx-padding: 3 10 3 10;
+    -fx-min-width: 96;
+    -fx-cursor: hand;
+}
+.pill-combo:hover { -fx-background-color: -jwork-btn-hover; }
+.pill-combo .list-cell { -fx-background-color: transparent; -fx-text-fill: -jwork-text-2; -fx-padding: 3 8 3 8; }
+.pill-combo .arrow { -fx-background-color: -jwork-arrow; }
+
+/* 胶囊开关 */
+.toggle-switch {
+    -fx-background-color: -jwork-border-2;
+    -fx-background-radius: 999;
+    -fx-min-width: 42px; -fx-min-height: 24px;
+    -fx-pref-width: 42px; -fx-pref-height: 24px;
+    -fx-padding: 3;
+    -fx-cursor: hand;
+}
+.toggle-switch:selected { -fx-background-color: -jwork-accent; }
+.toggle-knob {
+    -fx-background-color: #ffffff;
+    -fx-background-radius: 999;
+    -fx-min-width: 18px; -fx-min-height: 18px;
+    -fx-pref-width: 18px; -fx-pref-height: 18px;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.2), 3, 0, 0, 1);
+}
+
+
+/* 只读信息行内联值 */
+.row-value { -fx-font-size: 12px; -fx-text-fill: -jwork-text-3; }
+
+/* 记忆页编辑器 */
+.memory-editor {
+    -fx-font-family: "Cascadia Mono", "Consolas", monospace;
+    -fx-font-size: 12px;
+    -fx-pref-height: 340px;
+    -fx-wrap-text: true;
+}
+.memory-editor .content { -fx-background-color: -jwork-input-bg; -fx-background-radius: 8; }
+
+/* 记忆详情页区块标题（section-title 的扁平变体）：去掉卡片式内衬边距（12 12 2 12），
+   标题与页面内容左对齐；上下边距归零后包围盒与文字同高，标题行右侧按钮与文字中线精确居中。
+   双类选择器特异性高于 .section-title，仅本页标题受控 */
+.label.memory-section-title { -fx-padding: 0; }
+
+/* 记忆作用域（文件夹卡片）行的文件夹图标：主色微放大，作为行的视觉锚点 */
+.memory-scope-icon {
+    -fx-font-size: 20px;
+    -fx-text-fill: -jwork-accent;
+    -fx-min-width: 26;
+}
+
+/* ============================================================
+ * 内容页（定时任务 / 技能）：页头 + 卡片网格 + 空状态
+ * ============================================================ */
+.content-page {
+    -fx-background-color: -jwork-bg;
+    -fx-padding: 8 30 18 30;
+    -fx-spacing: 18;
+}
+.page-header { -fx-alignment: center-left; -fx-spacing: 10; }
+.page-h1 { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-strong; }
+.page-desc { -fx-font-size: 12px; -fx-text-fill: -jwork-section; }
+
+.btn-primary {
+    -fx-background-color: -jwork-accent;
+    -fx-background-radius: 9;
+    -fx-text-fill: -jwork-bg;
+    -fx-font-size: 13px;
+    -fx-padding: 7 16 7 16;
+    -fx-cursor: hand;
+}
+.btn-primary:hover   { -fx-background-color: -jwork-accent-hover; }
+.btn-primary:pressed { -fx-background-color: -jwork-accent-press; }
+/* 主按钮内的图标（如各页「+ 添加」的加号）随文字取色，不再用全局 .icon 的灰色，避免与白字色差 */
+.btn-primary .icon { -fx-text-fill: -jwork-bg; }
+/* 技能页「导入技能」按钮：收紧内边距；文字与箭头均为自绘子节点（graphic） */
+.skill-import-btn { -fx-padding: 6 14 6 14; -fx-font-size: 13px; }
+/* 自绘文字 Label：用后代选择器(0,2,0)盖过全局 .label(0,1,0)，强制纯白，与 caret 同色 */
+.skill-import-btn .skill-import-text { -fx-text-fill: #ffffff; -fx-font-size: 13px; }
+/* 自绘下拉箭头：实心向下三角（有面积），纯白填充，与实心文字同色同重 */
+.skill-import-caret {
+    -fx-shape: "M 0 0 L 9 0 L 4.5 6 Z";
+    -fx-background-color: #ffffff;
+    -fx-scale-shape: false;
+    -fx-padding: 3 2 3 2;
+}
+.icon-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-padding: 6 9 6 9;
+    -fx-cursor: hand;
+}
+.icon-btn:hover { -fx-background-color: -jwork-cell-hover; }
+/* 图标按钮危险变体（删除记忆等）：图标红色，悬停淡红底 */
+.icon-btn-danger .icon { -fx-text-fill: -jwork-badge-red-fg; }
+.icon-btn-danger:hover { -fx-background-color: -jwork-badge-red-bg; }
+.search-field {
+    -fx-pref-width: 220;
+    -fx-background-radius: 8;
+    -fx-border-radius: 8;
+    -fx-padding: 5 12 5 12;
+}
+
+.card-grid { -fx-padding: 6 2 6 2; }
+.task-card, .skill-card {
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 14;
+    -fx-border-color: -jwork-border-4;
+    -fx-border-radius: 14;
+    -fx-padding: 16 18 10 18;
+    -fx-spacing: 6;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.05), 10, 0, 0, 2);
+}
+.task-card:hover, .skill-card:hover { -fx-border-color: -jwork-border-hover; }
+.card-title { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.card-meta  { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+.card-desc  { -fx-font-size: 12px; -fx-text-fill: -jwork-desc; }
+.mono {
+    -fx-font-family: "Cascadia Mono", "Consolas", monospace;
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-mono-fg;
+}
+
+.badge {
+    -fx-background-radius: 999;
+    -fx-padding: 2 10 2 10;
+    -fx-font-size: 11px;
+}
+.badge-green { -fx-background-color: -jwork-badge-green-bg; -fx-text-fill: -jwork-tint-fg; }
+.badge-gray  { -fx-background-color: -jwork-badge-gray-bg;  -fx-text-fill: -jwork-badge-gray-fg; }
+.badge-blue  { -fx-background-color: -jwork-badge-blue-bg;  -fx-text-fill: -jwork-badge-blue-fg; }
+.badge-red   { -fx-background-color: -jwork-badge-red-bg;   -fx-text-fill: -jwork-badge-red-fg; }
+
+/* 模型卡片状态/多模态图标：沿用 .icon 字体，仅按语义夺回文字颜色（源序晚于 .icon） */
+.card-status-icon { -fx-font-size: 13px; -fx-min-width: 16; }
+.status-ok      { -fx-text-fill: -jwork-tint-fg-3; }
+.status-bad     { -fx-text-fill: -jwork-badge-red-fg; }
+.status-unknown { -fx-text-fill: -jwork-text-5; }
+.status-vision  { -fx-text-fill: -jwork-badge-blue-fg; }
+
+.link-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 4 8 4 8;
+    -fx-text-fill: -jwork-text-3;
+    -fx-font-size: 12px;
+    -fx-cursor: hand;
+}
+.link-btn:hover { -fx-background-color: -jwork-cell-hover; }
+.link-btn-danger { -fx-text-fill: -jwork-badge-red-fg; }
+.card-actions { -fx-padding: 4 0 0 0; -fx-spacing: 4; -fx-alignment: center-left; }
+
+.empty-state { -fx-alignment: center; -fx-spacing: 8; -fx-padding: 24; }
+.empty-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 44px;
+    -fx-text-fill: -jwork-empty-icon;
+}
+.empty-title { -fx-font-size: 15px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-3; -fx-text-alignment: center; }
+.empty-desc  { -fx-font-size: 12px; -fx-text-fill: -jwork-text-5; -fx-text-alignment: center; }
+
+/* 市场对话框占位态：裸图标 + 标题 + 弱化副标题 + 操作按钮 */
+.market-state { -fx-alignment: center; -fx-padding: 44 24 44 24; }
+.market-state-glyph {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 44px;
+    -fx-text-fill: -jwork-tint-fg;
+}
+.market-state-glyph-error { -fx-text-fill: #e8a33d; }
+/* 加载态：原生不确定进指示器作旋转弧，主色与主题一致 */
+.market-state-spinner { -fx-progress-color: -jwork-tint-fg; }
+.market-state-spinner > .indicator { -fx-background-color: transparent; }
+.market-state-title { -fx-font-size: 16px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; -fx-text-alignment: center; }
+.market-state-desc { -fx-font-size: 13px; -fx-text-fill: -jwork-text-4; -fx-text-alignment: center; }
+
+.skill-avatar {
+    -fx-background-color: -jwork-tint-3;
+    -fx-background-radius: 10;
+    -fx-min-width: 40px; -fx-min-height: 40px;
+    -fx-pref-width: 40px; -fx-pref-height: 40px;
+    -fx-alignment: center;
+    -fx-font-size: 16px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-tint-fg;
+}
+
+/* ============================================================
+ * 用量页：全局概览磁贴 + 维度分段切换 + 明细表
+ * ============================================================ */
+.usage-scroll { -fx-background-color: transparent; -fx-padding: 0; }
+.usage-scroll > .viewport { -fx-background-color: transparent; }
+.usage-summary { -fx-spacing: 10; }
+.usage-section { -fx-spacing: 10; }
+.usage-section-header { -fx-alignment: center-left; }
+.usage-tiles-box { -fx-spacing: 12; }
+.usage-section-title {
+    -fx-font-size: 14px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-text-title;
+}
+.usage-tiles { -fx-alignment: top-left; }
+.usage-tile {
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 14;
+    -fx-border-color: -jwork-border-4;
+    -fx-border-radius: 14;
+    -fx-padding: 14 16 14 16;
+    -fx-spacing: 2;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.05), 10, 0, 0, 2);
+}
+.usage-tile-value {
+    -fx-font-size: 22px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-text-strong;
+}
+.usage-tile-label { -fx-font-size: 12px; -fx-text-fill: -jwork-section; }
+
+.usage-segmented {
+    -fx-background-color: -jwork-content;
+    -fx-background-radius: 10;
+    -fx-padding: 3;
+    -fx-spacing: 2;
+}
+.usage-seg-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -jwork-text-3;
+    -fx-font-size: 13px;
+    -fx-padding: 6 16 6 16;
+    -fx-cursor: hand;
+}
+.usage-seg-btn:hover { -fx-text-fill: -jwork-text-title; }
+.usage-seg-btn:selected {
+    -fx-background-color: -jwork-bg;
+    -fx-text-fill: -jwork-tint-fg-3;
+    -fx-font-weight: bold;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.08), 8, 0, 0, 1);
+}
+
+.usage-table { -fx-spacing: 6; }
+.usage-row {
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 10;
+    -fx-padding: 10 16 10 16;
+}
+.usage-row-head {
+    -fx-background-color: transparent;
+    -fx-padding: 4 16 4 16;
+}
+.usage-row-head .usage-cell-name,
+.usage-row-head .usage-cell-num {
+    -fx-font-size: 12px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-section;
+}
+.usage-cell-name {
+    -fx-font-size: 13px;
+    -fx-text-fill: -jwork-text-title;
+}
+.usage-cell-num {
+    -fx-font-size: 13px;
+    -fx-text-fill: -jwork-text-3;
+    /* 表头与数据统一居中：列宽由 grid() 锁定逐行一致，同宽标签的中线即列中线 */
+    -fx-alignment: center;
+    -fx-min-width: 72;
+}
+.usage-empty {
+    -fx-font-size: 13px;
+    -fx-text-fill: -jwork-text-5;
+    -fx-padding: 24;
+    -fx-alignment: center;
+}
+
+/* ---------- 知识页（拓展 Tab）：智能体 caption、空态引导卡、文档行、向量配置 ---------- */
+.knowledge-agent-caption { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+.knowledge-empty-card {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 10;
+    -fx-border-color: -jwork-border;
+    -fx-border-radius: 10;
+    -fx-padding: 14 16 14 16;
+}
+.knowledge-empty-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 16px;
+    -fx-text-fill: -jwork-tint-fg-3;
+}
+.knowledge-empty-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.knowledge-doc-row {
+    -fx-background-color: -jwork-panel-2;
+    -fx-background-radius: 8;
+    -fx-padding: 8 12 8 12;
+}
+.knowledge-doc-row:hover { -fx-background-color: -jwork-hover; }
+.knowledge-doc-name { -fx-font-size: 13px; -fx-text-fill: -jwork-text-title; }
+.vector-field { -fx-font-size: 12px; }
+
+/* ============================================================
+ * 拓展页：左上角标签页（技能 / MCP 服务）——对标顶部细横线 + accent 下划线
+ * ============================================================ */
+.extensions-root { -fx-background-color: -jwork-bg; }
+.extensions-tabs {
+    -fx-background-color: -jwork-bg;
+    -fx-tab-min-height: 30;
+    -fx-tab-max-height: 30;
+}
+.extensions-tabs > .tab-header-area > .tab-header-background {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+}
+.extensions-tabs > .tab-header-area { -fx-padding: 10 0 4 20; }
+.extensions-tabs > .tab-content-area { -fx-background-color: -jwork-bg; }
+.extensions-tabs .tab {
+    -fx-background-color: transparent;
+    -fx-background-insets: 0;
+    -fx-background-radius: 0;
+    -fx-shape: null;
+    -fx-padding: 0;
+    -fx-focus-color: transparent;
+    -fx-faint-focus-color: transparent;
+}
+.extensions-tabs .tab:selected { -fx-background-color: transparent; }
+.extensions-tabs .tab .tab-label {
+    -fx-text-fill: -jwork-text-3;
+    -fx-font-size: 14px;
+    -fx-padding: 0 14 0 14;
+}
+.extensions-tabs .tab:hover .tab-label { -fx-text-fill: -jwork-text-title; }
+.extensions-tabs .tab:selected .tab-label {
+    -fx-text-fill: -jwork-tint-fg-3;
+    -fx-font-weight: bold;
+}
+/* 选中项不再加底部下划线（仅靠加粗 + 主色区分） */
+.extensions-tabs .tab:selected .focus-indicator {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-border-width: 0;
+    -fx-border-insets: 0;
+    -fx-border-radius: 0;
+}
+
+/* ============================================================
+ * 侧栏：顶部智能体切换卡 + 当前智能体的会话列表
+ * ============================================================ */
+.section-header {
+    /* 右侧 14：使顶部「会话」表头的「⋯」与会话行/分组表头的「⋯」竖向对齐（同一列） */
+    -fx-padding: 12 14 4 12;
+    -fx-spacing: 6;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+/* 标题自身不再带不对称内边距，避免与右侧箭头错位 */
+.section-header .section-title { -fx-padding: 0; }
+/* 会话数：跟在「会话」标题后，弱色小字，随选中的智能体变化 */
+.section-header .section-count {
+    -fx-font-size: 11px;
+    -fx-text-fill: -jwork-subtitle;
+    -fx-padding: 0 0 0 2;
+}
+
+/* 智能体切换卡：整宽卡片（头像 + 名称/描述 + ⌄），点开是智能体菜单。
+   选中的智能体既决定新建会话的归属，也决定会话列表显示哪一份数据。 */
+.agent-switch-wrap { -fx-padding: 0 0 8 0; }
+.agent-switch {
+    -fx-background-color: -jwork-content;
+    -fx-background-radius: 14;
+    -fx-border-color: -jwork-border-4;
+    -fx-border-radius: 14;
+    -fx-padding: 10 12 10 12;
+    -fx-alignment: center-left;
+    -fx-spacing: 10;
+    -fx-cursor: hand;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.06), 10, 0.05, 0, 2);
+}
+.agent-switch:hover   { -fx-border-color: -jwork-border-hover; }
+.agent-switch:pressed { -fx-background-color: -jwork-panel-2; }
+.agent-switch-avatar {
+    -fx-background-color: -jwork-accent;
+    -fx-background-radius: 999;
+    -fx-min-width: 34px; -fx-min-height: 34px;
+    -fx-pref-width: 34px; -fx-pref-height: 34px;
+    -fx-alignment: center;
+    -fx-text-fill: -jwork-bg;
+    -fx-font-weight: bold;
+    -fx-font-size: 15px;
+}
+.agent-switch-name { -fx-font-size: 14px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.agent-switch-desc { -fx-font-size: 11px; -fx-text-fill: -jwork-text-4; }
+/* 卡片右侧的下拉箭头：用普通界面字体就有的 ▼（U+25BC），不走 Segoe 图标字体的私有区码点，
+   那个字体一缺失或被回退，E70D 就会落成别的字形；固定格子不让箭头影响卡片布局 */
+.agent-switch-caret {
+    -fx-font-size: 9px;
+    -fx-text-fill: -jwork-text-4;
+    -fx-min-width: 10px;
+    -fx-alignment: center;
+}
+
+/* 弹出菜单里的智能体条目：小头像 + 名称/描述两行；当前项名称用主色加粗 */
+.agent-item-avatar {
+    -fx-background-color: -jwork-tint-4;
+    -fx-background-radius: 999;
+    -fx-min-width: 26px; -fx-min-height: 26px;
+    -fx-pref-width: 26px; -fx-pref-height: 26px;
+    -fx-alignment: center;
+    -fx-text-fill: -jwork-icon;
+    -fx-font-size: 12px;
+}
+.agent-item-current .agent-item-avatar { -fx-background-color: -jwork-tint; -fx-text-fill: -jwork-tint-fg-3; }
+.agent-item-name { -fx-font-size: 13px; -fx-text-fill: -jwork-text; }
+.agent-item-current .agent-item-name { -fx-font-weight: bold; -fx-text-fill: -jwork-tint-fg-3; }
+.agent-item-desc { -fx-font-size: 11px; -fx-text-fill: -jwork-text-4; }
+
+/* 小实心三角：统一 ▼ 字形（收起时旋转 -90° 成 ▶），固定格子保证两种状态大小一致 */
+.ws-caret {
+    -fx-text-fill: -jwork-text-4;
+    -fx-font-size: 9px;
+    -fx-min-width: 10px;
+    -fx-alignment: center;
+}
+/* 会话搜索栏：不加左右内边距（与「新任务」同宽对齐），顶部留白与上方拉开间距 */
+.session-search-bar {
+    -fx-padding: 6 0 0 0;
+}
+/* 搜索按钮：普通按钮样式（灰底、无描边），点击弹出命令面板 */
+.session-search-btn {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 8;
+    -fx-padding: 6 12 6 12;
+    -fx-graphic-text-gap: 8;
+    -fx-alignment: center-left;
+    -fx-font-size: 13px;
+    -fx-text-fill: -jwork-text-2;
+    -fx-cursor: hand;
+}
+.session-search-btn:hover   { -fx-background-color: -jwork-btn-hover; }
+.session-search-btn:pressed { -fx-background-color: -jwork-btn-press; }
+.session-search-btn .icon { -fx-font-size: 14px; -fx-text-fill: -jwork-icon; }
+
+/* ---------- 会话搜索命令面板（SessionSearchDialog） ---------- */
+/* 弹层根：铺满宿主窗口的遮罩。必须是有 alpha 的半透明填充（不能全透明），
+   否则卡片以外区域不绘制像素，Windows 上点击会穿透到被模态阻塞的宿主窗，点不到也关不掉；
+   这层浅遮罩既能接住「点外面关闭」的点击，又叠加在磨玻璃模糊之上增强模态层次 */
+.palette-root {
+    -fx-background-color: rgba(0, 0, 0, 0.12);
+}
+/* 命令面板卡片：圆角 + 黑色浓投影拉出层次 */
+.palette-card {
+    -fx-background-color: -jwork-content;
+    -fx-background-radius: 16;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 16;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.45), 26, 0.15, 0, 10);
+}
+.palette-top {
+    -fx-padding: 14 16 12 16;
+    -fx-border-color: transparent transparent -jwork-border transparent;
+    -fx-border-width: 0 0 1 0;
+}
+/* 输入框下的提示行：左分组名，右键盘提示 + 计数 */
+.palette-hint-bar {
+    -fx-padding: 8 16 8 16;
+    -fx-alignment: center-left;
+}
+.palette-hint-group, .palette-hint-word, .palette-hint-count {
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-text-4;
+}
+/* 键盘小方片：↑ / ↓ / Enter */
+.palette-key {
+    -fx-background-color: -jwork-btn;
+    -fx-background-radius: 4;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 4;
+    -fx-padding: 1 6 1 6;
+    -fx-font-size: 11px;
+    -fx-text-fill: -jwork-text-3;
+    -fx-min-width: 18;
+    -fx-alignment: center;
+}
+.palette-search {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-font-size: 15px;
+    -fx-text-fill: -jwork-text-title;
+    -fx-prompt-text-fill: -jwork-text-5;
+}
+.palette-search:focused { -fx-background-color: transparent; -fx-border-color: transparent; }
+.palette-list {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent;
+    -fx-padding: 6;
+}
+.palette-list .list-cell { -fx-background-color: transparent; -fx-padding: 3 4 3 4; }
+.palette-row { -fx-padding: 7 10 7 10; -fx-background-radius: 8; }
+.palette-row-title { -fx-font-size: 13px; -fx-text-fill: -jwork-text-2; }
+.palette-row-date { -fx-font-size: 12px; -fx-text-fill: -jwork-text-5; }
+/* 分组标题行：会话 / 消息内容 */
+.palette-header-row { -fx-padding: 8 10 2 10; }
+.palette-header {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-section;
+}
+/* 消息内容命中行：标题行 + 片段行 */
+.palette-msg-row { -fx-padding: 6 10 6 10; -fx-background-radius: 8; }
+.palette-msg-snippet { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+.palette-empty {
+    -fx-padding: 24 16 24 16;
+    -fx-text-fill: -jwork-text-5;
+    -fx-font-size: 13px;
+    -fx-alignment: center;
+}
+.session-box { -fx-padding: 0 8 0 6; }
+/* 当前智能体还没有会话时的提示行 */
+.sessions-empty {
+    -fx-padding: 6 8 6 12;
+    -fx-font-size: 12px;
+    -fx-text-fill: -jwork-text-5;
+    -fx-wrap-text: true;
+}
+
+.ws-mini-btn {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 1 4 1 4;
+    -fx-cursor: hand;
+}
+.ws-mini-btn:hover { -fx-background-color: -jwork-press; }
+.ws-mini-btn .icon { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+
+.ws-session-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 7;
+    /* 左侧 16：会话行整体右移一点缩进（未分组/最近），与分组表头 caret 列相称 */
+    -fx-padding: 5 6 5 16;
+    -fx-cursor: hand;
+}
+.ws-session-row:hover { -fx-background-color: -jwork-cell-hover; }
+/* 当前打开的会话行 = 焦点所在：底色取比悬停更实的一档（-jwork-tint-2），标题加粗转一等色，
+   前导点转主题绿。双类选择器是为了压过 .ws-session-row:hover（同为 0,2,0，靠后写覆盖），
+   否则鼠标一划过当前会话，选中态就被悬停色洗掉。 */
+.ws-session-row.ws-session-row-selected          { -fx-background-color: -jwork-tint-2; }
+.ws-session-row.ws-session-row-selected:hover    { -fx-background-color: -jwork-tint-2; }
+.ws-session-row-selected .ws-session-name { -fx-text-fill: -jwork-text-title; -fx-font-weight: bold; }
+.ws-session-row-selected .ws-session-dot  { -fx-text-fill: -jwork-accent; }
+.ws-session-dot { -fx-text-fill: -jwork-text-5; -fx-font-size: 12px; }
+.ws-session-name { -fx-font-size: 12px; -fx-text-fill: -jwork-text-3; }
+/* 分支会话的「↳」溯源标记：弱色小号，不押过标题 */
+.session-fork-mark { -fx-text-fill: -jwork-text-4; -fx-font-size: 11px; }
+/* 会话行「⋯」按钮：默认隐藏，悬停行或选中时显示（保留占位不引起布局跳动） */
+.ws-session-menu { -fx-opacity: 0; }
+.ws-session-row:hover .ws-session-menu,
+.ws-session-row-selected .ws-session-menu { -fx-opacity: 1; }
+
+/* ---------- 会话分组：分区块表头 / 组内会话缩进 / 新建分组入口 ---------- */
+/* 分区块表头（最新 / 分组 / 未分组）：小字、可点折叠、行高与会话行相称 */
+.session-subheader {
+    /* 右侧 6：叠加 session-box 的右 8 = 14，与会话行的「⋯」竖向对齐 */
+    -fx-padding: 8 6 3 12;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+.session-subheader-title {
+    -fx-font-size: 11px;
+    -fx-font-weight: bold;
+    -fx-text-fill: -jwork-section;
+}
+.session-subheader:hover .session-subheader-title { -fx-text-fill: -jwork-text-2; }
+/* 组内会话行左缩进，与折叠 caret 对齐，视觉上归属于上方的组头（比未分组再深一档） */
+.session-group-row { -fx-padding: 5 6 5 26; }
+
+/* ---------- 启动画面（Preloader）：居中小卡片，主窗就绪即隐藏 ---------- */
+/* 外层透明壳：Stage 与 Scene 均为透明，留白处不铺底色，卡片四角圆角得以完整呈现 */
+.splash-shell {
+    -fx-background-color: transparent;
+    -fx-padding: 14;
+    -fx-effect: dropshadow(gaussian, rgba(0, 0, 0, 0.16), 18, 0.06, 0, 2);
+}
+.splash-root {
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 12;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 24;
+}
+.splash-title { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.splash-status { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }
+
+/* ============================================================
+ * 自动化页：保持唤醒横幅 / 页签 / 卡片列表 / 新建编辑弹窗
+ * ============================================================ */
+.automation-banner {
+    -fx-background-color: -jwork-info-bg;
+    -fx-background-radius: 10;
+    -fx-padding: 12 16 12 16;
+    -fx-spacing: 12;
+}
+.automation-banner-icon {
+    -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
+    -fx-font-size: 18px;
+    -fx-text-fill: -jwork-badge-blue-fg;
+}
+.automation-banner-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.automation-banner-desc  { -fx-font-size: 12px; -fx-text-fill: -jwork-text-5; }
+
+/* 页签行：自动化 / 模板 / 执行记录（文字型 ToggleButton，选中转主题绿加粗） */
+.page-tabs { -fx-padding: 0 0 2 0; }
+.page-tab {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -jwork-text-3;
+    -fx-font-size: 14px;
+    -fx-padding: 6 10 6 10;
+    -fx-cursor: hand;
+}
+.page-tab:hover { -fx-text-fill: -jwork-text-title; }
+.page-tab:selected { -fx-text-fill: -jwork-tint-fg-3; -fx-font-weight: bold; }
+
+.automation-list { -fx-padding: 2 2 12 2; }
+.automation-sched { -fx-font-size: 12px; -fx-text-fill: -jwork-text-3; }
+.automation-expire { -fx-font-size: 12px; -fx-text-fill: -jwork-text-5; }
+.automation-expire-warn { -fx-font-size: 12px; -fx-text-fill: -jwork-badge-red-fg; }
+
+/* ---- 新建/编辑自动化弹窗（两栏布局） ---- */
+.automation-left { -fx-spacing: 8; }
+.automation-name-field {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -jwork-border-4 transparent;
+    -fx-border-width: 0 0 1 0;
+    -fx-border-radius: 0;
+    -fx-background-radius: 0;
+    -fx-font-size: 15px;
+    -fx-font-weight: bold;
+    -fx-padding: 6 2 6 2;
+}
+.automation-name-field:focused {
+    -fx-background-color: transparent;
+    -fx-border-color: transparent transparent -jwork-accent transparent;
+}
+.automation-prompt { -fx-font-size: 13px; -fx-padding: 2; }
+.automation-toolbar { -fx-padding: 2 0 0 0; -fx-spacing: 8; }
+.automation-tool {
+    -fx-background-color: transparent;
+    -fx-background-radius: 8;
+    -fx-text-fill: -jwork-text-3;
+    -fx-font-size: 12px;
+    -fx-padding: 5 10 5 10;
+    -fx-cursor: hand;
+}
+.automation-tool:hover { -fx-background-color: -jwork-cell-hover; }
+.automation-combo { -fx-font-size: 12px; }
+.automation-combo .list-cell { -fx-padding: 3 6 3 6; }
+
+.automation-side { -fx-spacing: 16; }
+.automation-section { -fx-spacing: 8; }
+.automation-section-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.automation-hint { -fx-font-size: 11px; -fx-text-fill: -jwork-text-5; -fx-line-spacing: 1; }
+.automation-error { -fx-font-size: 12px; -fx-text-fill: -jwork-badge-red-fg; }
+.automation-actions { -fx-alignment: center-right; -fx-padding: 4 0 0 0; -fx-spacing: 10; }

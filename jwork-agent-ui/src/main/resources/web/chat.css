@@ -1,0 +1,603 @@
+/* ============================================================
+ * Jwork 聊天区 WebView 渲染样式：镜像 jwork-agent*.css 的语义色 token。
+ * 主题与字号由 <html data-theme="light|dark" data-font="small|medium|large"> 驱动，
+ * Java 侧经 ChatAPI.setTheme 切换；颜色值与 JavaFX 侧 -jwork-* 变量一一对应。
+ * ============================================================ */
+
+:root {
+    /* 语义色 token（浅色基线，与 jwork-agent.css .root 对齐） */
+    --jwork-accent: #2f9e5f;
+    --jwork-bg: #ffffff;
+    --jwork-canvas: #f2f2ef;
+    --jwork-content: #ffffff;
+    --jwork-hover: #ebebe7;
+    --jwork-press: #e0e0db;
+    --jwork-btn: #f2f2f0;
+    --jwork-btn-hover: #e8e8e5;
+    --jwork-border: #e6e6e2;
+    --jwork-border-2: #dcdcd8;
+    --jwork-text: #262626;
+    --jwork-text-strong: #1a1a18;
+    --jwork-text-title: #1d1d1b;
+    --jwork-text-2: #3a3a3a;
+    --jwork-text-3: #4d4d47;
+    --jwork-text-4: #8a8a83;
+    --jwork-text-5: #a8a8a0;
+    --jwork-icon: #55554f;
+    --jwork-tint: #e7f2ea;
+    --jwork-tint-fg: #1f7142;
+    --jwork-scrollbar: #cfcfca;
+    --jwork-scrollbar-hover: #b5b5b0;
+    --jwork-code-bg: #f4f4f1;
+    --jwork-code-fg: #2a2a26;
+    --jwork-code-border: #e2e2dd;
+    --jwork-inline-code-bg: #ecece7;
+    --jwork-quote-bar: #cfcfc8;
+    --jwork-quote-fg: #5d5d56;
+    --jwork-badge-green-bg: #e0f0e4;
+    --jwork-badge-gray-bg: #efefec;
+    --jwork-badge-gray-fg: #77776f;
+    --jwork-badge-blue-bg: #e4eef9;
+    --jwork-badge-blue-fg: #2f5f8a;
+    --jwork-badge-red-bg: #f9e5e4;
+    --jwork-badge-red-fg: #b3403f;
+    --jwork-ok: #2f9e5f;
+    --jwork-err: #c0403f;
+    --jwork-hit: #fff3c4;
+
+    /* 字号档位（中档基线，与 JavaFX 气泡/Markdown 字号对齐：正文 14px，标题 +7/+4/+2/+1） */
+    --chat-font: 14px;
+    --h1-font: 21px;
+    --h2-font: 18px;
+    --h3-font: 16px;
+    --h4-font: 15px;
+    --code-font: 13px;
+    --inline-code-font: 12.5px;
+    --meta-font: 12px;
+
+    /* 版式尺度：一行的宽度、节奏与层次都从这里取值，改一处即整页跟着动 */
+    --list-w: 880px;      /* 消息列宽：留左右呼吸，别拉成通栏 */
+    --turn-w: 760px;      /* 单轮正文宽：约 78 字/行，读长答案不追行 */
+    --prose-lh: 1.7;      /* 正文行高：中文长段的舒适阅读值 */
+    --gap-turn: 14px;     /* 轮与轮的间距 */
+    --gap-block: 10px;    /* 轮内正文块/过程块/卡片间距 */
+    --radius-card: 9px;
+}
+
+html[data-theme="dark"] {
+    --jwork-accent: #3fb26f;
+    --jwork-bg: #1e1e1d;
+    --jwork-canvas: #1a1a19;
+    --jwork-content: #262625;
+    --jwork-hover: #313130;
+    --jwork-press: #3a3a38;
+    --jwork-btn: #333331;
+    --jwork-btn-hover: #3d3d3b;
+    --jwork-border: #3a3a38;
+    --jwork-border-2: #454543;
+    --jwork-text: #dededa;
+    --jwork-text-strong: #f0f0ec;
+    --jwork-text-title: #ececea;
+    --jwork-text-2: #c9c9c4;
+    --jwork-text-3: #b5b5b0;
+    --jwork-text-4: #96968f;
+    --jwork-text-5: #80807a;
+    --jwork-icon: #a8a8a2;
+    --jwork-tint: #2b3a2f;
+    --jwork-tint-fg: #8fd0a5;
+    --jwork-scrollbar: #4a4a48;
+    --jwork-scrollbar-hover: #5c5c5a;
+    --jwork-code-bg: #26262a;
+    --jwork-code-fg: #dcdcd6;
+    --jwork-code-border: #3a3a3c;
+    --jwork-inline-code-bg: #34343a;
+    --jwork-quote-bar: #4a4a48;
+    --jwork-quote-fg: #bdbdb7;
+    --jwork-badge-green-bg: #2b3a2f;
+    --jwork-badge-gray-bg: #383836;
+    --jwork-badge-gray-fg: #a8a8a2;
+    --jwork-badge-blue-bg: #2a3644;
+    --jwork-badge-blue-fg: #8fb8dc;
+    --jwork-badge-red-bg: #442c2b;
+    --jwork-badge-red-fg: #e09a97;
+    --jwork-ok: #3fb26f;
+    --jwork-err: #e09a97;
+    --jwork-hit: #4d4424;
+}
+
+html[data-font="small"] {
+    --chat-font: 13px;
+    --h1-font: 20px;
+    --h2-font: 17px;
+    --h3-font: 15px;
+    --h4-font: 14px;
+    --code-font: 12px;
+    --inline-code-font: 11.5px;
+    --meta-font: 11px;
+}
+
+html[data-font="large"] {
+    --chat-font: 16px;
+    --h1-font: 23px;
+    --h2-font: 20px;
+    --h3-font: 18px;
+    --h4-font: 17px;
+    --code-font: 15px;
+    --inline-code-font: 13.5px;
+    --meta-font: 13px;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--jwork-content);
+    color: var(--jwork-text);
+}
+
+body {
+    /* 纯系统字体：Chromium(JCEF) 只认操作系统已装字体，看不到 JavaFX 随包注册的 Noto Sans SC，
+       故不引用任何外置/随包字体。中文用微软雅黑 UI、拉丁用 Segoe UI；emoji 必须排在
+       "Segoe UI Symbol" 之前——Symbol 也覆盖增补平面 emoji 码位但只有单色字形，
+       排在前面会把 😁🎉 等彩色 emoji 拖成黑色单色（带 VS16 的 ❤️⚠️ 除外）；
+       符号类字符（①、★ 等）仍由 Symbol 尾随兜底，不致变豆腐块。 */
+    font-family: "Microsoft YaHei UI", "Segoe UI", "Segoe UI Emoji", "Segoe UI Symbol", sans-serif;
+    font-size: var(--chat-font);
+    line-height: 1.7;
+    overflow-x: hidden;
+}
+
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--jwork-scrollbar); border-radius: 5px; border: 2px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--jwork-scrollbar-hover); border: 2px solid transparent; background-clip: content-box; }
+
+#list {
+    max-width: var(--list-w);
+    margin: 0 auto;
+    padding: 16px 12px 24px;
+}
+
+/* ---------- 消息行与气泡 ---------- */
+.bubble-row { display: flex; margin: var(--gap-turn) 0 0; }
+.bubble-row.user { justify-content: flex-end; }
+.bubble-row.assistant { justify-content: flex-start; }
+.bubble-host { max-width: var(--turn-w); min-width: 0; }
+
+.bubble-user {
+    background: var(--jwork-tint);
+    color: var(--jwork-text);
+    border-radius: 10px;
+    padding: 8px 14px;
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    max-width: 100%;
+}
+
+/* 助手一轮裸排在列里：正文不带边框与底色，过程区靠缩进与弱色分层，
+   答案与过程从此不再同权重（旧版每段正文一张卡，读起来像一摞收据） */
+.bubble-host > * + * { margin-top: var(--gap-block); }
+
+.bubble-images { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 6px; justify-content: flex-end; }
+.bubble-images img {
+    max-width: 180px;
+    max-height: 180px;
+    border-radius: 8px;
+    border: 1px solid var(--jwork-border);
+    cursor: pointer;
+    display: block;
+    object-fit: cover;
+}
+/* 附件文件卡片：彩色类型徽标 + 名称/类型两行，同排多卡片换行排列 */
+.bubble-files { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 6px; justify-content: flex-end; }
+.file-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--jwork-content);
+    border: 1px solid var(--jwork-border);
+    border-radius: 10px;
+    padding: 8px 12px;
+    max-width: 100%;
+    cursor: pointer;
+}
+.file-row:hover { background: var(--jwork-btn-hover); }
+.file-row .file-ic { width: 28px; height: 28px; flex: none; display: inline-flex; }
+.file-row .file-ic svg { width: 28px; height: 28px; }
+.file-row .file-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.file-row .file-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--jwork-text-title);
+    max-width: 170px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.2;
+}
+.file-row .file-type { font-size: 11px; color: var(--jwork-text-4); line-height: 1; }
+
+/* 产物卡：模型经 deliver_artifact 交到本机的文件，正文末尾成组展示；一行一卡，动作按钮右对齐 */
+.artifact-cards { display: flex; flex-direction: column; gap: 6px; }
+.artifact-caption { font-size: 11px; color: var(--jwork-text-4); letter-spacing: .3px; }
+.artifact-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: var(--jwork-content);
+    border: 1px solid var(--jwork-border);
+    border-radius: 10px;
+    padding: 8px 10px;
+    max-width: 100%;
+}
+.artifact-card .artifact-ic { width: 28px; height: 28px; flex: none; display: inline-flex; }
+.artifact-card .artifact-ic svg { width: 28px; height: 28px; }
+.artifact-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 auto; }
+.artifact-name {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--jwork-text-title);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    line-height: 1.2;
+}
+.artifact-meta { font-size: 11px; color: var(--jwork-text-4); line-height: 1; }
+.artifact-acts { display: flex; align-items: center; gap: 6px; flex: none; }
+.artifact-act {
+    font: inherit;
+    font-size: 11px;
+    color: var(--jwork-text-2);
+    background: transparent;
+    border: 1px solid var(--jwork-border);
+    border-radius: 7px;
+    padding: 3px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.artifact-act:hover { background: var(--jwork-btn-hover); color: var(--jwork-text); border-color: var(--jwork-border-2); }
+/* 三个动作并排像表单：主操作（就地预览）留在面上，其余收进「⋯」浮层 */
+.artifact-more { position: relative; }
+.artifact-act.dots { padding: 3px 7px; letter-spacing: 1px; }
+.artifact-menu {
+    display: none;
+    position: absolute;
+    right: 0;
+    top: calc(100% + 4px);
+    z-index: 6;
+    min-width: 130px;
+    padding: 3px;
+    background: var(--jwork-content);
+    border: 1px solid var(--jwork-border-2);
+    border-radius: 8px;
+    box-shadow: 0 6px 18px rgba(0, 0, 0, .18);
+}
+.artifact-more.open .artifact-menu { display: block; }
+.artifact-menu-item {
+    display: block;
+    width: 100%;
+    text-align: left;
+    font: inherit;
+    font-size: 11px;
+    color: var(--jwork-text-2);
+    background: transparent;
+    border: none;
+    border-radius: 6px;
+    padding: 5px 8px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.artifact-menu-item:hover { background: var(--jwork-hover); color: var(--jwork-text); }
+
+/* 在途正文：逐字追加的明文视图（定格后换成 Markdown 渲染结果，故不需单独排版） */
+.prose-live { white-space: pre-wrap; overflow-wrap: break-word; line-height: var(--prose-lh); }
+/* 本轮首个事件到达前的占位行：旋转图标 + 脉动文本，别在正文上方先摆一个空卡 */
+.pending { display: flex; align-items: center; gap: 6px; color: var(--jwork-text-4); font-size: var(--meta-font); }
+.pending-ic { display: inline-flex; flex: none; }
+.pending-ic svg { width: 12px; height: 12px; fill: currentColor; }
+@keyframes think-pulse { 0% { opacity: .4; } 50% { opacity: 1; } 100% { opacity: .4; } }
+.pending-text.pulsing { animation: think-pulse 1.8s ease-in-out infinite; }
+/* 占位读秒：右对齐等宽数字，与工作日志行尾同口径（每秒报一次，不足 1s 不显示） */
+.pending-time { flex: none; margin-left: auto; color: var(--jwork-text-5); font-variant-numeric: tabular-nums; }
+/* 在途图标原地旋转：比透明度脉动更强的「还在跑」信号；定格移除 live 类即停转 */
+@keyframes jwork-spin { to { transform: rotate(360deg); } }
+.pending-ic svg, .log-ic.live svg { animation: jwork-spin .9s linear infinite; }
+
+/* ---------- 底部操作条（悬停浮现） ---------- */
+.bubble-footer {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin-top: 6px;
+    min-height: 24px;
+    opacity: 0;
+    transition: opacity .12s ease;
+}
+.bubble-host:hover .bubble-footer { opacity: 1; }
+.msg-action-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    padding: 0;
+    border: none;
+    border-radius: 6px;
+    background: transparent;
+    color: var(--jwork-icon);
+    cursor: pointer;
+}
+.msg-action-btn:hover { background: var(--jwork-hover); color: var(--jwork-text-2); }
+.msg-action-btn:active { background: var(--jwork-press); }
+.msg-action-btn svg { width: 14px; height: 14px; fill: currentColor; }
+.msg-action-btn.hidden { display: none; }
+.msg-time { font-size: var(--meta-font); color: var(--jwork-text-5); margin-left: 2px; }
+.msg-ai-label { font-size: var(--meta-font); color: var(--jwork-text-5); margin-left: auto; }
+
+/* ---------- Markdown 正文 ---------- */
+/* 正文块：一轮答案的裸排容器（无边框——答案自己就是主角，不该被卡片包起来） */
+.prose { min-width: 0; overflow-wrap: break-word; }
+.md { line-height: var(--prose-lh); }
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+.md p { margin: 6px 0; }
+.md h1, .md h2, .md h3, .md h4, .md h5, .md h6 {
+    margin: 14px 0 8px;
+    line-height: 1.4;
+    color: var(--jwork-text-title);
+    font-weight: 700;
+}
+.md h1 { font-size: var(--h1-font); }
+.md h2 { font-size: var(--h2-font); }
+.md h3 { font-size: var(--h3-font); }
+.md h4, .md h5, .md h6 { font-size: var(--h4-font); }
+.md a { color: var(--jwork-accent); text-decoration: none; cursor: pointer; }
+.md a:hover { text-decoration: underline; }
+.md ul, .md ol { margin: 6px 0; padding-left: 24px; }
+.md li { margin: 2px 0; }
+.md li > p { margin: 0; }
+.md blockquote {
+    margin: 8px 0;
+    padding: 4px 12px;
+    border-left: 3px solid var(--jwork-quote-bar);
+    color: var(--jwork-quote-fg);
+}
+.md hr { border: none; border-top: 1px solid var(--jwork-border); margin: 12px 0; }
+.md img { max-width: 100%; border-radius: 8px; display: block; margin: 8px 0; cursor: pointer; }
+.md table { border-collapse: collapse; margin: 8px 0; max-width: 100%; display: block; overflow-x: auto; }
+.md th, .md td { border: 1px solid var(--jwork-border-2); padding: 6px 10px; text-align: left; }
+.md th { background: var(--jwork-code-bg); color: var(--jwork-text-strong); font-weight: 700; }
+.md del { color: var(--jwork-text-4); }
+.md code {
+    background: var(--jwork-inline-code-bg);
+    border: 1px solid var(--jwork-border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: var(--inline-code-font);
+    color: var(--jwork-text);
+}
+
+/* ---------- 代码块（含头部操作条） ---------- */
+.code-block {
+    margin: 10px 0;
+    border: 1px solid var(--jwork-code-border);
+    border-radius: 8px;
+    background: var(--jwork-code-bg);
+    overflow: hidden;
+}
+.code-head {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 10px;
+    border-bottom: 1px solid var(--jwork-code-border);
+    font-size: var(--meta-font);
+    color: var(--jwork-text-4);
+}
+.code-lang { margin-right: auto; }
+.code-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    margin-left: 4px;
+    padding: 0;
+    border: none;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--jwork-icon);
+    cursor: pointer;
+}
+.code-btn:hover { background: var(--jwork-hover); color: var(--jwork-text-2); }
+.code-btn svg { width: 13px; height: 13px; fill: currentColor; }
+/* 复制/预览钮平时不占注意：鼠标进入代码块或键盘聚焦才浮现（与消息操作条同一套交互） */
+.code-btn { opacity: 0; transition: opacity .12s ease; }
+.code-block:hover .code-btn, .code-btn:focus-visible { opacity: 1; }
+.code-block pre { margin: 0; padding: 12px 14px; overflow-x: auto; }
+.code-block pre code {
+    background: none;
+    border: none;
+    padding: 0;
+    font-family: "Cascadia Mono", Consolas, "Courier New", monospace;
+    font-size: var(--code-font);
+    line-height: 1.6;
+    color: var(--jwork-code-fg);
+    white-space: pre;
+}
+
+/* mermaid 代码块在聊天区的简单呈现（真正的图渲染仍由卡片化扩展处理） */
+.code-block.is-mermaid pre { overflow-x: auto; }
+/* Mermaid 出图后替换代码体（源码仍可经头部复制/预览取回）；未出图时本节点不存在 */
+.mmd-live { padding: 12px 14px; overflow-x: auto; text-align: center; }
+.mmd-live svg { max-width: 100%; height: auto; }
+
+/* ---------- 过程区：一轮的「工作日志」（思考 + 工具 + 旁白） ---------- */
+// 刻意比正文低两档：不描边、不加底色、缩进一级、字号小一档、色弱一级。
+// 用户要读的是答案，过程只在「它好像卡住了」时才需要看，所以默认一行收起、点开可查。
+.process { min-width: 0; }
+.process-head {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 6px 2px 2px;
+    cursor: pointer;
+    font-size: var(--meta-font);
+    color: var(--jwork-text-4);
+    user-select: none;
+    border-radius: 6px;
+    width: -moz-fit-content;
+    width: fit-content;
+}
+.process-head:hover { color: var(--jwork-text-2); background: var(--jwork-hover); }
+.process-chev { display: inline-flex; flex: none; transition: transform .15s ease; }
+.process-chev svg { width: 11px; height: 11px; fill: currentColor; }
+.process.open > .process-head .process-chev { transform: rotate(90deg); }
+.process-title { font-weight: 600; }
+.process-body { display: none; margin: 2px 0 0 6px; padding-left: 8px; border-left: 1px solid var(--jwork-border); }
+.process.open > .process-body { display: block; }
+/* 纯旁白分组：没有可折叠的统计，去掉头与缩进，一行说明直接贴着正文 */
+.process.bare > .process-head { display: none; }
+.process.bare > .process-body { display: block; margin: 0; padding: 0; border-left: none; }
+.process.bare { display: flex; flex-direction: column; gap: 3px; }
+
+.log-item { min-width: 0; }
+.log-row {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    padding: 2px 6px 2px 2px;
+    margin-left: -2px;
+    cursor: pointer;
+    font-size: var(--meta-font);
+    color: var(--jwork-text-3);
+    border-radius: 6px;
+    min-width: 0;
+}
+.log-row:hover { background: var(--jwork-hover); }
+.log-ic { display: inline-flex; flex: none; transform: translateY(1px); }
+.log-ic svg { width: 12px; height: 12px; fill: currentColor; }
+.log-ic.ok { color: var(--jwork-ok); }
+.log-ic.err { color: var(--jwork-err); }
+.log-ic.live { color: var(--jwork-text-4); }
+.log-name { font-weight: 600; color: var(--jwork-text-2); white-space: nowrap; }
+.log-summary {
+    color: var(--jwork-text-4);
+    min-width: 0;
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+/* margin-left:auto 把耗时推到行右缘：思考行没有 flex:1 的摘要占位，工具行摘要已吃满余量故不受影响 */
+.log-time { flex: none; margin-left: auto; color: var(--jwork-text-5); font-variant-numeric: tabular-nums; }
+.log-detail { display: none; margin: 2px 0 6px 20px; }
+.log-item.open > .log-detail { display: block; }
+/* 思考全文：正文的排版，但整体降一档色，展开后仍在讲「这是过程不是答案」 */
+.log-detail .md { color: var(--jwork-text-3); font-size: var(--meta-font); line-height: 1.65; max-height: 260px; overflow-y: auto; }
+/* 在途思考全文：定格前只有纯文本，排版留到 seal 的那一次，所以这里自己保住换行与滚动 */
+.log-detail-raw { color: var(--jwork-text-3); font-size: var(--meta-font); line-height: 1.65; max-height: 260px; overflow-y: auto; white-space: pre-wrap; overflow-wrap: break-word; }
+.log-detail-label { font-size: var(--meta-font); color: var(--jwork-text-4); margin: 4px 0 2px; }
+.log-detail-text {
+    display: block;
+    background: var(--jwork-code-bg);
+    border: 1px solid var(--jwork-code-border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-family: "Cascadia Mono", Consolas, monospace;
+    font-size: var(--meta-font);
+    white-space: pre-wrap;
+    overflow-wrap: break-word;
+    max-height: 240px;
+    overflow-y: auto;
+    color: var(--jwork-text-2);
+    margin: 0;
+}
+
+/* 运行体旁白：步数续跑、子代理启停、授权请求——一句话一行，不套卡、不可点 */
+.notice {
+    font-size: var(--meta-font);
+    color: var(--jwork-text-4);
+    line-height: 1.6;
+    padding-left: 20px;
+    text-indent: -14px;
+}
+.process.bare .notice { padding-left: 0; text-indent: 0; }
+
+/* ---------- 任务清单卡（todo_write） ---------- */
+.todo-card {
+    border-radius: var(--radius-card);
+    border: 1px solid var(--jwork-border);
+    background: var(--jwork-code-bg);
+    overflow: hidden;
+}
+.todo-head {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    font-size: var(--meta-font);
+    color: var(--jwork-text-3);
+    border-bottom: 1px solid var(--jwork-border);
+}
+.todo-head svg { width: 12px; height: 12px; fill: currentColor; display: inline-flex; color: var(--jwork-badge-blue-fg); }
+.todo-title { font-weight: 700; color: var(--jwork-text-2); }
+.todo-progress { margin-left: auto; color: var(--jwork-text-4); font-variant-numeric: tabular-nums; }
+.todo-body { padding: 6px 10px 8px; display: flex; flex-direction: column; gap: 2px; }
+.todo-item { display: flex; align-items: flex-start; gap: 8px; font-size: var(--chat-font); color: var(--jwork-text-2); }
+.todo-mark {
+    flex: none;
+    width: 13px;
+    height: 13px;
+    margin-top: 4px;
+    border: 1px solid var(--jwork-border-2);
+    border-radius: 4px;
+    background: var(--jwork-content);
+}
+.todo-item.completed .todo-mark { background: var(--jwork-ok); border-color: var(--jwork-ok); }
+.todo-item.in_progress .todo-mark { border-color: var(--jwork-badge-blue-fg); box-shadow: inset 0 0 0 2px var(--jwork-badge-blue-fg); }
+.todo-item.completed .todo-text { color: var(--jwork-text-4); text-decoration: line-through; }
+.todo-item.in_progress .todo-text { color: var(--jwork-text); font-weight: 600; }
+.todo-text { min-width: 0; white-space: pre-wrap; overflow-wrap: break-word; line-height: 1.6; }
+
+/* ---------- 对比卡 ---------- */
+.compare-card { display: flex; gap: 10px; margin: 8px 0; align-items: stretch; }
+.compare-col {
+    flex: 1 1 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    background: var(--jwork-content);
+    border: 1px solid var(--jwork-border);
+    border-radius: 10px;
+    padding: 10px 12px;
+}
+.compare-col-head { display: flex; align-items: center; gap: 8px; }
+.compare-col-title { font-weight: 700; color: var(--jwork-text-strong); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.badge { flex: none; font-size: var(--meta-font); padding: 1px 8px; border-radius: 999px; }
+.badge-blue { background: var(--jwork-badge-blue-bg); color: var(--jwork-badge-blue-fg); }
+.badge-green { background: var(--jwork-badge-green-bg); color: var(--jwork-tint-fg); }
+.badge-gray { background: var(--jwork-badge-gray-bg); color: var(--jwork-badge-gray-fg); }
+.badge-red { background: var(--jwork-badge-red-bg); color: var(--jwork-badge-red-fg); }
+.compare-col-scroll {
+    height: 300px;
+    overflow-y: auto;
+    border: 1px solid var(--jwork-border);
+    border-radius: 8px;
+    background: var(--jwork-code-bg);
+    padding: 8px 10px;
+    font-size: var(--chat-font);
+}
+.compare-col-text { white-space: pre-wrap; overflow-wrap: break-word; color: var(--jwork-text); }
+.compare-col-foot { font-size: var(--meta-font); color: var(--jwork-text-4); }
+
+/* ---------- 命中高亮（搜索跳转） ---------- */
+@keyframes hit-fade { 0% { background: var(--jwork-hit); } 100% { background: transparent; } }
+.bubble-row.hit { animation: hit-fade 1.6s ease forwards; border-radius: 10px; }
+
+/* 平滑滚动（补页/回底由 JS 控制） */
+html { scroll-behavior: smooth; }

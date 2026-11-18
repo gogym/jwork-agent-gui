@@ -1,0 +1,124 @@
+/* ============================================================
+ * Jwork 深色模式：只覆盖语义色变量（在 jwork-agent.css 之后加载）
+ * ============================================================ */
+
+.root {
+    -jwork-accent: #3fb26f;
+    -jwork-accent-hover: #35a062;
+    -jwork-accent-press: #2c8c54;
+    -jwork-accent-disabled: #2f4a38;
+    -jwork-faint-focus: #3fb26f22;
+
+    -jwork-bg: #1e1e1d;
+    -jwork-panel: #262625;
+    -jwork-panel-2: #2a2a29;
+    /* 深色：统一背景最暗，内容区略亮（浮起） */
+    -jwork-canvas: #1a1a19;
+    -jwork-content: #262625;
+    /* 深色下 veil 压暗而非提亮，否则磨玻璃会变成发白 */
+    -jwork-frost-veil: rgba(18, 18, 17, 0.58);
+    -jwork-hover: #313130;
+    -jwork-press: #3a3a38;
+
+    -jwork-btn: #333331;
+    -jwork-btn-hover: #3d3d3b;
+    -jwork-btn-press: #474745;
+
+    -jwork-border: #3a3a38;
+    -jwork-border-2: #454543;
+    -jwork-border-3: #3a3a38;
+    -jwork-border-4: #3b3b39;
+    -jwork-border-5: #353533;
+    -jwork-border-6: #3b3b39;
+    -jwork-border-hover: #4d6b52;
+
+    -jwork-text: #dededa;
+    -jwork-text-strong: #f0f0ec;
+    -jwork-text-title: #ececea;
+    -jwork-text-2: #c9c9c4;
+    -jwork-text-3: #b5b5b0;
+    -jwork-text-4: #96968f;
+    -jwork-text-5: #80807a;
+    -jwork-text-nav: #d5d5d0;
+    -jwork-icon: #a8a8a2;
+
+    -jwork-tint: #2b3a2f;
+    -jwork-tint-2: #324536;
+    -jwork-tint-3: #2f3a31;
+    -jwork-tint-4: #3d3d3b;
+    -jwork-tint-5: #2f3a31;
+    -jwork-tint-fg: #8fd0a5;
+    -jwork-tint-fg-2: #cfe8d6;
+    -jwork-tint-fg-3: #8fd0a5;
+    -jwork-tint-fg-4: #b8ccbd;
+
+    -jwork-scrollbar: #4a4a48;
+    -jwork-scrollbar-hover: #5c5c5a;
+
+    -jwork-badge-green-bg: #2b3a2f;
+    -jwork-badge-gray-bg: #383836;
+    -jwork-badge-gray-fg: #a8a8a2;
+    -jwork-badge-blue-bg: #2a3644;
+    -jwork-badge-blue-fg: #8fb8dc;
+    -jwork-badge-red-bg: #442c2b;
+    -jwork-badge-red-fg: #e09a97;
+
+    /* 计划待确认横幅的信息蓝底色（深色覆盖） */
+    -jwork-info-bg: #2a3644;
+
+    /* 常驻提醒条的琥珀语义色（深色覆盖） */
+    -jwork-warn-bg: #3a2f1c;
+    -jwork-warn-border: #4d3f24;
+    -jwork-warn-icon: #e0a24a;
+    -jwork-warn-fg: #e6c990;
+
+    -jwork-empty-icon: #4a4a48;
+    -jwork-check-border: #555553;
+    -jwork-arrow: #a8a8a2;
+    -jwork-section: #96968f;
+    -jwork-subtitle: #80807a;
+    -jwork-mono-fg: #a0a09a;
+    /* 代码块 / 行内码 / 引用：深色覆盖值 */
+    -jwork-code-bg: #26262a;
+    -jwork-code-fg: #dcdcd6;
+    -jwork-code-border: #3a3a3c;
+    -jwork-inline-code-bg: #34343a;
+    -jwork-quote-bar: #4a4a48;
+    -jwork-quote-fg: #bdbdb7;
+    -jwork-desc: #bdbdb7;
+    -jwork-cell-hover: #303030;
+    -jwork-selection-nonfocus: #383836;
+    -jwork-input-bg: #2a2a29;
+
+    /* Modena 基础色（控件默认态跟随深色） */
+    -fx-base: #333331;
+    -fx-background: -jwork-bg;
+    -fx-control-inner-background: -jwork-input-bg;
+    -fx-text-base-color: -jwork-text;
+    -fx-selection-bar: -jwork-tint;
+    -fx-selection-bar-non-focused: -jwork-selection-nonfocus;
+}
+
+/* 深色下阴影不可见，去掉卡片/输入卡/内容面板投影避免脏边 */
+.input-card, .task-card, .skill-card, .context-menu, .content-panel {
+    -fx-effect: none;
+}
+/* 着色代码块 token 深色值（浅色值在 jwork-agent.css，变量 -jwork-code-* 已在上方覆盖） */
+.md-code-kw  { -fx-fill: #c678dd; -fx-font-weight: bold; }
+.md-code-str { -fx-fill: #98c379; }
+.md-code-num { -fx-fill: #d19a66; }
+.md-code-com { -fx-fill: #7f848e; -fx-font-style: italic; }
+
+/* ---------- 启动画面（Preloader）：深色卡片 ---------- */
+/* 深色下投影不可见，透明壳仅保留留白（本身无底色，不会露出直角） */
+.splash-shell { -fx-effect: none; }
+.splash-root {
+    -fx-background-color: -jwork-bg;
+    -fx-background-radius: 12;
+    -fx-border-color: -jwork-border-2;
+    -fx-border-radius: 12;
+    -fx-border-width: 1;
+    -fx-padding: 24;
+}
+.splash-title { -fx-font-size: 22px; -fx-font-weight: bold; -fx-text-fill: -jwork-text-title; }
+.splash-status { -fx-font-size: 12px; -fx-text-fill: -jwork-text-4; }

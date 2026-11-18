@@ -1,12 +1,12 @@
 <p align="center">
-  <img src="gim-agent-ui/src/main/resources/icons/brand-mark.png" width="104" alt="Jwork logo">
+  <img src="jwork-agent-ui/src/main/resources/icons/brand-mark.png" width="104" alt="Jwork logo">
 </p>
 
 # Jwork
 
 **Windows 上的本地优先 AI 工作台——杂活它干，决策你留。**
 
-Jwork（原名 Gim Agent）是一个真正在你机器上干活的桌面 AI 助理：读写真实文件、经你批准后执行命令、基于你自己的文档回答问题、联网搜索、跑定时任务，并跨会话记住你的上下文。一切数据都存放在你磁盘上的 `~/.jwork/`——无需账号、不依赖云服务。接入任意 OpenAI 兼容提供商，或本地模型服务（Ollama / LM Studio），就可以开始委派了。
+Jwork是一个真正在你机器上干活的桌面 AI 助理：读写真实文件、经你批准后执行命令、基于你自己的文档回答问题、联网搜索、跑定时任务，并跨会话记住你的上下文。一切数据都存放在你磁盘上的 `~/.jwork/`——无需账号、不依赖云服务。接入任意 OpenAI 兼容提供商，或本地模型服务（Ollama / LM Studio），就可以开始委派了。
 
 ## 它能为你做什么
 
@@ -68,11 +68,11 @@ Jwork（原名 Gim Agent）是一个真正在你机器上干活的桌面 AI 助�
 
 | 模块 | 职责 |
 | --- | --- |
-| `gim-agent-domain` | SQLite 持久化（schema、DAO、实体）、备份恢复、安全原语 |
-| `gim-agent-core` | 智能体运行时（AgentScope Harness 网关）、聊天服务、记忆/知识/计划、能力解析 |
-| `gim-agent-tools` | 工具守卫、HITL 确认、Docker 沙箱、技能、联网搜索、图像生成 |
-| `gim-agent-scheduler` | 基于 Quartz 的调度服务与面向智能体的定时任务工具 |
-| `gim-agent-ui` | JavaFX 应用：JCEF 渲染的聊天区、工作区与终端、设置、桌面集成、云同步、语音 |
+| `jwork-agent-domain` | SQLite 持久化（schema、DAO、实体）、备份恢复、安全原语 |
+| `jwork-agent-core` | 智能体运行时（AgentScope Harness 网关）、聊天服务、记忆/知识/计划、能力解析 |
+| `jwork-agent-tools` | 工具守卫、HITL 确认、Docker 沙箱、技能、联网搜索、图像生成 |
+| `jwork-agent-scheduler` | 基于 Quartz 的调度服务与面向智能体的定时任务工具 |
+| `jwork-agent-ui` | JavaFX 应用：JCEF 渲染的聊天区、工作区与终端、设置、桌面集成、云同步、语音 |
 
 模块依赖方向：`ui → scheduler / tools / core → domain`。
 
@@ -98,10 +98,10 @@ Jwork（原名 Gim Agent）是一个真正在你机器上干活的桌面 AI 助�
 mvn -q -DskipTests install
 
 # 启动应用
-mvn -pl gim-agent-ui javafx:run
+mvn -pl jwork-agent-ui javafx:run
 ```
 
-也可以用 IntelliJ IDEA 打开项目，直接运行 `com.gettyio.gim.agent.ui.GimAgentApplication`（JCEF/OSR 所需模块导出参数已在 `.run/` 中预置）。
+也可以用 IntelliJ IDEA 打开项目，直接运行 `com.gettyio.jwork.agent.ui.JworkAgentApplication`（JCEF/OSR 所需模块导出参数已在 `.run/` 中预置）。
 
 ### 构建 Windows 安装包
 

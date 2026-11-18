@@ -12,10 +12,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 $AppName = "Jwork"
-$MainClass = "com.gettyio.gim.agent.ui.Launcher"
+$MainClass = "com.gettyio.jwork.agent.ui.Launcher"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$UiDir = Join-Path $RepoRoot "gim-agent-ui"
+$UiDir = Join-Path $RepoRoot "jwork-agent-ui"
 $TargetDir = Join-Path $UiDir "target"
 $LibDir = Join-Path $TargetDir "lib"
 $StageDir = Join-Path $TargetDir "package"
@@ -24,7 +24,7 @@ $OutDir = Join-Path $RepoRoot "build\installer"
 Write-Host "== 1/4 Maven 打包 (-Ppackage) ==" -ForegroundColor Cyan
 Push-Location $RepoRoot
 try {
-    & mvn -q -Ppackage clean package -pl gim-agent-ui -am
+    & mvn -q -Ppackage clean package -pl jwork-agent-ui -am
     if ($LASTEXITCODE -ne 0) { throw "Maven 构建失败" }
 } finally {
     Pop-Location
@@ -42,9 +42,9 @@ Write-Host ("应用版本: " + $AppVersion)
 Write-Host "== 2/4 组装扁平 classpath 暂存目录 ==" -ForegroundColor Cyan
 if (Test-Path $StageDir) { Remove-Item $StageDir -Recurse -Force }
 New-Item -ItemType Directory -Force -Path (Join-Path $StageDir "lib") | Out-Null
-$MainJar = Get-ChildItem -Path $TargetDir -Filter "gim-agent-ui-*.jar" |
+$MainJar = Get-ChildItem -Path $TargetDir -Filter "jwork-agent-ui-*.jar" |
     Where-Object { $_.Name -notmatch "sources|javadoc" } | Select-Object -First 1
-if (-not $MainJar) { throw "未找到主 jar: $TargetDir\gim-agent-ui-*.jar" }
+if (-not $MainJar) { throw "未找到主 jar: $TargetDir\jwork-agent-ui-*.jar" }
 Copy-Item $MainJar.FullName -Destination (Join-Path $StageDir $MainJar.Name)
 Copy-Item (Join-Path $LibDir "*") -Destination (Join-Path $StageDir "lib") -Recurse
 Write-Host ("主 jar: " + $MainJar.Name)
