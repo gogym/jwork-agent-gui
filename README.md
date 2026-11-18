@@ -4,6 +4,8 @@
 
 # Jwork
 
+English | [简体中文](README.zh-CN.md)
+
 **Your local-first AI workbench for Windows — it does the chores, you keep the decisions.**
 
 Jwork is a desktop AI assistant that actually gets work done on your machine: it reads and writes real files, runs commands under your approval, answers from your own documents, searches the web, executes scheduled jobs, and remembers your context across sessions. Everything lives in `~/.jwork/` on your disk — no account, no cloud dependency. Plug in any OpenAI-compatible provider, or a local model server (Ollama / LM Studio), and start delegating.
@@ -60,7 +62,7 @@ Jwork is a desktop AI assistant that actually gets work done on your machine: it
 
 ## Comfort & control
 
-- Grouped settings — **Personal / App / Models / Extensions**, 18 pages — with in-menu search; branded About dialog with version, open-source repository and license links.
+- Grouped settings — **Personal / App / Models / Extensions**, 18 pages — with in-menu search; branded About dialog with version, source repository and license links.
 - i18n: English / 简体中文 / 繁體中文 · light & dark themes · three font scales.
 - Session search command palette (titles + full text), session groups, workspace-aware session organization.
 
@@ -141,6 +143,11 @@ All application data lives in `~/.jwork/`:
 └── cef/            # JCEF runtime (extracted on first launch)
 ```
 
-## License
+## License & Copyright
 
-[Apache-2.0](LICENSE) · Copyright © 2026 gogym
+Copyright © 2026 gogym. All rights reserved.
+
+- **Personal use — free.** You may install, run, copy and modify Jwork for personal, non-commercial purposes at no cost.
+- **Commercial use — authorization required.** Any commercial use (including business operations inside for-profit organizations, embedding into commercial products or services, and paid redistribution) requires prior explicit written authorization from the copyright holder.
+
+Full terms: [LICENSE](LICENSE) (Jwork Software License Agreement). For commercial licensing, get in touch via [Issues](https://github.com/gogym/jwork-agent-gui/issues).

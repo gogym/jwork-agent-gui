@@ -41,7 +41,7 @@ import java.net.URI;
 /**
  * 齿轮菜单「关于」：品牌化关于对话框（复用 {@link JworkDialog} 无边框壳）——
  * 绿色圆徽 + 应用名 + 版本胶囊居中，下接一句话简介、信息卡（数据目录 / 运行环境）、
- * 开源卡（仓库地址 / 许可证，点击经浏览器跳转）与版权行。
+ * 链接卡（仓库地址 / 许可证，点击经浏览器跳转）与版权行。
  * <p>版本经 {@link UpdateChecker#appVersion()} 读 {@code version.properties}（与更新检查同源），
  * 杜绝文案里硬编码版本号的漂移。</p>
  *
@@ -51,14 +51,14 @@ public final class AboutDialog {
 
     private static final Logger log = LoggerFactory.getLogger(AboutDialog.class);
 
-    /** 内容列宽度：简介 / 信息卡 / 开源卡同宽，加宽后品牌区更舒展。 */
+    /** 内容列宽度：简介 / 信息卡 / 链接卡同宽，加宽后品牌区更舒展。 */
     private static final double CONTENT_WIDTH = 440;
 
-    /** 开源仓库地址：关于页展示并点击跳转。 */
-    private static final String REPO_URL = "https://github.com/gogym/gim-agent-gui";
-    /** 开源许可证名称与原文地址。 */
-    private static final String LICENSE_NAME = "Apache License 2.0";
-    private static final String LICENSE_URL = "https://www.apache.org/licenses/LICENSE-2.0";
+    /** 源码仓库地址：关于页展示并点击跳转。 */
+    private static final String REPO_URL = "https://github.com/gogym/jwork-agent-gui";
+    /** 许可证名称与原文地址（自定义许可：个人免费、商业需授权）。 */
+    private static final String LICENSE_NAME = "Jwork Software License";
+    private static final String LICENSE_URL = "https://github.com/gogym/jwork-agent-gui/blob/main/LICENSE";
 
     private AboutDialog() {
     }
@@ -103,7 +103,7 @@ public final class AboutDialog {
         info.getStyleClass().add("about-info-card");
         info.setPrefWidth(CONTENT_WIDTH);
 
-        // 开源卡：仓库地址与许可证均可点击跳转，与信息卡同款视觉语言
+        // 链接卡：仓库地址与许可证均可点击跳转，与信息卡同款视觉语言
         VBox openSource = new VBox(10,
                 linkRow(I18n.t("about.repo"), REPO_URL, REPO_URL),
                 linkRow(I18n.t("about.license"), LICENSE_NAME, LICENSE_URL));
