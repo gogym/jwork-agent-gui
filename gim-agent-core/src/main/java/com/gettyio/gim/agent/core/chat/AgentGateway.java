@@ -19,6 +19,8 @@ package com.gettyio.gim.agent.core.chat;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.nio.file.Path;
+
 /**
  * Agent 对话网关：屏蔽底层 AgentScope 细节，向 UI 提供统一调用面。
  * <p>调用方传入 agentCode 指定由哪个智能体应答，具体路由见 {@link MultiAgentGateway}。</p>
@@ -66,5 +68,13 @@ public interface AgentGateway {
      */
     default Mono<ContextCompactionResult> compact(String agentCode, String sessionId) {
         return Mono.empty();
+    }
+
+    /**
+     * 指定智能体的工作区根目录（供 UI 读 AGENTS/KNOWLEDGE/MEMORY 等注入文档做占用分类估算）。
+     * <p>默认 null：无工作区概念的网关不参与文档估算，调用方按 0 处理。</p>
+     */
+    default Path workspaceForAgent(String agentCode) {
+        return null;
     }
 }

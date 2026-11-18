@@ -23,6 +23,7 @@ import com.gettyio.gim.agent.core.chat.StreamEvent;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
+import com.gettyio.gim.agent.ui.util.ModelErrorText;
 import com.gettyio.gim.agent.ui.voice.MicHoldButton;
 import com.gettyio.gim.agent.ui.voice.VoiceInputService;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
@@ -259,7 +260,7 @@ public class QuickAskWindow {
                         err -> {
                             log.warn("快速问答失败", err);
                             Platform.runLater(() -> {
-                                assistant.setText(I18n.t("chat.failed", String.valueOf(err.getMessage())));
+                                assistant.setText(I18n.t("chat.failed", ModelErrorText.describe(err)));
                                 active = null;
                             });
                         },

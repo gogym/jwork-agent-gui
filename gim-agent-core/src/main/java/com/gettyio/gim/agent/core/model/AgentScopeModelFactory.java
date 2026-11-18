@@ -22,6 +22,7 @@ import io.agentscope.core.model.Model;
 import io.agentscope.extensions.model.anthropic.AnthropicChatModel;
 import io.agentscope.extensions.model.dashscope.DashScopeChatModel;
 import io.agentscope.extensions.model.ollama.OllamaChatModel;
+import io.agentscope.extensions.model.ollama.options.OllamaOptions;
 import io.agentscope.extensions.model.openai.OpenAIChatModel;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -54,14 +55,16 @@ public class AgentScopeModelFactory {
         GenerateOptions options = buildOptions(spec);
         return switch (spec.protocol()) {
             case DASHSCOPE -> dashscope(spec, options);
-            case OPENAI_COMPATIBLE -> openAi(spec);
-            case ANTHROPIC_COMPATIBLE -> anthropic(spec);
-            case OLLAMA -> ollama(spec);
+            case OPENAI_COMPATIBLE -> openAi(spec, options);
+            case ANTHROPIC_COMPATIBLE -> anthropic(spec, options);
+            case OLLAMA -> ollama(spec, options);
         };
     }
 
     private GenerateOptions buildOptions(ModelSpec spec) {
-        GenerateOptions.Builder b = GenerateOptions.builder().modelName(spec.modelName());
+        GenerateOptions.Builder b = GenerateOptions.builder().modelName(spec.modelName())
+                // 预算/额度触顶类 429 不重试：重试不会恢复，只会刷满重试堆栈（对话与压缩同口径）
+                .executionConfig(ModelRetryPolicy.executionConfig());
         if (spec.temperature() != null) {
             b.temperature(spec.temperature());
         }
@@ -83,32 +86,35 @@ public class AgentScopeModelFactory {
         return builder.build();
     }
 
-    private Model openAi(ModelSpec spec) {
+    private Model openAi(ModelSpec spec, GenerateOptions options) {
         OpenAIChatModel.Builder builder = OpenAIChatModel.builder()
                 .apiKey(spec.apiKey())
                 .modelName(spec.modelName())
-                .stream(spec.stream());
+                .stream(spec.stream())
+                .generateOptions(options);
         if (spec.baseUrl() != null && !spec.baseUrl().isBlank()) {
             builder.baseUrl(normalizeOpenAiBaseUrl(spec.baseUrl()));
         }
         return builder.build();
     }
 
-    private Model anthropic(ModelSpec spec) {
+    private Model anthropic(ModelSpec spec, GenerateOptions options) {
         AnthropicChatModel.Builder builder = AnthropicChatModel.builder()
                 .apiKey(spec.apiKey())
                 .modelName(spec.modelName())
-                .stream(spec.stream());
+                .stream(spec.stream())
+                .defaultOptions(options);
         if (spec.baseUrl() != null && !spec.baseUrl().isBlank()) {
             builder.baseUrl(normalizeAnthropicBaseUrl(spec.baseUrl()));
         }
         return builder.build();
     }
 
-    private Model ollama(ModelSpec spec) {
+    private Model ollama(ModelSpec spec, GenerateOptions options) {
         OllamaChatModel.Builder builder = OllamaChatModel.builder()
                 .modelName(spec.modelName())
-                .stream(spec.stream());
+                .stream(spec.stream())
+                .defaultOptions(OllamaOptions.fromGenerateOptions(options));
         if (spec.baseUrl() != null && !spec.baseUrl().isBlank()) {
             builder.baseUrl(spec.baseUrl());
         }

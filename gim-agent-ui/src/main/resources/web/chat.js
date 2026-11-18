@@ -400,8 +400,12 @@
     }
 
     /** 过程块标题：有工具报步数，纯思考报「已思考 · Ns」；收起且在途时改报当前动作。 */
-    function processTitle(tools, failed, thinkMs, running) {
-        if (running) { return running; }
+    function processTitle(tools, failed, thinkMs, running, liveMs) {
+        if (running) {
+            // 思考在途时块头也带读秒：与行尾同口径，收起态不丢时长
+            var ts = running === (LABELS.thinking || 'Thinking…') ? seconds(liveMs) : '';
+            return ts ? running + ' · ' + ts : running;
+        }
         if (tools > 0) {
             return failed > 0
                 ? (LABELS.toolFailed || 'Executed {0} tool call(s), {1} failed')
@@ -436,7 +440,7 @@
     /** 重算块头：展开时在途行自带脉冲自报当前动作，块头只报统计免与行文案重复；
      *  收起后块头是唯一可见行，改报当前动作。无工具的分组不套折叠头（行自解释）。 */
     function refreshProcess(p) {
-        var tools = 0, failed = 0, thinkMs = 0, running = '';
+        var tools = 0, failed = 0, thinkMs = 0, liveMs = 0, running = '';
         for (var i = 0; i < p.items.length; i++) {
             var it = p.items[i];
             if (it.kind === 'tool') {
@@ -444,12 +448,13 @@
                 if (it.live) { running = runningTool(it.tool); }
                 else if (!it.tool.ok) { failed++; }
             } else if (it.kind === 'think') {
-                if (it.ms) { thinkMs += it.ms; }
-                if (it.live) { running = LABELS.thinking || 'Thinking…'; }
+                // 统计只算已定格的思考；在途耗时单独走 running 读秒，免得展开态块头误报「已思考」
+                if (it.live) { liveMs += it.ms || 0; running = LABELS.thinking || 'Thinking…'; }
+                else if (it.ms) { thinkMs += it.ms; }
             }
         }
         var open = p.box.classList.contains('open');
-        p.title.textContent = processTitle(tools, failed, thinkMs, open ? '' : running);
+        p.title.textContent = processTitle(tools, failed, thinkMs, open ? '' : running, liveMs);
         // 纯思考/旁白的分组不套折叠头：行文案已自解释，多一层壳只会把「思考中/已思考」重复一遍
         p.box.classList.toggle('bare', tools === 0);
     }
@@ -712,6 +717,7 @@
     function stopThink(s) {
         var it = s.think;
         if (!it) { return; }
+        stopThinkTick(it);
         it.ms = Math.max(0, Date.now() - it.started);
         sealThink(it);
         s.think = null;
@@ -723,8 +729,23 @@
         if (!s.think) {
             s.think = { kind: 'think', text: '', live: true, started: Date.now() };
             addProcessItem(liveProc(s), s.think);
+            armThinkTick(s.think);
         }
         appendThink(s.think, text);
+    }
+
+    /** 思考在途读秒：每秒把耗时写回 it.ms 并刷新行尾与块头，「思考中…」右侧始终有可读时长。 */
+    function armThinkTick(it) {
+        stopThinkTick(it);
+        it.tick = setInterval(function () {
+            it.ms = Math.max(0, Date.now() - it.started);
+            if (it.refs) { it.refs.time.textContent = seconds(it.ms); }
+            if (it.proc) { refreshProcess(it.proc); }
+        }, 1000);
+    }
+
+    function stopThinkTick(it) {
+        if (it && it.tick) { clearInterval(it.tick); it.tick = null; }
     }
 
     /** 调用发起即上屏一行在途记录：长耗时工具跑着的时候用户看得到当前动作，而不是整块静默。 */
@@ -782,18 +803,35 @@
 
     /** 在途标记：本轮还没有任何内容时占位一行，首个事件到达即让位。 */
     function clearPending(s) {
+        stopPendingTick(s);
         if (s.pending) {
             s.pending.parentNode.removeChild(s.pending);
             s.pending = null;
         }
     }
 
-    /** 占位行：旋转图标 + 脉动文本——轮未结束消息区就始终有活着的信号。 */
+    /** 占位行：旋转图标 + 脉动文本 + 右对齐读秒——轮未结束消息区就始终有活着的信号。 */
     function pendingLine() {
         var box = el('div', 'pending');
         box.appendChild(iconEl(SPINNER_SVG, 'pending-ic'));
         box.appendChild(el('span', 'pending-text pulsing', LABELS.thinking || 'Thinking…'));
+        box.appendChild(el('span', 'pending-time', ''));
         return box;
+    }
+
+    /** 占位读秒：从本条「思考中…」亮起计起每秒报一次耗时；让位即停，下次亮起重新计。 */
+    function armPendingTick(s) {
+        stopPendingTick(s);
+        s.pendingSince = Date.now();
+        s.pendingTimer = setInterval(function () {
+            if (!s.pending) { return; }
+            var t = s.pending.querySelector('.pending-time');
+            if (t) { t.textContent = seconds(Date.now() - s.pendingSince); }
+        }, 1000);
+    }
+
+    function stopPendingTick(s) {
+        if (s && s.pendingTimer) { clearInterval(s.pendingTimer); s.pendingTimer = null; }
     }
 
     /**
@@ -809,6 +847,7 @@
             if (s.think || s.open.length > 0 || s.pending) { return; }
             s.pending = pendingLine();
             s.host.appendChild(s.pending);
+            armPendingTick(s);
             if (followBottom) { scrollToBottom(false); }
         }, IDLE_MS);
     }
@@ -817,9 +856,14 @@
         if (s && s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
     }
 
-    /** 整页重放/清空前解除所有在途轮的心跳：定时器不得写进已脱离页面的气泡。 */
+    /** 整页重放/清空前解除所有在途轮的心跳与读秒：定时器不得写进已脱离页面的气泡。 */
     function disarmAllIdle() {
-        for (var k in streaming) { disarmIdle(streaming[k]); }
+        for (var k in streaming) {
+            var s = streaming[k];
+            disarmIdle(s);
+            stopPendingTick(s);
+            stopThinkTick(s.think);
+        }
     }
 
     // ---------- 任务清单卡（todo_write） ----------
@@ -1135,8 +1179,9 @@
             var pending = pendingLine();
             hostBox.appendChild(pending);
             var s = { host: hostBox, row: row, pending: pending, proc: null, think: null,
-                      prose: null, todo: null, open: [], idleTimer: null };
+                      prose: null, todo: null, open: [], idleTimer: null, pendingTimer: null };
             streaming[id] = s;
+            armPendingTick(s);
             armIdle(s);
             followBottom = true;
             scrollToBottom(false);

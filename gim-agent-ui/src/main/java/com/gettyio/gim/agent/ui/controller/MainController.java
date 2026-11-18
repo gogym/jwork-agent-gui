@@ -37,6 +37,7 @@ import com.gettyio.gim.agent.tools.image.ImageGenerationClient;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.prefs.UserPrefs;
+import com.gettyio.gim.agent.ui.util.ModelErrorText;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
@@ -1214,7 +1215,7 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
                             log.warn("流式对话失败", err);
                             Platform.runLater(() -> {
                                 // 半截应答已由 ChatService 的 doOnError 落盘，这里只补失败提示并定格临时气泡
-                                String note = I18n.t("chat.failed", err.getMessage());
+                                String note = I18n.t("chat.failed", ModelErrorText.describe(err));
                                 chatView.streamDelta(streamId, (acc.length() > 0 ? "\n" : "") + note);
                                 chatView.streamEnd(streamId);
                                 exitStreamingUi();

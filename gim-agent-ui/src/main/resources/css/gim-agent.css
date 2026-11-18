@@ -941,6 +941,37 @@
 /* 压缩结果/失败回显行（默认中性灰，失败转红） */
 .context-popup-status { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; -fx-line-spacing: 1; }
 .context-popup-status-error { -fx-text-fill: -gim-badge-red-fg; }
+/* 浮层标题行：左标题右总占比，同档加粗形成一眼可读的主信息 */
+.context-popup-title { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-title; }
+.context-popup-percent { -fx-font-size: 13px; -fx-font-weight: bold; -fx-text-fill: -gim-text-2; }
+/* 说明文案：弱灰小字多行，解释浮层口径与压缩代价 */
+.context-popup-desc { -fx-font-size: 11px; -fx-text-fill: -gim-text-4; -fx-line-spacing: 2; }
+/* 分类分段条：轨道与占用条同色，段按类着色、段间 2px 隙（与 Java 侧 SEG_GAP 同值） */
+.context-popup-bar {
+    -fx-background-color: -gim-border-3;
+    -fx-background-radius: 3;
+    -fx-min-height: 6;
+    -fx-pref-height: 6;
+    -fx-max-height: 6;
+}
+.context-seg { -fx-background-radius: 3; -fx-min-height: 6; -fx-pref-height: 6; -fx-max-height: 6; }
+/* 四分类色板：蓝=系统提示词、琥珀=系统工具、紫=技能、绿=消息（主导段）；中饱和明暗主题均可读 */
+.context-seg-0, .context-dot-0 { -fx-background-color: #6E8EF7; }
+.context-seg-1, .context-dot-1 { -fx-background-color: #F2A33C; }
+.context-seg-2, .context-dot-2 { -fx-background-color: #C678DD; }
+.context-seg-3, .context-dot-3 { -fx-background-color: #4CAF7D; }
+/* 图例圆点：7px 圆点，与分段同色建立条↔行对应 */
+.context-dot {
+    -fx-min-width: 7;
+    -fx-pref-width: 7;
+    -fx-max-width: 7;
+    -fx-min-height: 7;
+    -fx-pref-height: 7;
+    -fx-max-height: 7;
+    -fx-background-radius: 3.5;
+}
+.context-popup-legend-name { -fx-font-size: 12px; -fx-text-fill: -gim-text-2; }
+.context-popup-legend-pct { -fx-font-size: 12px; -fx-text-fill: -gim-text-4; }
 /* 单图标按钮：固定正方形（30×30），图标居中，与左侧附件组按钮行高一致 */
 .send-button {
     -fx-background-color: -gim-accent;

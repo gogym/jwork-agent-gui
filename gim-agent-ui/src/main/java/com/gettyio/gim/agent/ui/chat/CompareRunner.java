@@ -29,6 +29,7 @@ import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.jcef.JcefComposer;
 import com.gettyio.gim.agent.ui.throttle.ModelRateGovernor;
+import com.gettyio.gim.agent.ui.util.ModelErrorText;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import io.agentscope.core.permission.PermissionMode;
 import javafx.application.Platform;
@@ -241,8 +242,7 @@ public final class CompareRunner {
                             }),
                             err -> Platform.runLater(() -> {
                                 log.warn("对比流失败: model={}", t.modelCode(), err);
-                                String msg = err.getMessage() == null || err.getMessage().isBlank()
-                                        ? I18n.t("common.error.unknown") : err.getMessage();
+                                String msg = ModelErrorText.describe(err);
                                 String note = "\n" + I18n.t("chat.failed", msg);
                                 raws.get(idx).append(note);
                                 chatView.compareDelta(idx, note);

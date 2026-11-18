@@ -299,6 +299,8 @@ body {
 .pending-ic svg { width: 12px; height: 12px; fill: currentColor; }
 @keyframes think-pulse { 0% { opacity: .4; } 50% { opacity: 1; } 100% { opacity: .4; } }
 .pending-text.pulsing { animation: think-pulse 1.8s ease-in-out infinite; }
+/* 占位读秒：右对齐等宽数字，与工作日志行尾同口径（每秒报一次，不足 1s 不显示） */
+.pending-time { flex: none; margin-left: auto; color: var(--gim-text-5); font-variant-numeric: tabular-nums; }
 /* 在途图标原地旋转：比透明度脉动更强的「还在跑」信号；定格移除 live 类即停转 */
 @keyframes gim-spin { to { transform: rotate(360deg); } }
 .pending-ic svg, .log-ic.live svg { animation: gim-spin .9s linear infinite; }
@@ -490,7 +492,8 @@ body {
     text-overflow: ellipsis;
     white-space: nowrap;
 }
-.log-time { flex: none; color: var(--gim-text-5); font-variant-numeric: tabular-nums; }
+/* margin-left:auto 把耗时推到行右缘：思考行没有 flex:1 的摘要占位，工具行摘要已吃满余量故不受影响 */
+.log-time { flex: none; margin-left: auto; color: var(--gim-text-5); font-variant-numeric: tabular-nums; }
 .log-detail { display: none; margin: 2px 0 6px 20px; }
 .log-item.open > .log-detail { display: block; }
 /* 思考全文：正文的排版，但整体降一档色，展开后仍在讲「这是过程不是答案」 */

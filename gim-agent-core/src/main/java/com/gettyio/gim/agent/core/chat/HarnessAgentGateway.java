@@ -46,6 +46,7 @@ import io.agentscope.core.permission.PermissionMode;
 import io.agentscope.core.skill.SkillFilter;
 import io.agentscope.core.skill.repository.FileSystemSkillRepository;
 import io.agentscope.core.state.AgentState;
+import io.agentscope.core.state.AgentStateStore;
 import io.agentscope.harness.agent.HarnessAgent;
 import io.agentscope.harness.agent.filesystem.AbstractFilesystem;
 import io.agentscope.harness.agent.filesystem.sandbox.AbstractSandboxFilesystem;
@@ -64,10 +65,13 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -119,6 +123,9 @@ public class HarnessAgentGateway implements AutoCloseable {
     /** 步数触顶后续跑指令：以 USER 消息补发，令模型接着做剩余步骤而不是重新起手。 */
     private static final String ITER_CONTINUE_PROMPT =
             "（系统提示：本轮步数上限已重置，请从当前进度继续完成上一任务，勿重复已完成的步骤。）";
+
+    /** 本地降级压缩插入的说明消息名：与框架摘要消息同族，供后续轮次辨认来源。 */
+    private static final String LOCAL_COMPACTION_MSG_NAME = "local-compaction";
 
     /**
      * 框架内置的压缩默认配置（只读参照其默认阈值参数：reserved / keepTokens* ）。
@@ -196,6 +203,8 @@ public class HarnessAgentGateway implements AutoCloseable {
     private volatile int maxIters = DEFAULT_MAX_ITERS;
     /** 长期记忆配置（{@code null} 沿用 Harness 内置默认）：由装配方按应用设置下发 flush 节流等。 */
     private volatile MemoryConfig memoryConfig;
+    /** 会话状态存储覆盖（可空=框架默认落盘存储）：供嵌入式/单测场景把状态留在内存或自有介质。 */
+    private volatile AgentStateStore stateStoreOverride;
     /** 长期记忆开关（默认开）：关闭时不下发记忆工具与记忆钩子，MEMORY.md 也不再注入工作区上下文。 */
     private volatile boolean memoryEnabled = true;
     /** 计划模式开关（默认开）：开启后注册 plan_enter/plan_write/plan_exit 工具与只读中间件，供规划轮使用。 */
@@ -304,6 +313,11 @@ public class HarnessAgentGateway implements AutoCloseable {
         this.memoryConfig = memoryConfig;
     }
 
+    /** 注入会话状态存储覆盖；须在首次装配（或失效重建）前设置，null 表示沿用框架默认落盘存储。 */
+    public void setStateStoreOverride(AgentStateStore stateStoreOverride) {
+        this.stateStoreOverride = stateStoreOverride;
+    }
+
     /**
      * 长期记忆总开关；关闭后不再注册 memory_save/search/get/session_search 工具与沉淀钩子，
      * 且 MEMORY.md 不再注入工作区上下文（框架 includeMemoryContext 同关；AGENTS.md 等注入不受影响）。
@@ -405,7 +419,8 @@ public class HarnessAgentGateway implements AutoCloseable {
         this.artifactSessionsDir = sessionsDir;
     }
 
-    private HarnessAgent agent() {
+    /** 装配（或取已装配的）运行体；包内可见供同包测试 seeding 会话状态。 */
+    HarnessAgent agent() {
         HarnessAgent local = this.agent;
         if (local == null) {
             synchronized (this) {
@@ -439,6 +454,10 @@ public class HarnessAgentGateway implements AutoCloseable {
                                     .mode(PermissionMode.DEFAULT)
                                     .build());
                     Path project = this.projectDir;
+                    AgentStateStore storeOverride = this.stateStoreOverride;
+                    if (storeOverride != null) {
+                        builder = builder.stateStore(storeOverride);
+                    }
                     if (project != null) {
                         // 用户显式授权的项目目录：开启 projectWritable，写操作可落在项目文件上；
                         // ROOTED 路径策略仍以 项目+工作区 为硬边界，越界路径被文件系统拒绝
@@ -607,6 +626,8 @@ public class HarnessAgentGateway implements AutoCloseable {
      * LLM 摘要 → [摘要] + 尾部保留），结果直接替换并持久化会话状态，下一轮起生效。
      * <p>生成中的会话拒绝执行（避免与在途轮次竞争同一份上下文）；会话过短或上下文为空时
      * 返回 {@code compacted=false} 的结果，不做任何修改。</p>
+     * <p>摘要链路失败（额度耗尽/鉴权失败/网络断等重试后仍不可用）时自动降级为本地归档压缩：
+     * 不耗模型、占用立即下降，代价是旧历史无语义摘要（见 {@link #localArchiveCompaction}）。</p>
      */
     public Mono<ContextCompactionResult> compactContext(String sessionId) {
         if (sessionId == null || sessionId.isBlank()) {
@@ -637,6 +658,14 @@ public class HarnessAgentGateway implements AutoCloseable {
             return compactor.compactIfNeeded(rc, snapshot, forceCompactionConfig(model), agentName, sessionId)
                     .map(opt -> {
                         if (opt.isEmpty()) {
+                            // 压缩器把摘要失败吞成 Optional.empty（jar 版 summarizePrefix 的
+                            // onErrorResume 返回空 Optional，错误不外抛），不能只靠 onErrorResume
+                            // 兜底：快照超出尾部保留预算却没压成，说明摘要链路失败，主动降级本地压缩
+                            if (TokenCounterUtil.calculateToken(snapshot) > dynamicKeepTokens(usableWindow(model))) {
+                                log.warn("摘要压缩未生效（模型调用失败被压缩器吞掉），降级本地归档压缩: agent={}, session={}",
+                                        agentId, sessionId);
+                                return localArchiveCompaction(a, model, sessionId, snapshot, context);
+                            }
                             return ContextCompactionResult.skipped();
                         }
                         List<Msg> compacted = opt.get();
@@ -645,9 +674,86 @@ public class HarnessAgentGateway implements AutoCloseable {
                         a.getDelegate().saveAgentState(null, sessionId);
                         log.info("手动压缩完成: agent={}, session={}, {} 条 -> {} 条",
                                 agentId, sessionId, snapshot.size(), compacted.size());
-                        return new ContextCompactionResult(true, TokenCounterUtil.calculateToken(compacted));
+                        return new ContextCompactionResult(true, TokenCounterUtil.calculateToken(compacted), false);
+                    })
+                    // 摘要调用重试耗尽仍失败：降级本地归档压缩，额度耗尽时压缩不再完全不可用
+                    .onErrorResume(e -> {
+                        log.warn("摘要压缩失败，降级本地归档压缩: agent={}, session={}", agentId, sessionId, e);
+                        return Mono.just(localArchiveCompaction(a, model, sessionId, snapshot, context));
                     });
         }).subscribeOn(Schedulers.boundedElastic());
+    }
+
+    /**
+     * 本地降级压缩：整段历史归档到工作区 JSONL，尾部按与摘要压缩同口径的 token 预算保留
+     * （{@link #dynamicKeepTokens}），头部插一条说明消息告知归档位置。全程不耗模型。
+     * <p>归档写失败即中止压缩并报错——宁可压缩失败也不能静默丢历史；归档成功后旧历史
+     * 虽无语义摘要，智能体仍可按说明消息里的路径 read_file 取回细节。</p>
+     */
+    private ContextCompactionResult localArchiveCompaction(HarnessAgent a, Model model, String sessionId,
+                                                           List<Msg> snapshot, List<Msg> context) {
+        Path dir = workspace.resolve("sessions").resolve(sessionId);
+        Path archive = dir.resolve("context-archive-" + System.currentTimeMillis() + ".jsonl");
+        try {
+            Files.createDirectories(dir);
+            StringBuilder sb = new StringBuilder();
+            for (Msg m : snapshot) {
+                sb.append("{\"role\":\"").append(jsonEscape(m.getRole() == null ? "" : m.getRole().name()))
+                        .append("\",\"name\":\"").append(jsonEscape(m.getName() == null ? "" : m.getName()))
+                        .append("\",\"text\":\"").append(jsonEscape(m.getTextContent() == null ? "" : m.getTextContent()))
+                        .append("\"}\n");
+            }
+            Files.writeString(archive, sb.toString(), StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            throw new IllegalStateException("本地压缩失败：历史归档写入不了 " + archive, e);
+        }
+        int keepBudget = dynamicKeepTokens(usableWindow(model));
+        LinkedList<Msg> tail = new LinkedList<>();
+        int kept = 0;
+        for (int i = snapshot.size() - 1; i >= 0; i--) {
+            Msg m = snapshot.get(i);
+            int cost = TokenCounterUtil.calculateToken(List.of(m));
+            // 尾部至少留一条：单条超预算时不能把上下文压成只剩说明消息
+            if (!tail.isEmpty() && kept + cost > keepBudget) {
+                break;
+            }
+            tail.addFirst(m);
+            kept += cost;
+        }
+        String notice = "[本地压缩] 模型不可用，早期历史未生成摘要：" + (snapshot.size() - tail.size())
+                + " 条消息已归档到 " + archive.toAbsolutePath()
+                + "；需要细节时请用 read_file 读取该文件。以下为保留的近期对话。";
+        Msg head = Msg.builder().role(MsgRole.USER).name(LOCAL_COMPACTION_MSG_NAME).textContent(notice).build();
+        context.clear();
+        context.add(head);
+        context.addAll(tail);
+        a.getDelegate().saveAgentState(null, sessionId);
+        log.info("本地降级压缩完成: agent={}, session={}, {} 条 -> {} 条, archive={}",
+                agentId, sessionId, snapshot.size(), context.size(), archive);
+        return new ContextCompactionResult(true, TokenCounterUtil.calculateToken(context), true);
+    }
+
+    /** JSONL 归档的字符串转义：仅处理 JSON 必需的控制字符与引号/反斜杠。 */
+    private static String jsonEscape(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        for (int i = 0; i < s.length(); i++) {
+            char c = s.charAt(i);
+            switch (c) {
+                case '\\' -> sb.append("\\\\");
+                case '"' -> sb.append("\\\"");
+                case '\n' -> sb.append("\\n");
+                case '\r' -> sb.append("\\r");
+                case '\t' -> sb.append("\\t");
+                default -> {
+                    if (c < 0x20) {
+                        sb.append(String.format("\\u%04x", (int) c));
+                    } else {
+                        sb.append(c);
+                    }
+                }
+            }
+        }
+        return sb.toString();
     }
 
     /**

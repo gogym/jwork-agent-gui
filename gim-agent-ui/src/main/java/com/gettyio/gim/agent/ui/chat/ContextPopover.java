@@ -16,14 +16,20 @@
 
 package com.gettyio.gim.agent.ui.chat;
 
+import com.gettyio.gim.agent.core.chat.ContextBreakdown;
+import com.gettyio.gim.agent.ui.i18n.I18n;
 import javafx.animation.PauseTransition;
 import javafx.geometry.BoundingBox;
 import javafx.geometry.Bounds;
 import javafx.geometry.Point2D;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.input.MouseEvent;
+import javafx.scene.layout.HBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 import javafx.scene.robot.Robot;
 import javafx.stage.Popup;
@@ -32,7 +38,8 @@ import javafx.stage.Window;
 import javafx.util.Duration;
 
 /**
- * 上下文占用条的悬停浮层：显示「已用/上限」明细，并提供「压缩当前会话」按钮。
+ * 上下文占用条的悬停浮层：标题 + 总占比、说明文案、分类分段条与图例（系统提示词/系统工具/技能/消息）、
+ * 已用/上限明细行，以及「压缩当前会话」按钮。
  * <p>挂到占用条区域后鼠标悬停即自动弹出；移出触发节点或浮层后延迟一小段再隐藏，
  * 留出从条上滑入浮层的过渡时间。浮层用原始 {@link Popup} 承载：弹出时不抢键盘焦点
  * （输入框光标与草稿不受影响），显示时自动继承所属窗口的样式表（明暗主题随动）。</p>
@@ -47,13 +54,25 @@ public final class ContextPopover {
     private static final double GAP = 8;
     /** 浮层与所属窗口边缘的最小横向留白。 */
     private static final double EDGE_PADDING = 8;
+    /** 分类个数：系统提示词 / 系统工具 / 技能 / 消息；分段与圆点色类按索引区分。 */
+    public static final int CATEGORIES = 4;
+    /** 分段条段间隙（px）：与 CSS 的 -fx-spacing 同值，布局算宽时扣掉。 */
+    private static final double SEG_GAP = 2;
 
     private final Popup popup = new Popup();
     private final VBox content;
+    private final Label percentLabel = new Label();
     private final Label infoLabel = new Label();
+    private final HBox barBox = new HBox();
+    private final Region[] segments = new Region[CATEGORIES];
+    private final VBox legendBox = new VBox();
+    private final Label[] legendNames = new Label[CATEGORIES];
+    private final Label[] legendPcts = new Label[CATEGORIES];
     private final Button compactButton = new Button();
     private final Label statusLabel = new Label();
     private final PauseTransition hideDelay = new PauseTransition(HIDE_DELAY);
+    /** 当前各类占上限的比例（0–1）；分段条宽度据此随浮层实际宽度布局。 */
+    private final double[] fractions = new double[CATEGORIES];
 
     private Node trigger;
     /** 光标位置采样器（懒加载）；采样不可用的环境下降级为纯事件驱动。 */
@@ -61,8 +80,53 @@ public final class ContextPopover {
     private Runnable onCompact;
     private Runnable onWillShow;
 
-    /** 构建浮层：装配信息行、压缩按钮、状态行与隐藏计时/悬停桥接事件。 */
+    /** 构建浮层：装配标题行、说明、分段条、图例、明细行、压缩按钮、状态行与隐藏计时/悬停桥接事件。 */
     public ContextPopover() {
+        Label titleLabel = new Label(I18n.t("context.popup.title"));
+        titleLabel.getStyleClass().add("context-popup-title");
+        percentLabel.getStyleClass().add("context-popup-percent");
+        Region headSpacer = new Region();
+        HBox.setHgrow(headSpacer, Priority.ALWAYS);
+        HBox header = new HBox(titleLabel, headSpacer, percentLabel);
+        header.setAlignment(Pos.CENTER_LEFT);
+
+        Label descLabel = new Label(I18n.t("context.popup.desc"));
+        descLabel.getStyleClass().add("context-popup-desc");
+        descLabel.setWrapText(true);
+        descLabel.setMaxWidth(276);
+
+        barBox.getStyleClass().add("context-popup-bar");
+        barBox.setSpacing(SEG_GAP);
+        barBox.setAlignment(Pos.CENTER_LEFT);
+        for (int i = 0; i < CATEGORIES; i++) {
+            Region seg = new Region();
+            seg.getStyleClass().addAll("context-seg", "context-seg-" + i);
+            seg.setManaged(false);
+            seg.setVisible(false);
+            segments[i] = seg;
+            barBox.getChildren().add(seg);
+        }
+        // 分段宽度按浮层实际宽度算：Popup 首帧布局后宽度才定下来，监听补一次
+        barBox.widthProperty().addListener((o, ov, nv) -> layoutSegments());
+
+        legendBox.setSpacing(6);
+        for (int i = 0; i < CATEGORIES; i++) {
+            Region dot = new Region();
+            dot.getStyleClass().addAll("context-dot", "context-dot-" + i);
+            legendNames[i] = new Label();
+            legendNames[i].getStyleClass().add("context-popup-legend-name");
+            legendPcts[i] = new Label();
+            legendPcts[i].getStyleClass().add("context-popup-legend-pct");
+            legendPcts[i].setMinWidth(36);
+            legendPcts[i].setAlignment(Pos.CENTER_RIGHT);
+            Region spacer = new Region();
+            HBox.setHgrow(spacer, Priority.ALWAYS);
+            HBox row = new HBox(dot, legendNames[i], spacer, legendPcts[i]);
+            row.setAlignment(Pos.CENTER_LEFT);
+            row.setSpacing(6);
+            legendBox.getChildren().add(row);
+        }
+
         infoLabel.getStyleClass().add("context-popup-info");
         compactButton.getStyleClass().add("context-popup-action");
         compactButton.setMaxWidth(Double.MAX_VALUE);
@@ -73,11 +137,13 @@ public final class ContextPopover {
         });
         statusLabel.getStyleClass().add("context-popup-status");
         statusLabel.setWrapText(true);
-        statusLabel.setMaxWidth(240);
+        statusLabel.setMaxWidth(276);
         hideStatus();
+        setBreakdown(null, null, null);
 
-        content = new VBox(infoLabel, compactButton, statusLabel);
+        content = new VBox(header, descLabel, barBox, legendBox, infoLabel, compactButton, statusLabel);
         content.getStyleClass().add("context-popup");
+        content.setPrefWidth(300);
         popup.getContent().add(content);
         popup.setAutoFix(true);
         popup.setAutoHide(true);
@@ -114,9 +180,58 @@ public final class ContextPopover {
         this.onCompact = onCompact;
     }
 
-    /** 首行明细文案（如「115k/128k 已用上下文」）。 */
+    /** 标题行右侧的总占比文案（如「42%」）。 */
+    public void setPercent(String text) {
+        percentLabel.setText(text == null ? "" : text);
+    }
+
+    /** 明细行文案（如「115k/128k 已用上下文」）。 */
     public void setInfo(String text) {
         infoLabel.setText(text == null ? "" : text);
+    }
+
+    /**
+     * 注入分类明细：分段条比例 + 图例名称/百分比；{@code fractions} 为 null 表示尚无扫描结果，
+     * 分段条与图例整体隐藏（首帧到扫描回来之间的空窗不画假数据）。
+     */
+    public void setBreakdown(double[] fr, String[] names, String[] percents) {
+        boolean show = fr != null && names != null && percents != null;
+        barBox.setVisible(show);
+        barBox.setManaged(show);
+        legendBox.setVisible(show);
+        legendBox.setManaged(show);
+        for (int i = 0; i < CATEGORIES; i++) {
+            fractions[i] = show ? Math.max(0, Math.min(1, fr[i])) : 0;
+            if (show) {
+                legendNames[i].setText(names[i]);
+                legendPcts[i].setText(percents[i]);
+            }
+        }
+        layoutSegments();
+    }
+
+    /** 按浮层实际宽度铺分段：零占比段不占位（含间隙），余量露出轨道底色。 */
+    private void layoutSegments() {
+        double width = barBox.getWidth();
+        if (width <= 0) {
+            return;
+        }
+        int visible = 0;
+        for (double f : fractions) {
+            if (f > 0) {
+                visible++;
+            }
+        }
+        double unit = Math.max(0, width - SEG_GAP * Math.max(0, visible - 1));
+        for (int i = 0; i < CATEGORIES; i++) {
+            double w = fractions[i] * unit;
+            boolean show = fractions[i] > 0 && w > 0;
+            segments[i].setVisible(show);
+            segments[i].setManaged(show);
+            segments[i].setMinWidth(w);
+            segments[i].setPrefWidth(w);
+            segments[i].setMaxWidth(w);
+        }
     }
 
     /** 压缩按钮文案（空闲为「压缩当前会话」，进行中可改为「压缩中…」）。 */
@@ -249,5 +364,43 @@ public final class ContextPopover {
             robot = null;
             return null;
         }
+    }
+
+    // ===================== 分类估算 → 展示比例（纯函数，供单测） =====================
+
+    /** 缩放后的展示数据：各类占上限的比例（分段条宽）与右对齐百分比文案（图例）。 */
+    public record ScaledBreakdown(double[] fractions, String[] percents) {
+    }
+
+    /**
+     * 把分类估算缩放到占用条口径：各类独立粗估之和未必等于占用条总量（真实回报/压缩基准），
+     * 等比缩放后图例百分比之和才与标题占比自洽；待发输入实时叠加进消息类。
+     */
+    public static ScaledBreakdown scale(ContextBreakdown bd, int pendingTokens, int estimatedTokens, int limit) {
+        int[] vals = {bd.systemTokens(), bd.toolTokens(), bd.skillTokens(), bd.messageTokens() + pendingTokens};
+        long raw = 0;
+        for (int v : vals) {
+            raw += Math.max(0, v);
+        }
+        double k = raw > 0 ? (double) Math.max(0, estimatedTokens) / raw : 0;
+        double[] fr = new double[CATEGORIES];
+        String[] pct = new String[CATEGORIES];
+        for (int i = 0; i < CATEGORIES; i++) {
+            double ratio = limit > 0 ? Math.max(0, vals[i]) * k / limit : 0;
+            fr[i] = Math.max(0, Math.min(1, ratio));
+            pct[i] = formatPercent(ratio * 100);
+        }
+        return new ScaledBreakdown(fr, pct);
+    }
+
+    /** 百分比文案：0 → 「0%」；不足 1% → 「&lt;1%」（参考图口径，避免小类被四舍五入抹掉）；其余取整。 */
+    public static String formatPercent(double percent) {
+        if (percent <= 0) {
+            return "0%";
+        }
+        if (percent < 1) {
+            return "<1%";
+        }
+        return Math.round(percent) + "%";
     }
 }

@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.ui.chat;
 
 import com.gettyio.gim.agent.core.chat.ChatService;
+import com.gettyio.gim.agent.core.chat.ContextBreakdown;
 import com.gettyio.gim.agent.core.chat.ContextCompactionResult;
 import com.gettyio.gim.agent.core.chat.HarnessAgentGateway;
 import com.gettyio.gim.agent.core.chat.StreamEvent;
@@ -29,6 +30,7 @@ import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.jcef.JcefComposer;
 import com.gettyio.gim.agent.ui.throttle.ModelRateGovernor;
+import com.gettyio.gim.agent.ui.util.ModelErrorText;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.animation.PauseTransition;
 import javafx.application.Platform;
@@ -50,8 +52,9 @@ import java.util.function.Supplier;
  * <p>抽自 {@code MainController}：控制器交出底栏节点与只读服务，并在构造时注入两个取值函数
  * （当前会话、工具条手选模型），本类据此刷新条体并把真实用量回报给速率治理（TPM 滑窗）。
  * 用量只在流式收尾/切换会话时刷新；上下文条在输入变化、发送、重放会话三处刷新。</p>
- * <p>上下文占用以百分比展示，悬停弹出 {@link ContextPopover} 明细浮层（已用量/上限），
- * 浮层内可一键压缩当前会话（压缩能力经 {@link ContextCompactor} 由控制器桥接到服务层）。</p>
+ * <p>上下文占用以百分比展示，悬停弹出 {@link ContextPopover} 明细浮层（总占比 + 分类分段条/图例 +
+ * 已用量/上限），浮层内可一键压缩当前会话（压缩能力经 {@link ContextCompactor} 由控制器桥接到服务层；
+ * 模型不可用时服务层自动降级本地归档压缩，浮层状态行区分回显）。</p>
  *
  * @author gogym
  */
@@ -110,8 +113,8 @@ public final class ChatStatusBar {
     /** 扫描节流定时器（FX 线程上驱动，仅负责延后发起，不在其上读库）。 */
     private PauseTransition contextScanTimer;
 
-    /** 一次历史扫描的产物（在 FX 线程外算好）：上一轮真实提示体量、历史字符数、上限设置。 */
-    private record HistoryScan(Integer lastInputTokens, long chars, int tokenLimit) {
+    /** 一次历史扫描的产物（在 FX 线程外算好）：上一轮真实提示体量、历史字符数、上限设置与分类估算。 */
+    private record HistoryScan(Integer lastInputTokens, long chars, int tokenLimit, ContextBreakdown breakdown) {
     }
 
     public ChatStatusBar(Label usageBar, Label contextBar, ProgressBar contextGauge, HBox contextStats,
@@ -286,7 +289,18 @@ public final class ChatStatusBar {
         if (near) {
             contextBar.getStyleClass().add("context-bar-warn");
         }
+        popover.setPercent(I18n.t("context.percent", (int) Math.round(ratio * 100)));
         popover.setInfo(I18n.t("context.usage", formatK(estimated), formatK(limit)));
+        ContextBreakdown bd = scan == null ? null : scan.breakdown();
+        if (bd == null) {
+            // 首帧到扫描回来之间的空窗：不画假分类，只留标题占比与明细行
+            popover.setBreakdown(null, null, null);
+        } else {
+            ContextPopover.ScaledBreakdown scaled = ContextPopover.scale(bd, pending, estimated, limit);
+            String[] names = {I18n.t("context.cat.system"), I18n.t("context.cat.tools"),
+                    I18n.t("context.cat.skills", bd.skillCount()), I18n.t("context.cat.messages")};
+            popover.setBreakdown(scaled.fractions(), names, scaled.percents());
+        }
         boolean compactAllowed = compactor != null && compactingSessionId == null && ratio > COMPACT_MIN_RATIO;
         if (compactingNow) {
             popover.setCompactLabel(I18n.t("context.compacting"));
@@ -340,7 +354,7 @@ public final class ChatStatusBar {
                 }));
     }
 
-    /** 会话历史的估算原料：最后一条助手行回报的真实提示体量、全部历史字符数与上限设置。 */
+    /** 会话历史的估算原料：最后一条助手行回报的真实提示体量、全部历史字符数、上限设置与分类估算。 */
     private HistoryScan scanHistory(String sessionId) {
         Integer lastInput = null;
         long chars = 0;
@@ -353,7 +367,11 @@ public final class ChatStatusBar {
                 lastInput = c.getLastInputTokens();
             }
         }
-        return new HistoryScan(lastInput, chars, contextTokenLimit());
+        String agentCode = database.sessionDao().findBySessionId(sessionId)
+                .map(ChatSession::getAgentCode)
+                .orElse(null);
+        ContextBreakdown breakdown = chatService.contextBreakdown(agentCode, chars);
+        return new HistoryScan(lastInput, chars, contextTokenLimit(), breakdown);
     }
 
     private void hideContextBar() {
@@ -408,7 +426,8 @@ public final class ChatStatusBar {
                 compactedSessionId = sessionId;
                 compactedBaseTokens = base;
             }
-            popover.setStatus(I18n.t("context.compact.done", formatK(base)), false);
+            popover.setStatus(I18n.t(result.localFallback()
+                    ? "context.compact.done.local" : "context.compact.done", formatK(base)), false);
         } else {
             popover.setStatus(I18n.t("context.compact.skip"), false);
         }
@@ -419,7 +438,7 @@ public final class ChatStatusBar {
         if (sessionId.equals(compactingSessionId)) {
             compactingSessionId = null;
         }
-        String reason = error == null || error.getMessage() == null ? "" : error.getMessage();
+        String reason = ModelErrorText.describe(error);
         String text = I18n.t("context.compact.failed", reason);
         popover.setStatus(text, true);
         updateContext();

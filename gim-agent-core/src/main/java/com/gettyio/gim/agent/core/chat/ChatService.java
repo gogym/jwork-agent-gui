@@ -17,11 +17,14 @@
 package com.gettyio.gim.agent.core.chat;
 
 import com.gettyio.gim.agent.core.GimPaths;
+import com.gettyio.gim.agent.core.capability.CapabilityCodec;
 import com.gettyio.gim.agent.core.doc.TabularInspector;
 import com.gettyio.gim.agent.domain.GimDatabase;
+import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.ChatConversation;
 import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.entity.SessionGroup;
+import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.SessionStatus;
 import com.gettyio.gim.agent.domain.enums.StreamEventType;
@@ -527,6 +530,61 @@ public class ChatService {
      */
     public Mono<ContextCompactionResult> compact(String agentCode, String sessionId) {
         return gateway.compact(agentCode, sessionId);
+    }
+
+    /** 内置工具集 schema 体量经验估值（token）：约 15 个内置工具×约 90 token，仅供分类估算。 */
+    private static final int BUILTIN_TOOL_TOKENS = 1400;
+    /** 每个 MCP 服务的工具 schema 体量经验估值（token）：约 5 工具×约 100 token；真实 schema 需连接后才拿得到。 */
+    private static final int MCP_SERVER_TOOL_TOKENS = 500;
+    /** 分类估算的字符→token 系数：与 UI 占用条兜底粗估同口径。 */
+    private static final double BREAKDOWN_CHARS_PER_TOKEN = 2.5;
+
+    /**
+     * 上下文占用的分类估算（供占用浮层分段条/图例）：系统提示词读智能体定义与工作区注入文档，
+     * 工具按内置经验值 + 声明的 MCP 服务数叠加，技能按白名单内名称+描述体量，消息按历史字符粗估。
+     * <p>全程只读库与磁盘小文件，不装配运行体、不连 MCP、不耗模型；调用方应在后台线程调用。
+     * 各项为独立粗估，UI 展示前按占用条总量等比缩放以保证百分比自洽。</p>
+     *
+     * @param agentCode    会话归属智能体；null 时系统/工具/技能项按 0 估
+     * @param historyChars 会话历史总字符数（调用方扫描历史时已算好，避免重复读库）
+     */
+    public ContextBreakdown contextBreakdown(String agentCode, long historyChars) {
+        AgentDefinition def = agentCode == null ? null
+                : db.agentDao().findByCode(agentCode).orElse(null);
+        Path ws = gateway.workspaceForAgent(agentCode);
+        String prompt = def == null ? null : def.getSystemPrompt();
+        long sysChars = prompt != null && !prompt.isBlank() ? prompt.length() : readChars(ws, "AGENTS.md");
+        // 工作区注入文档（与 WorkspaceContextMiddleware 同源）：知识索引与长期记忆
+        sysChars += readChars(ws, "KNOWLEDGE.md") + readChars(ws, "MEMORY.md");
+        int mcpCount = def == null ? 0 : CapabilityCodec.readCodes(def.getMcpServersJson()).size();
+        List<String> skillCodes = def == null ? List.of() : CapabilityCodec.readCodes(def.getSkillsJson());
+        long skillChars = 0;
+        for (String code : skillCodes) {
+            SkillPackage sp = db.skillDao().findByCode(code).orElse(null);
+            if (sp != null) {
+                skillChars += (sp.getSkillName() == null ? 0 : sp.getSkillName().length())
+                        + (sp.getDescription() == null ? 0 : sp.getDescription().length());
+            }
+        }
+        return new ContextBreakdown(
+                (int) Math.round(sysChars / BREAKDOWN_CHARS_PER_TOKEN),
+                BUILTIN_TOOL_TOKENS + mcpCount * MCP_SERVER_TOOL_TOKENS,
+                (int) Math.round(skillChars / BREAKDOWN_CHARS_PER_TOKEN),
+                skillCodes.size(),
+                (int) Math.round(historyChars / BREAKDOWN_CHARS_PER_TOKEN));
+    }
+
+    /** 读工作区注入文档的字符数；无工作区/文件不存在/读失败均按 0（估算不值得为此报错）。 */
+    private static long readChars(Path workspace, String fileName) {
+        if (workspace == null) {
+            return 0;
+        }
+        try {
+            Path f = workspace.resolve(fileName);
+            return Files.exists(f) ? Files.readString(f).length() : 0;
+        } catch (IOException | RuntimeException e) {
+            return 0;
+        }
     }
 
     /** 解析本轮实际使用的模型编码；解析器缺失或解析失败时回退消息级覆盖值。 */
