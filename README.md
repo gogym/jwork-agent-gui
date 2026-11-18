@@ -4,50 +4,65 @@
 
 # Jwork
 
-**A local-first personal AI assistant workbench for Windows desktop.**
+**Your local-first AI workbench for Windows — it does the chores, you keep the decisions.**
 
-Jwork (formerly Gim Agent) is a desktop application that puts a full-featured AI agent workspace on your machine: multi-agent chat with streaming Markdown rendering, long-term memory, a local knowledge base, scheduled tasks, tool execution under a security guard chain, and a pluggable model layer — all backed by an embedded SQLite database under `~/.jwork/`. No account, no cloud dependency; connect any OpenAI-compatible provider or a local model server (Ollama / LM Studio).
+Jwork (formerly Gim Agent) is a desktop AI assistant that actually gets work done on your machine: it reads and writes real files, runs commands under your approval, answers from your own documents, searches the web, executes scheduled jobs, and remembers your context across sessions. Everything lives in `~/.jwork/` on your disk — no account, no cloud dependency. Plug in any OpenAI-compatible provider, or a local model server (Ollama / LM Studio), and start delegating.
 
-## Features
+## What it does for you
 
-### Chat
+### 1. Takes file & code chores off your plate
 
-- Multi-agent conversations with per-agent persona, model, workspace and capability whitelist
-- Streaming responses with **stop / regenerate / edit-resend**, message fork (branch a new session from any message), delete and copy
-- **Model compare mode** — run one prompt across multiple models side by side
-- Full **Markdown rendering** (JCEF/Chromium embedded), syntax-highlighted code blocks and **Mermaid diagrams**
-- File attachments (PDF / Word / Excel text extraction) and image inputs
-- Read-aloud (TTS) on finished assistant messages
+- *"Organize these files", "find every place that uses X", "write a script and run it"* — the agent works in a real per-agent workspace with line-numbered reads, regex grep, mtime-ordered glob and overwrite-safe writes, and executes shell commands behind a **guard chain** (dangerous-command policy, executable allowlist, path whitelist) with **your confirmation per call**; optional Docker sandbox for riskier jobs.
+- Results land as **artifacts**: a workspace panel (artifacts-first file tree) and an in-app preview window show what was produced; an **integrated terminal** is right there when you'd rather do it yourself.
+- **Problem solved:** no more copy-pasting between a chat window, Explorer and your editor — the work happens where the files are, and you approve anything risky.
 
-### Agents & Tools
+### 2. Turns your documents into answers
 
-- Sub-agent delegation, plan mode, built-in task list
-- Shell execution behind a **guard chain** (dangerous-command policy, executable allowlist, path whitelist) with per-call **human-in-the-loop confirmation**
-- Optional Docker sandbox mode
-- Web search, image generation, skill packages, and **MCP** servers (with marketplace)
-- Long-term memory (`MEMORY.md`) and a per-agent knowledge base with vector search (RAG)
+- Drop **PDF / Word / Excel** attachments into chat — text is extracted and answered directly, no manual copy-out.
+- Build a per-agent **knowledge base** with vector search (RAG, configurable embedding provider): ask across manuals, notes and specs instead of re-reading them.
+- **Long-term memory** (`MEMORY.md`, sedimentation tiers, per-scope management) keeps your preferences and project context between sessions — stop repeating yourself every Monday.
+- **Problem solved:** institutional knowledge stops living only in your head or in unread folders.
 
-### Productivity
+### 3. Answers without breaking your flow
 
-- **Scheduled tasks** — cron or one-shot, persisted in SQLite with startup recovery
-- Desktop integration (Windows): global hotkey quick-ask, selection assistant, screenshot capture, tray, autostart
-- Voice input (16 kHz PCM) and system TTS playback
-- Token usage & estimated cost statistics with monthly budget alerts
-- Session search (titles + full message text), session groups, export to Markdown / JSON / HTML / long image
+- **Global hotkey quick-ask**, **selection assistant** (select text in any app → ask about it), **screenshot capture** straight into the composer, **voice input** (16 kHz PCM), tray-resident with autostart.
+- Finished answers can be **read aloud** via configurable OpenAI-compatible TTS — useful when your eyes are busy.
+- **Problem solved:** the question gets asked at the moment it appears, without switching windows or typing long prompts.
 
-### Data & Security
+### 4. Automates the repetitive
 
-- Everything stays local in `~/.jwork/` (SQLite with WAL, workspace files, logs, backups)
-- Credentials encrypted with **Windows DPAPI + AES-GCM**
-- Local login gate; WebDAV cloud sync with optional payload encryption
-- Local database backup/restore with rolling retention
+- **Scheduled tasks** (cron or one-shot, persisted and recovered on startup): daily summaries, periodic checks, reminders — the agent runs them and reports back.
+- **Skill packages** and **MCP servers**, both with **marketplaces** (grid browsing, cursor pagination, direct GitHub fetch): extend what the agent can do without writing code.
+- **Sub-agent delegation, plan mode and a built-in task list** for multi-step jobs; the agent can even **ask you multiple-choice questions mid-turn** instead of guessing wrong.
+- **Problem solved:** recurring work runs itself; one-off complex work gets structured instead of improvised.
 
-### Model Layer
+### 5. Makes writing & delivery faster
 
-- OpenAI-compatible providers, per-model rate limits and cost tables, connectivity probing
-- Automatic **fallback model failover**
-- Auto-detection of local model servers (Ollama `:11434`, LM Studio `:1234`)
-- i18n: English / 简体中文 / 繁體中文 · light & dark themes · three font scales
+- Streaming **Markdown** with syntax highlighting and **Mermaid diagrams**; stop / regenerate / edit-resend; **fork a new session from any message**; multi-agent conversations with per-agent persona, model and capability whitelist.
+- **Model compare mode**: one prompt across several models side by side — pick the best answer and the best price.
+- Export sessions to **Markdown / JSON / HTML / long image with secret redaction** — share results safely.
+- **Problem solved:** draft → review → deliver stays in one place, and sharing never leaks your API keys.
+
+### 6. Keeps long sessions reliable and affordable
+
+- **Context window popover** with live usage breakdown and one-click compaction (automatic local-archive fallback if remote compaction fails) — long conversations don't die at the limit.
+- **Fallback-model failover**, retry policy with human-readable failure messages (permanent quota errors are surfaced, not blindly retried).
+- **Token usage & cost estimates** with monthly budget alerts; per-model rate limits and price tables; connectivity probing; auto-detection of local Ollama `:11434` / LM Studio `:1234`.
+- **In-app update check**: daily silent check, progress download, silent install, forced-update dialog for critical releases.
+- **Problem solved:** no silent failures, no surprise bills, no "context full" dead ends.
+
+### 7. Keeps your data yours
+
+- Everything local: SQLite (WAL) + workspace + logs + rolling backups under `~/.jwork/`; credentials encrypted with **Windows DPAPI + AES-GCM**.
+- Local login gate with configurable session expiry (1–90 days); optional **WebDAV sync with payload encryption**; granular tool / file / network guard settings and authorization management.
+- Chat data never leaves your machine unless you explicitly configure a remote provider, sync or proxy.
+- **Problem solved:** company documents and personal notes stay on your disk, not in someone else's cloud.
+
+## Comfort & control
+
+- Grouped settings — **Personal / App / Models / Extensions**, 18 pages — with in-menu search; branded About dialog with version, open-source repository and license links.
+- i18n: English / 简体中文 / 繁體中文 · light & dark themes · three font scales.
+- Session search command palette (titles + full text), session groups, workspace-aware session organization.
 
 ## Architecture
 
@@ -57,14 +72,14 @@ Jwork (formerly Gim Agent) is a desktop application that puts a full-featured AI
 | `gim-agent-core` | Agent runtime (AgentScope harness gateway), chat services, memory / knowledge / plan, capability resolution |
 | `gim-agent-tools` | Tool guards, HITL confirmation, Docker sandbox, skills, web search, image generation |
 | `gim-agent-scheduler` | Quartz-based scheduling service and agent-facing schedule tools |
-| `gim-agent-ui` | JavaFX application: JCEF-rendered chat, settings, desktop integrations, sync, voice |
+| `gim-agent-ui` | JavaFX application: JCEF-rendered chat, workspace & terminal, settings, desktop integrations, sync, voice |
 
 Module dependency direction: `ui → scheduler / tools / core → domain`.
 
 ## Tech Stack
 
-- **Java 21** + **JavaFX 21** (Atlantafx) + **JCEF** (Chromium OSR rendering)
-- **AgentScope Java 2.0.3** (HarnessAgent) for the agent runtime
+- **Java 21** + **JavaFX 21** (AtlantaFX) + **JCEF** (Chromium OSR rendering) + **JediTermFX** (integrated terminal)
+- **AgentScope Java 2.0.5** (HarnessAgent) for the agent runtime
 - Hand-wired **composition root** (`AppContext`) — no DI framework
 - **SQLite** (xerial JDBC, WAL) — no ORM, plain DAOs
 - **Quartz** for scheduling · **jpackage / WiX** for Windows packaging
@@ -73,9 +88,8 @@ Module dependency direction: `ui → scheduler / tools / core → domain`.
 
 ### Requirements
 
-- Windows 10/11 (primary target; desktop integrations such as global hotkey, autostart and DPAPI are Windows-only)
-- JDK 21 (e.g. Liberica, Temurin)
-- Maven 3.9+
+- Windows 10/11 (primary target; global hotkey, autostart and DPAPI are Windows-only)
+- JDK 21 (e.g. Liberica, Temurin) · Maven 3.9+
 
 ### Run from source
 
@@ -100,8 +114,8 @@ Artifacts are placed under `build/installer/`.
 
 ### First launch
 
-1. Open **Settings → Models**, add a provider (any OpenAI-compatible endpoint) and set a default model. Local Ollama / LM Studio instances are detected automatically.
-2. Optional: configure global hotkey, TTS voice, knowledge base, MCP servers, WebDAV sync in Settings.
+1. Open **Settings → Models → Providers / Models**, add a provider (any OpenAI-compatible endpoint) and set a default model. Local Ollama / LM Studio instances are detected automatically. The settings menu has a search box if you get lost.
+2. Delegate your first chore: attach a document, select text anywhere and press the hotkey, or ask the agent to organize a folder — approve the guarded commands and watch the artifacts appear.
 
 ## Data & Privacy
 
@@ -118,7 +132,8 @@ All application data lives in `~/.jwork/`:
 │   ├── memory/     # daily memory notes
 │   ├── knowledge/  # knowledge base files
 │   ├── skills/     # installed skill packages
-│   ├── attachments/  generated/
+│   ├── attachments/  # uploaded attachments
+│   ├── generated/    # agent-generated artifacts
 │   └── agents/<code>/  # per-agent workspaces
 ├── backups/        # rolling database backups (VACUUM INTO)
 ├── restore/        # pending cloud-restore snapshots
@@ -126,8 +141,6 @@ All application data lives in `~/.jwork/`:
 └── cef/            # JCEF runtime (extracted on first launch)
 ```
 
-Chat data never leaves your machine unless you explicitly configure a remote model provider, WebDAV sync or an HTTP proxy.
-
 ## License
 
-[Apache-2.0](LICENSE)
+[Apache-2.0](LICENSE) · Copyright © 2026 gogym
