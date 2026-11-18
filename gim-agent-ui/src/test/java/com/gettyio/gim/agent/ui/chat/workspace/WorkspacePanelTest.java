@@ -17,9 +17,13 @@
 package com.gettyio.gim.agent.ui.chat.workspace;
 
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
@@ -106,5 +110,39 @@ class WorkspacePanelTest {
         Path p = Paths.get("615a4b0a-session-dir");
         assertEquals("615a4b0a-session-dir", new WorkspacePanel.FileNode(p, true).displayName());
         assertEquals("当前会话", new WorkspacePanel.FileNode(p, true, "当前会话").displayName());
+    }
+
+    @Test
+    void sessionArtifactPathsMergesDeliveriesAndOutputsOnly(@TempDir Path ws) throws IOException {
+        Path delivery = ws.resolve("generated").resolve("sessions").resolve("s1");
+        Path outputs = ws.resolve("s1").resolve("outputs");
+        Files.createDirectories(delivery.resolve("sub"));
+        Files.createDirectories(outputs);
+        // 会话工作目录里的内部内容（记忆/草稿）不属于产物来源，不应混入
+        Files.createDirectories(ws.resolve("s1").resolve("memory"));
+        Files.writeString(ws.resolve("s1").resolve("memory").resolve("noise.md"), "x");
+        Files.writeString(delivery.resolve("report.xlsx"), "x");
+        Files.writeString(outputs.resolve("chart.png"), "x");
+        List<Path> got = WorkspacePanel.sessionArtifactPaths(delivery, outputs, ws);
+        // 目录优先、按名排序：sub → chart.png → report.xlsx
+        assertEquals(List.of("sub", "chart.png", "report.xlsx"),
+                got.stream().map(p -> p.getFileName().toString()).toList());
+        // 目录缺失/空会话贡献空表，不抛异常
+        assertTrue(WorkspacePanel.sessionArtifactPaths(null, ws.resolve("absent"), ws).isEmpty());
+        assertTrue(WorkspacePanel.sessionArtifactPaths(null, null, ws).isEmpty());
+    }
+
+    @Test
+    void deliveryLabelSkipsCurrentAndPrefersSessionTitle() {
+        Path sessions = Paths.get("ws").resolve("generated").resolve("sessions");
+        Path current = sessions.resolve("s1");
+        // 当前会话交付件已提顶到「当前会话」入口：返回 null 供调用方去重
+        assertNull(WorkspacePanel.deliveryLabel(current, current, sid -> "标题"));
+        assertEquals("报表任务", WorkspacePanel.deliveryLabel(sessions.resolve("s2"), current,
+                sid -> "s2".equals(sid) ? "报表任务" : null));
+        // 无标题/无解析器：回退目录名（UUID），不抛异常
+        assertEquals("s3", WorkspacePanel.deliveryLabel(sessions.resolve("s3"), current, sid -> null));
+        assertEquals("s3", WorkspacePanel.deliveryLabel(sessions.resolve("s3"), current, sid -> "  "));
+        assertEquals("s3", WorkspacePanel.deliveryLabel(sessions.resolve("s3"), current, null));
     }
 }

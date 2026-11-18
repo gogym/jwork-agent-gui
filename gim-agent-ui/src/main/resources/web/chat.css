@@ -293,10 +293,15 @@ body {
 
 /* 在途正文：逐字追加的明文视图（定格后换成 Markdown 渲染结果，故不需单独排版） */
 .prose-live { white-space: pre-wrap; overflow-wrap: break-word; line-height: var(--prose-lh); }
-/* 本轮首个事件到达前的占位行：一条脉动文本，别在正文上方先摆一个空卡 */
-.pending { color: var(--gim-text-4); font-size: var(--meta-font); }
+/* 本轮首个事件到达前的占位行：旋转图标 + 脉动文本，别在正文上方先摆一个空卡 */
+.pending { display: flex; align-items: center; gap: 6px; color: var(--gim-text-4); font-size: var(--meta-font); }
+.pending-ic { display: inline-flex; flex: none; }
+.pending-ic svg { width: 12px; height: 12px; fill: currentColor; }
 @keyframes think-pulse { 0% { opacity: .4; } 50% { opacity: 1; } 100% { opacity: .4; } }
-.pending.pulsing, .log-ic.live { animation: think-pulse 1.8s ease-in-out infinite; }
+.pending-text.pulsing { animation: think-pulse 1.8s ease-in-out infinite; }
+/* 在途图标原地旋转：比透明度脉动更强的「还在跑」信号；定格移除 live 类即停转 */
+@keyframes gim-spin { to { transform: rotate(360deg); } }
+.pending-ic svg, .log-ic.live svg { animation: gim-spin .9s linear infinite; }
 
 /* ---------- 底部操作条（悬停浮现） ---------- */
 .bubble-footer {

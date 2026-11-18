@@ -33,11 +33,9 @@ import com.gettyio.gim.agent.domain.entity.ChatSession;
 import com.gettyio.gim.agent.domain.entity.ModelConfig;
 import com.gettyio.gim.agent.domain.enums.ConversationRole;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
-import com.gettyio.gim.agent.domain.enums.StreamEventType;
 import com.gettyio.gim.agent.tools.image.ImageGenerationClient;
 import com.gettyio.gim.agent.ui.theme.UiTheme;
 import com.gettyio.gim.agent.ui.i18n.I18n;
-import com.gettyio.gim.agent.ui.util.UiFormat;
 import com.gettyio.gim.agent.ui.prefs.UserPrefs;
 import com.gettyio.gim.agent.ui.config.AgentAdminService;
 import com.gettyio.gim.agent.ui.config.PromptTemplateAdminService;
@@ -45,6 +43,7 @@ import com.gettyio.gim.agent.ui.config.ProviderAdminService;
 import com.gettyio.gim.agent.ui.config.SecurityAdminService;
 import com.gettyio.gim.agent.ui.export.ExportService;
 import com.gettyio.gim.agent.ui.desktop.LocalOpenPolicy;
+import com.gettyio.gim.agent.ui.chat.ChatStreamDispatcher;
 import com.gettyio.gim.agent.ui.chat.payload.WebChatTool;
 import com.gettyio.gim.agent.ui.view.ExtensionsView;
 import com.gettyio.gim.agent.ui.view.TerminalView;
@@ -595,6 +594,12 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
         workspacePanel = new com.gettyio.gim.agent.ui.chat.workspace.WorkspacePanel(workspaceSplit, gimPaths);
         // 展开/收起前先校准窗口宽度：右栏占去分栏 38%，窗口过窄时聊天视口会跌破内容列完整阈值
         workspacePanel.setVisibilityGuard(this::applyWorkspaceStageGuard);
+        // 产物视图历史交付目录按会话标题分组：标题与侧栏同源（会话列表），缺失回退会话 ID
+        workspacePanel.setSessionTitleResolver(sid -> sessions.stream()
+                .filter(s -> sid.equals(s.getSessionId()))
+                .map(ChatSession::getTitle)
+                .filter(t -> t != null && !t.isBlank())
+                .findFirst().orElse(null));
         // 聊天分栏底线宽：右栏 divider 拖拽不得把聊天视口压到内容列完整阈值
         // （810 = 800 限宽列 + 10 滚动条，web/chat.css）之下，杜绝气泡挤压贴边
         chatSplit.setMinWidth(810);
@@ -1239,52 +1244,38 @@ public class MainController implements com.gettyio.gim.agent.ui.chat.sidebar.Ses
     }
 
     /**
-     * 把一帧窗口内的事件分派给 WebView：正文、思考、工具、旁白各走各的通道，段序与落盘分段一致，
-     * 收尾整页重放时同一轮不会重新排版（{@code acc} 只累加正文，供出错收尾定格）。
+     * 把一帧窗口内的事件分派给 WebView：顺序与合并规则见 {@link ChatStreamDispatcher}，
+     * 段序与落盘分段一致，收尾整页重放时同一轮不会重新排版
+     * （{@code acc} 只累加正文，供出错收尾定格）。
      */
     private void applyBatchToChat(List<StreamEvent> batch, long id, StringBuilder acc) {
-        StringBuilder frame = new StringBuilder();
-        // 一帧 33ms 里可能挤进几十个思考 token：逐个交出去就是前端跑几十遍重排，攒成一次调用
-        StringBuilder think = new StringBuilder();
-        for (StreamEvent e : batch) {
-            StreamEventType type = e.getType();
-            if (type == StreamEventType.THINKING_DELTA) {
-                if (e.getText() != null) {
-                    think.append(e.getText());
-                }
-                continue;
+        ChatStreamDispatcher.dispatch(batch, new ChatStreamDispatcher.Sink() {
+            @Override
+            public void text(String text) {
+                acc.append(text);
+                chatView.streamDelta(id, text);
             }
-            // 其余事件在前端都会结束当前思考段：先把攒下的增量交出去，段序才与落盘分段一致
-            flushThinking(think, id);
-            if (type == StreamEventType.TEXT_DELTA && e.getText() != null) {
-                frame.append(e.getText());
-            } else if (type == StreamEventType.TOOL_START && e.getToolName() != null && e.getToolInput() != null) {
-                // 带真实入参的这次 TOOL_START 才是「即将执行」：先在过程区亮一行在途记录，长耗时工具不至于整块静默
-                chatView.streamToolStart(id, new WebChatTool(e.getToolName(), e.getToolInput(), null, false, 0L));
-            } else if (type == StreamEventType.TOOL_END && e.getToolName() != null) {
-                chatView.streamToolEnd(id, new WebChatTool(e.getToolName(), e.getToolInput(),
-                        e.getToolOutput(), e.isToolOk(), e.getToolDurationMillis()));
-            } else if (type == StreamEventType.CONFIRM_REQUEST && e.getToolName() != null) {
-                // 授权请求只在实时呈现（弹窗当场已处理完），不并入助手正文落盘
-                chatView.streamNotice(id, I18n.t("chat.toolConfirm", e.getToolName()));
-            } else if (type == StreamEventType.NOTICE && e.getToolName() != null) {
-                // 运行体旁白（步数触顶自动续跑、子代理启停等）：随分段落盘，重放不再丢
-                chatView.streamNotice(id, UiFormat.notice(e));
-            }
-        }
-        flushThinking(think, id);
-        if (frame.length() > 0) {
-            acc.append(frame);
-            chatView.streamDelta(id, frame.toString());
-        }
-    }
 
-    /** 交出一段攒下的思考增量；空段不发脚本调用。 */
-    private void flushThinking(StringBuilder think, long id) {
-        if (think.length() > 0) {
-            chatView.streamThinking(id, think.toString());
-            think.setLength(0);
-        }
+            @Override
+            public void thinking(String text) {
+                chatView.streamThinking(id, text);
+            }
+
+            @Override
+            public void toolStart(WebChatTool tool) {
+                chatView.streamToolStart(id, tool);
+            }
+
+            @Override
+            public void toolEnd(WebChatTool tool) {
+                chatView.streamToolEnd(id, tool);
+            }
+
+            @Override
+            public void notice(String text) {
+                chatView.streamNotice(id, text);
+            }
+        });
     }
 
     /**

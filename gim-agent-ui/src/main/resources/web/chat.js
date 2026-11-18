@@ -16,7 +16,7 @@
     var CHECK_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>';
     var ERR_SVG = '<svg viewBox="0 0 24 24"><path d="M12 2C6.47 2 2 6.47 2 12s4.47 10 10 10 10-4.47 10-10S17.53 2 12 2zm5 13.59L15.59 17 12 13.41 8.41 17 7 15.59 10.59 12 7 8.41 8.41 7 12 10.59 15.59 7 17 8.41 13.41 12 17 15.59z"/></svg>';
     var CHEV_SVG = '<svg viewBox="0 0 24 24"><path d="M10 6L8.59 7.41 13.17 12l-4.58 4.59L10 18l6-6z"/></svg>';
-    var PULSE_SVG = '<svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46A7.93 7.93 0 0 0 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74A7.93 7.93 0 0 0 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>';
+    var SPINNER_SVG = '<svg viewBox="0 0 24 24"><path d="M12 4V2A10 10 0 0 0 2 12h2a8 8 0 0 1 8-8z"/></svg>';
     var EYE_SVG = '<svg viewBox="0 0 24 24"><path d="M12 4.5C7 4.5 2.73 7.61 1 12c1.73 4.39 6 7.5 11 7.5s9.27-3.11 11-7.5c-1.73-4.39-6-7.5-11-7.5zM12 17a5 5 0 1 1 0-10 5 5 0 0 1 0 10zm0-8a3 3 0 1 0 0 6 3 3 0 0 0 0-6z"/></svg>';
 
     var LABELS = {};              // Java 经 setTheme 推入的本地化文案
@@ -28,6 +28,7 @@
     var streaming = {};           // id -> {raw, thinking, node, ...}
     var TRIM_THRESHOLD = 800;     // DOM 消息行超此数且贴底时触发顶部回收（长会话控内存）
     var TRIM_KEEP = 400;          // 回收后保留的最新消息行数
+    var IDLE_MS = 1000;           // 轮内心跳：超此时长无新事件且无在途行自报动作，就补「思考中」占位
 
     function esc(s) {
         return s == null ? '' : String(s);
@@ -398,7 +399,7 @@
         return (LABELS.thinkingElapsed || '{0}s').replace('{0}', v);
     }
 
-    /** 过程块标题：有工具报步数，纯思考报「已思考 · Ns」；在途时改报当前动作。 */
+    /** 过程块标题：有工具报步数，纯思考报「已思考 · Ns」；收起且在途时改报当前动作。 */
     function processTitle(tools, failed, thinkMs, running) {
         if (running) { return running; }
         if (tools > 0) {
@@ -423,14 +424,19 @@
         box.appendChild(head);
         box.appendChild(body);
         var p = { box: box, body: body, title: title, items: [], manual: false };
-        // 用户手动开合过就不再自动折：收尾只收系统开的折叠态
-        head.addEventListener('click', function () { p.manual = true; box.classList.toggle('open'); }, false);
+        // 用户手动开合过就不再自动折：收尾只收系统开的折叠态；开合后块头文案职责随之切换
+        head.addEventListener('click', function () {
+            p.manual = true;
+            box.classList.toggle('open');
+            refreshProcess(p);
+        }, false);
         return p;
     }
 
-    /** 重算块头：有工具报步数，纯思考报耗时；块内还有在途行时改报当前动作。 */
+    /** 重算块头：展开时在途行自带脉冲自报当前动作，块头只报统计免与行文案重复；
+     *  收起后块头是唯一可见行，改报当前动作。无工具的分组不套折叠头（行自解释）。 */
     function refreshProcess(p) {
-        var tools = 0, failed = 0, thinkMs = 0, hasThink = false, running = '';
+        var tools = 0, failed = 0, thinkMs = 0, running = '';
         for (var i = 0; i < p.items.length; i++) {
             var it = p.items[i];
             if (it.kind === 'tool') {
@@ -438,14 +444,14 @@
                 if (it.live) { running = runningTool(it.tool); }
                 else if (!it.tool.ok) { failed++; }
             } else if (it.kind === 'think') {
-                hasThink = true;
                 if (it.ms) { thinkMs += it.ms; }
                 if (it.live) { running = LABELS.thinking || 'Thinking…'; }
             }
         }
-        p.title.textContent = processTitle(tools, failed, thinkMs, running);
-        // 只有旁白的分组不套折叠头：旁白自解释，多一层壳只会让一轮更碎
-        p.box.classList.toggle('bare', tools === 0 && !hasThink);
+        var open = p.box.classList.contains('open');
+        p.title.textContent = processTitle(tools, failed, thinkMs, open ? '' : running);
+        // 纯思考/旁白的分组不套折叠头：行文案已自解释，多一层壳只会把「思考中/已思考」重复一遍
+        p.box.classList.toggle('bare', tools === 0);
     }
 
     /** 追加分行并同步块头——流式与重放唯一的过程区写入口。 */
@@ -491,7 +497,7 @@
     function thinkLine(it) {
         var item = el('div', 'log-item');
         var row = el('div', 'log-row');
-        var ic = iconEl(it.live ? PULSE_SVG : CHECK_SVG, 'log-ic' + (it.live ? ' live' : ''));
+        var ic = iconEl(it.live ? SPINNER_SVG : CHECK_SVG, 'log-ic' + (it.live ? ' live' : ''));
         row.appendChild(ic);
         var name = el('span', 'log-name', it.live ? (LABELS.thinking || 'Thinking…') : (LABELS.thinkingDone || 'Thought'));
         row.appendChild(name);
@@ -552,7 +558,7 @@
         var r = it.tool;
         var item = el('div', 'log-item');
         var row = el('div', 'log-row');
-        var ic = iconEl(it.live ? PULSE_SVG : (r.ok ? CHECK_SVG : ERR_SVG),
+        var ic = iconEl(it.live ? SPINNER_SVG : (r.ok ? CHECK_SVG : ERR_SVG),
                 'log-ic' + (it.live ? ' live' : (r.ok ? ' ok' : ' err')));
         row.appendChild(ic);
         row.appendChild(el('span', 'log-name', toolName(r)));
@@ -782,6 +788,40 @@
         }
     }
 
+    /** 占位行：旋转图标 + 脉动文本——轮未结束消息区就始终有活着的信号。 */
+    function pendingLine() {
+        var box = el('div', 'pending');
+        box.appendChild(iconEl(SPINNER_SVG, 'pending-ic'));
+        box.appendChild(el('span', 'pending-text pulsing', LABELS.thinking || 'Thinking…'));
+        return box;
+    }
+
+    /**
+     * 轮内心跳：事件落地后武装定时器，IDLE_MS 内无新事件且没有在途行（思考/工具）
+     * 自带脉冲时，在轮尾亮一条「思考中…」占位——正文换段/首 token 延迟期间明文停更，
+     * 不补的话整轮看起来像停了。任何新事件到达即让位（clearPending）并重新武装；
+     * 只要轮未结束，消息区就始终有活着的信号。
+     */
+    function armIdle(s) {
+        disarmIdle(s);
+        s.idleTimer = setTimeout(function () {
+            s.idleTimer = null;
+            if (s.think || s.open.length > 0 || s.pending) { return; }
+            s.pending = pendingLine();
+            s.host.appendChild(s.pending);
+            if (followBottom) { scrollToBottom(false); }
+        }, IDLE_MS);
+    }
+
+    function disarmIdle(s) {
+        if (s && s.idleTimer) { clearTimeout(s.idleTimer); s.idleTimer = null; }
+    }
+
+    /** 整页重放/清空前解除所有在途轮的心跳：定时器不得写进已脱离页面的气泡。 */
+    function disarmAllIdle() {
+        for (var k in streaming) { disarmIdle(streaming[k]); }
+    }
+
     // ---------- 任务清单卡（todo_write） ----------
     // 框架的 todo_write 是「整表替换」语义：每次调用都带完整清单，最后一次就是当前状态。
     // 因此同一轮里只维持一张卡：实时流就地刷新，历史回放取该条消息里最后一次调用。
@@ -988,6 +1028,7 @@
         renderHistory: function (msgs) {
             var l = list();
             l.innerHTML = '';
+            disarmAllIdle();
             streaming = {};
             for (var i = 0; i < msgs.length; i++) { l.appendChild(buildMessage(msgs[i])); }
             updateEmpty();
@@ -1071,6 +1112,7 @@
         clear: function () {
             if (bottomSnapTimer) { clearTimeout(bottomSnapTimer); bottomSnapTimer = null; }
             list().innerHTML = '';
+            disarmAllIdle();
             streaming = {};
             updateEmpty();
         },
@@ -1090,10 +1132,12 @@
             var hostBox = el('div', 'bubble-host');
             row.appendChild(hostBox);
             list().appendChild(row);
-            var pending = el('div', 'pending pulsing', LABELS.thinking || 'Thinking…');
+            var pending = pendingLine();
             hostBox.appendChild(pending);
-            streaming[id] = { host: hostBox, row: row, pending: pending, proc: null, think: null,
-                              prose: null, todo: null, open: [] };
+            var s = { host: hostBox, row: row, pending: pending, proc: null, think: null,
+                      prose: null, todo: null, open: [], idleTimer: null };
+            streaming[id] = s;
+            armIdle(s);
             followBottom = true;
             scrollToBottom(false);
             updateEmpty();
@@ -1104,6 +1148,7 @@
             if (!s || text == null) { return; }
             clearPending(s);
             liveProse(s, text);
+            armIdle(s);
             if (followBottom) { scrollToBottom(false); }
         },
 
@@ -1112,6 +1157,7 @@
             if (!s || text == null) { return; }
             clearPending(s);
             liveThink(s, text);
+            armIdle(s);
             if (followBottom) { scrollToBottom(false); }
         },
 
@@ -1121,6 +1167,7 @@
             if (!s || !tool || !tool.name) { return; }
             clearPending(s);
             liveToolStart(s, tool);
+            armIdle(s);
             if (followBottom) { scrollToBottom(false); }
         },
 
@@ -1134,11 +1181,13 @@
                 if (items) {
                     // 清单卡就是这次调用的呈现：不占工具行，后续调用整表刷新同一张卡
                     liveTodo(s, items);
+                    armIdle(s);
                     if (followBottom) { scrollToBottom(false); }
                     return;
                 }
             }
             liveToolEnd(s, tool);
+            armIdle(s);
             if (followBottom) { scrollToBottom(false); }
         },
 
@@ -1147,12 +1196,14 @@
             if (!s || !text) { return; }
             clearPending(s);
             liveNotice(s, text);
+            armIdle(s);
             if (followBottom) { scrollToBottom(false); }
         },
 
         streamEnd: function (id) {
             var s = streaming[id];
             if (!s) { return; }
+            disarmIdle(s);
             clearPending(s);
             // 收尾只做定格，不重排：正文明文换 Markdown，思考行补耗时，在途工具按失败收口
             stopThink(s);

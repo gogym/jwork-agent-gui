@@ -797,6 +797,10 @@
 }
 .workspace-tool:hover { -fx-background-color: -gim-hover; }
 .workspace-tool .icon { -fx-font-size: 13px; -fx-text-fill: -gim-text-4; }
+/* 过滤开关激活态（产物视图）：底色常驻 + 图标取强调色，一眼区别于普通工具按钮 */
+.workspace-tool-on { -fx-background-color: -gim-hover; }
+.workspace-tool-on:hover { -fx-background-color: -gim-cell-hover; }
+.workspace-tool-on .icon { -fx-text-fill: -gim-accent; }
 .workspace-inner { -fx-background-color: transparent; -fx-box-border: transparent; -fx-padding: 0; }
 .workspace-inner > .split-pane-divider { -fx-background-color: -gim-border-4; -fx-padding: 0 1 0 1; }
 .workspace-tree-pane { -fx-background-color: transparent; }
@@ -808,6 +812,13 @@
     -fx-font-family: "Segoe Fluent Icons", "Segoe MDL2 Assets";
     -fx-font-size: 13px;
     -fx-text-fill: -gim-text-4;
+}
+/* 产物空态提示行：灰字无图标，去掉悬停/选中底色与手型光标，避免误读为可点文件 */
+.workspace-tree .tree-cell.workspace-tree-hint-cell { -fx-text-fill: -gim-text-5; -fx-cursor: default; }
+.workspace-tree .tree-cell.workspace-tree-hint-cell:filled:hover,
+.workspace-tree .tree-cell.workspace-tree-hint-cell:selected {
+    -fx-background-color: transparent;
+    -fx-text-fill: -gim-text-5;
 }
 .workspace-viewer { -fx-background-color: -gim-bg; }
 .workspace-viewer-body { -fx-padding: 16; }

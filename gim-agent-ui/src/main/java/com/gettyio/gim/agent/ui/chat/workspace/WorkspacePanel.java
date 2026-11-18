@@ -18,6 +18,7 @@ package com.gettyio.gim.agent.ui.chat.workspace;
 
 import com.gettyio.gim.agent.core.GimPaths;
 import com.gettyio.gim.agent.core.chat.FileTextExtractor;
+import com.gettyio.gim.agent.core.chat.SessionArtifactDelivery;
 import com.gettyio.gim.agent.core.fs.CanonicalPath;
 import com.gettyio.gim.agent.ui.chat.render.MarkdownRenderer;
 import com.gettyio.gim.agent.ui.i18n.I18n;
@@ -56,6 +57,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Objects;
@@ -69,6 +71,10 @@ import java.nio.file.DirectoryStream;
  * 只传 sessionId）落在该目录；「智能体工作区」（仅非默认智能体，与共享根重合时不重复出现）指向其工作区根，
  * 外壳脚本等直接产物常落在此层；「共享工作区」指向 workspace 根。入口在会话切换、展开面板与每轮收尾时
  * 就地刷新（{@link #refreshCurrent()}）。
+ * <p>默认「产物视图」（{@link #artifactsOnly}）：用户只关心产物、不关心智能体工作目录——「当前会话」入口
+ * 合并拍平该会话交付件（{@code generated/sessions/<会话ID>/}）与 {@code outputs/}，「共享工作区」入口只挂
+ * {@code generated/}（生图与按会话标题分组的历史交付件）；记忆/人格/技能/会话工作目录等内部内容
+ * 经头部过滤开关切回全量树才可见。</p>
  * <p>外层横向 {@link SplitPane}（左聊天、右本面板），与聊天并存、可拖拽调宽；收起仅摘除节点（{@link #hide()}），
  * 树与已读内容状态保留。面板内部再分「阅读区」与「文件树」两块，默认单面板（一次只显示其一），
  * 头部按钮可扩为三列（阅读区 + 文件树并排）。</p>
@@ -92,12 +98,18 @@ public final class WorkspacePanel {
     private static final int BINARY_SNIFF = 8000;
     /** 图片阅读区最大展示宽度。 */
     private static final double MAX_IMAGE_WIDTH = 900;
+    /** 产物空态提示行的单元格样式类：灰字无图标、无悬停/选中底色。 */
+    private static final String HINT_CELL_CLASS = "workspace-tree-hint-cell";
 
     /** 阅读区分派类型；{@link #classify} 依据扩展名产出。 */
     enum RenderKind { MARKDOWN, HTML, IMAGE, TEXT, DOC, BINARY, TOO_LARGE, MISSING }
 
     private final SplitPane workspaceSplit;
     private final Path workspaceRoot;
+    /** 生图等共享产物根：产物视图「共享工作区」入口挂它。 */
+    private final Path generatedDir;
+    /** 交付产物根 {@code generated/sessions/}：历史交付按会话目录收纳。 */
+    private final Path deliveriesDir;
     /** 展开/收起前的宿主回调（可空）：宿主据此校准窗口宽度，保证聊天视口不因分栏挤压（见 MainController）。 */
     private java.util.function.Consumer<Boolean> visibilityGuard;
 
@@ -111,8 +123,12 @@ public final class WorkspacePanel {
     private TreeItem<FileNode> sessionItem;
     /** 「智能体工作区」入口树项（可空=与共享根重合的默认智能体，不重复出现）；刷新时同样整体替换。 */
     private TreeItem<FileNode> agentItem;
-    /** 「共享工作区」入口树项：workspace 根，不受会话切换影响。 */
+    /** 「共享工作区」入口树项：全量视图挂 workspace 根、产物视图挂 generated/，不受会话切换影响。 */
     private TreeItem<FileNode> sharedItem;
+    /** 产物视图（默认开）：只展示交付件/outputs/generated，内部目录经头部开关切全量树才可见。 */
+    private boolean artifactsOnly = true;
+    /** 会话标题解析器（可空）：历史交付目录重命名用，宿主接会话列表；缺失回退会话 ID。 */
+    private java.util.function.Function<String, String> sessionTitleResolver;
 
     private final BorderPane root = new BorderPane();
     private final SplitPane inner = new SplitPane();
@@ -121,6 +137,7 @@ public final class WorkspacePanel {
     private final TreeView<FileNode> tree = new TreeView<>();
     private final Label crumb = new Label();
     private final Button columnsBtn = new Button();
+    private final Button filterBtn = new Button();
     private final Button closeBtn = new Button();
     /** HTML/SVG 阅读复用单个 JCEF OSR 视图，首次渲染时创建。 */
     private JcefOsrView htmlView;
@@ -132,6 +149,8 @@ public final class WorkspacePanel {
     public WorkspacePanel(SplitPane workspaceSplit, GimPaths gimPaths) {
         this.workspaceSplit = workspaceSplit;
         this.workspaceRoot = gimPaths.workspaceDir().toAbsolutePath().normalize();
+        this.generatedDir = gimPaths.generatedDir().toAbsolutePath().normalize();
+        this.deliveriesDir = gimPaths.deliveriesDir().toAbsolutePath().normalize();
         this.agentRoot = this.workspaceRoot;
         build();
     }
@@ -144,6 +163,11 @@ public final class WorkspacePanel {
     /** 注入展开/收起时的宿主守护回调：true=挂入前、false=摘除后；宿主据此校准窗口宽度保聊天视口。 */
     public void setVisibilityGuard(java.util.function.Consumer<Boolean> guard) {
         this.visibilityGuard = guard;
+    }
+
+    /** 注入会话标题解析器：产物视图把历史交付目录的 UUID 重命名为会话标题（无标题回退 ID）。 */
+    public void setSessionTitleResolver(java.util.function.Function<String, String> resolver) {
+        this.sessionTitleResolver = resolver;
     }
 
     // ===================== 显隐（仿 TerminalDrawer：收起仅摘节点） =====================
@@ -228,24 +252,40 @@ public final class WorkspacePanel {
         if (tree.getRoot() == null) {
             return 0;
         }
-        this.fresh = sinceMillis > 0 ? collectFresh(sessionDir, sinceMillis) : Set.of();
+        this.fresh = sinceMillis > 0 ? freshOf(sessionDir, sessionDeliveryDir(), sinceMillis) : Set.of();
         int index = 0;
         if (sessionDir != null) {
             sessionItem = dirItem(new FileNode(sessionDir, true, I18n.t("chat.workspace.currentSession")));
             tree.getRoot().getChildren().set(index++, sessionItem);
             // 目录已在则自动展开：expandedProperty 监听同步懒列子项，免得用户再点一次
-            if (Files.isDirectory(sessionDir)) {
+            if (sessionExpandable()) {
                 sessionItem.setExpanded(true);
             }
         }
         if (agentItem != null) {
             agentItem = dirItem(new FileNode(agentRoot, true, I18n.t("chat.workspace.agentWorkspace")));
-            tree.getRoot().getChildren().set(index, agentItem);
+            tree.getRoot().getChildren().set(index++, agentItem);
             if (Files.isDirectory(agentRoot)) {
                 agentItem.setExpanded(true);
             }
         }
+        if (artifactsOnly) {
+            // 产物视图的共享入口挂 generated/：本轮生图/交付也要就地刷新，不能等会话切换
+            sharedItem = dirItem(new FileNode(generatedDir, true, I18n.t("chat.workspace.shared")));
+            tree.getRoot().getChildren().set(index, sharedItem);
+            if (Files.isDirectory(generatedDir)) {
+                sharedItem.setExpanded(true);
+            }
+        }
         return fresh.size();
+    }
+
+    /** 「当前会话」入口是否值得自动展开：全量看会话目录已在；产物视图交付目录/outputs 任一已在也算。 */
+    private boolean sessionExpandable() {
+        if (Files.isDirectory(sessionDir)) {
+            return true;
+        }
+        return artifactsOnly && (isDirectory(sessionDeliveryDir()) || isDirectory(sessionOutputsDir()));
     }
 
     /** 无轮次基线的刷新（面板展开时）：只重建入口，不清「本轮新增」标记之外的状态。 */
@@ -283,6 +323,34 @@ public final class WorkspacePanel {
     /** 本轮新增/改动的文件集合（文件树据此加标记；切换会话或无基线时为空）。 */
     private Set<Path> fresh = Set.of();
 
+    /** 本轮新增扫描覆盖会话目录与交付目录：交付件落在 generated/sessions 下，不在会话目录内。 */
+    private static Set<Path> freshOf(Path sessionDir, Path deliveryDir, long sinceMillis) {
+        Set<Path> base = collectFresh(sessionDir, sinceMillis);
+        Set<Path> delivered = collectFresh(deliveryDir, sinceMillis);
+        if (delivered.isEmpty()) {
+            return base;
+        }
+        Set<Path> all = new HashSet<>(base);
+        all.addAll(delivered);
+        return Set.copyOf(all);
+    }
+
+    /** 当前会话交付目录（与产物卡反查同口径）；无会话时 {@code null}。 */
+    private Path sessionDeliveryDir() {
+        return sessionId == null ? null : SessionArtifactDelivery.dirOf(deliveriesDir, sessionId);
+    }
+
+    /** 会话内 Harness 输出目录；无会话时 {@code null}。 */
+    private Path sessionOutputsDir() {
+        return sessionDir == null ? null : sessionDir.resolve("outputs");
+    }
+
+    /** 会话标题（历史交付目录重命名用）：解析器缺失或无标题回退会话 ID。 */
+    private String sessionTitle(String sid) {
+        String title = sessionTitleResolver == null ? null : sessionTitleResolver.apply(sid);
+        return title == null || title.isBlank() ? sid : title;
+    }
+
     /** 语言切换：各入口标签重取文案（子节点是文件名，与语言无关）。 */
     public void applyI18n() {
         if (sessionItem != null && sessionItem.getValue() != null) {
@@ -292,7 +360,12 @@ public final class WorkspacePanel {
             agentItem.setValue(new FileNode(agentRoot, true, I18n.t("chat.workspace.agentWorkspace")));
         }
         if (sharedItem != null && sharedItem.getValue() != null) {
-            sharedItem.setValue(new FileNode(workspaceRoot, true, I18n.t("chat.workspace.shared")));
+            sharedItem.setValue(new FileNode(sharedItem.getValue().path(), true, I18n.t("chat.workspace.shared")));
+        }
+        applyToolTips();
+        if (artifactsOnly) {
+            // 产物视图子项含本地化标签（会话交付/空态提示）：整树重建顺带刷新
+            rebuildTree();
         }
     }
 
@@ -304,21 +377,30 @@ public final class WorkspacePanel {
         if (sessionItem != null) {
             syntheticRoot.getChildren().add(sessionItem);
         }
-        // 默认智能体的工作区即共享根：无需重复入口
-        agentItem = agentRoot.equals(workspaceRoot) ? null
-                : dirItem(new FileNode(agentRoot, true, I18n.t("chat.workspace.agentWorkspace")));
-        if (agentItem != null) {
-            syntheticRoot.getChildren().add(agentItem);
+        if (artifactsOnly) {
+            // 产物视图：智能体工作区入口无产物语义（交付件统一落 generated/sessions），不出现
+            agentItem = null;
+            sharedItem = dirItem(new FileNode(generatedDir, true, I18n.t("chat.workspace.shared")));
+        } else {
+            // 默认智能体的工作区即共享根：无需重复入口
+            agentItem = agentRoot.equals(workspaceRoot) ? null
+                    : dirItem(new FileNode(agentRoot, true, I18n.t("chat.workspace.agentWorkspace")));
+            if (agentItem != null) {
+                syntheticRoot.getChildren().add(agentItem);
+            }
+            sharedItem = dirItem(new FileNode(workspaceRoot, true, I18n.t("chat.workspace.shared")));
         }
-        sharedItem = dirItem(new FileNode(workspaceRoot, true, I18n.t("chat.workspace.shared")));
         syntheticRoot.getChildren().add(sharedItem);
         tree.setRoot(syntheticRoot);
         // 目录已在则自动展开：expandedProperty 监听同步懒列子项，免得用户再点一次
-        if (sessionItem != null && Files.isDirectory(sessionDir)) {
+        if (sessionItem != null && sessionExpandable()) {
             sessionItem.setExpanded(true);
         }
         if (agentItem != null && Files.isDirectory(agentRoot)) {
             agentItem.setExpanded(true);
+        }
+        if (artifactsOnly && Files.isDirectory(generatedDir)) {
+            sharedItem.setExpanded(true);
         }
     }
 
@@ -386,6 +468,11 @@ public final class WorkspacePanel {
         Region spacer = new Region();
         HBox.setHgrow(spacer, Priority.ALWAYS);
 
+        configureTool(filterBtn, "\uE71C", "chat.workspace.filter.all", () -> {
+            artifactsOnly = !artifactsOnly;
+            applyToolTips();
+            rebuildTree();
+        });
         configureTool(columnsBtn, "\uE8A1", "chat.workspace.columns.expand", () -> {
             threeColumn = !threeColumn;
             applyToolTips();
@@ -393,9 +480,10 @@ public final class WorkspacePanel {
         });
         configureTool(closeBtn, "\uE711", "chat.workspace.close", this::hide);
 
-        HBox header = new HBox(4, crumb, spacer, columnsBtn, closeBtn);
+        HBox header = new HBox(4, crumb, spacer, filterBtn, columnsBtn, closeBtn);
         header.setAlignment(Pos.CENTER_LEFT);
         header.getStyleClass().add("workspace-header");
+        applyToolTips();
         return header;
     }
 
@@ -457,6 +545,11 @@ public final class WorkspacePanel {
 
     private void applyToolTips() {
         setTip(columnsBtn, threeColumn ? "chat.workspace.columns.collapse" : "chat.workspace.columns.expand");
+        setTip(filterBtn, artifactsOnly ? "chat.workspace.filter.all" : "chat.workspace.filter.artifacts");
+        filterBtn.getStyleClass().remove("workspace-tool-on");
+        if (artifactsOnly) {
+            filterBtn.getStyleClass().add("workspace-tool-on");
+        }
     }
 
     private void setTip(Button btn, String key) {
@@ -673,7 +766,23 @@ public final class WorkspacePanel {
     private String crumbFor(Path target) {
         Path base = workspaceRoot;
         String head = I18n.t("chat.workspace.shared");
-        if (sessionDir != null && isWithin(sessionDir, target)) {
+        if (artifactsOnly) {
+            // 产物视图：交付件读作「当前会话 › 文件名」，不再露 generated/sessions/UUID 一串内部路径
+            Path cur = sessionDeliveryDir();
+            if (cur != null && isWithin(cur, target)) {
+                base = cur;
+                head = I18n.t("chat.workspace.currentSession");
+            } else if (isWithin(deliveriesDir, target)) {
+                base = deliveriesDir;
+                head = I18n.t("chat.workspace.shared") + " \u203A " + I18n.t("chat.workspace.deliveries");
+            } else if (sessionDir != null && isWithin(sessionDir, target)) {
+                base = sessionDir;
+                head = I18n.t("chat.workspace.currentSession");
+            } else if (isWithin(generatedDir, target)) {
+                base = generatedDir;
+                head = I18n.t("chat.workspace.shared");
+            }
+        } else if (sessionDir != null && isWithin(sessionDir, target)) {
             base = sessionDir;
             head = I18n.t("chat.workspace.currentSession");
         } else if (!agentRoot.equals(workspaceRoot) && isWithin(agentRoot, target)) {
@@ -683,8 +792,22 @@ public final class WorkspacePanel {
         List<String> parts = new ArrayList<>();
         parts.add(head);
         Path rel = base.relativize(target);
+        boolean inSessions = false;
         for (Path seg : rel) {
-            parts.add(seg.toString());
+            String name = seg.toString();
+            // 与树同口径：交付目录段重命名为会话标题、generated 下的 sessions 段用本地化标签
+            if (artifactsOnly && base.equals(generatedDir)) {
+                if (!inSessions && "sessions".equals(name)) {
+                    name = I18n.t("chat.workspace.deliveries");
+                    inSessions = true;
+                } else if (inSessions) {
+                    name = sessionTitle(name);
+                    inSessions = false;
+                }
+            } else if (artifactsOnly && base.equals(deliveriesDir) && parts.size() == 1) {
+                name = sessionTitle(name);
+            }
+            parts.add(name);
         }
         return String.join(" \u203A ", parts);
     }
@@ -732,38 +855,103 @@ public final class WorkspacePanel {
         }
         ObservableList<TreeItem<FileNode>> children = item.getChildren();
         boolean notLoaded = children.size() == 1 && children.get(0).getValue() == null;
-        if (notLoaded) {
-            children.setAll(listChildren(item.getValue().path()));
+        if (!notLoaded) {
+            return;
         }
+        if (artifactsOnly && item == sessionItem) {
+            children.setAll(sessionArtifactItems());
+            return;
+        }
+        children.setAll(listChildren(item.getValue().path()));
     }
 
-    /** 列一个目录的直接子项：过滤工作区外、目录优先、按名排序。 */
-    private ObservableList<TreeItem<FileNode>> listChildren(Path dir) {
+    /** 产物视图「当前会话」子项：交付件 + outputs 合并拍平；皆空给一行空态提示（无图标不可点）。 */
+    private ObservableList<TreeItem<FileNode>> sessionArtifactItems() {
+        List<Path> entries = sessionArtifactPaths(sessionDeliveryDir(), sessionOutputsDir(), workspaceRoot);
         ObservableList<TreeItem<FileNode>> list = FXCollections.observableArrayList();
-        List<Path> entries = new ArrayList<>();
-        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
-            for (Path p : ds) {
-                Path abs = p.toAbsolutePath().normalize();
-                if (isWithin(workspaceRoot, abs)) {
-                    entries.add(abs);
-                }
-            }
-        } catch (IOException | SecurityException e) {
-            // 目录不可读：返回空列表（展开时显示无子项），不抛出
-            log.debug("列目录失败: {}", dir, e);
+        if (entries.isEmpty()) {
+            list.add(new TreeItem<>(new FileNode(null, true, I18n.t("chat.workspace.noArtifacts"))));
             return list;
         }
-        entries.sort(Comparator.comparing((Path p) -> !isDirectory(p))
-                .thenComparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER));
         for (Path p : entries) {
             list.add(isDirectory(p) ? dirItem(p) : new TreeItem<>(new FileNode(p, false)));
         }
         return list;
     }
 
+    /** 列一个目录的直接子项：过滤工作区外、目录优先、按名排序；产物视图附加交付目录去重/重命名。 */
+    private ObservableList<TreeItem<FileNode>> listChildren(Path dir) {
+        List<Path> entries = childPathsOf(dir, workspaceRoot);
+        sortEntries(entries);
+        ObservableList<TreeItem<FileNode>> list = FXCollections.observableArrayList();
+        for (Path p : entries) {
+            boolean directory = isDirectory(p);
+            String label = null;
+            if (artifactsOnly && directory && dir.equals(deliveriesDir)) {
+                label = deliveryLabel(p, sessionDeliveryDir(), this::sessionTitle);
+                if (label == null) {
+                    continue; // 当前会话交付件已提顶到「当前会话」入口，共享区去重
+                }
+            } else if (artifactsOnly && directory && dir.equals(generatedDir)
+                    && "sessions".equals(p.getFileName().toString())) {
+                label = I18n.t("chat.workspace.deliveries");
+            }
+            if (!directory) {
+                list.add(new TreeItem<>(new FileNode(p, false)));
+            } else {
+                list.add(label == null ? dirItem(p) : dirItem(new FileNode(p, true, label)));
+            }
+        }
+        return list;
+    }
+
+    /** 目录直接子项（工作区内、未排序）：不可读/不存在返回空表，不抛出。 */
+    static List<Path> childPathsOf(Path dir, Path root) {
+        List<Path> entries = new ArrayList<>();
+        if (!isDirectory(dir)) {
+            return entries;
+        }
+        try (DirectoryStream<Path> ds = Files.newDirectoryStream(dir)) {
+            for (Path p : ds) {
+                Path abs = p.toAbsolutePath().normalize();
+                if (isWithin(root, abs)) {
+                    entries.add(abs);
+                }
+            }
+        } catch (IOException | SecurityException e) {
+            // 目录不可读：返回空列表（展开时显示无子项），不抛出
+            log.debug("列目录失败: {}", dir, e);
+        }
+        return entries;
+    }
+
+    /** 目录优先、按名忽略大小写排序（就地）。 */
+    static void sortEntries(List<Path> entries) {
+        entries.sort(Comparator.comparing((Path p) -> !isDirectory(p))
+                .thenComparing(p -> p.getFileName().toString(), String.CASE_INSENSITIVE_ORDER));
+    }
+
+    /** 产物视图「当前会话」子项来源：交付目录 + outputs 的直接子项合并排序；目录缺失贡献空表。 */
+    static List<Path> sessionArtifactPaths(Path deliveryDir, Path outputsDir, Path root) {
+        List<Path> all = childPathsOf(deliveryDir, root);
+        all.addAll(childPathsOf(outputsDir, root));
+        sortEntries(all);
+        return all;
+    }
+
+    /** 历史交付目录显示名：当前会话返回 {@code null}（调用方去重），其余会话标题优先、无标题回退目录名。 */
+    static String deliveryLabel(Path dir, Path currentDeliveryDir, java.util.function.Function<String, String> titles) {
+        if (dir.equals(currentDeliveryDir)) {
+            return null;
+        }
+        String name = dir.getFileName().toString();
+        String title = titles == null ? null : titles.apply(name);
+        return title == null || title.isBlank() ? name : title;
+    }
+
     private static boolean isDirectory(Path p) {
         try {
-            return Files.isDirectory(p);
+            return p != null && Files.isDirectory(p);
         } catch (SecurityException e) {
             return false;
         }
@@ -777,6 +965,15 @@ public final class WorkspacePanel {
             if (empty || item == null) {
                 setText(null);
                 setGraphic(null);
+                getStyleClass().remove(HINT_CELL_CLASS);
+                return;
+            }
+            getStyleClass().remove(HINT_CELL_CLASS);
+            if (item.path() == null) {
+                // 空态提示行：无图标灰字；目录标记防选中触发 openFile，样式去掉悬停/选中底色
+                setGraphic(null);
+                setText(item.displayName());
+                getStyleClass().add(HINT_CELL_CLASS);
                 return;
             }
             Label icon = new Label(item.directory() ? "\uE8B7" : "\uE7C3");
