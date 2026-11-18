@@ -36,6 +36,9 @@ import javafx.scene.layout.Region;
  */
 public final class CardKit {
 
+    /** 名称锁宽槽位：徽标左缘 = 槽位 + 行距，跨卡片对齐，不随名称长短前移后挪 */
+    private static final double NAME_SLOT = 120;
+
     private CardKit() {
     }
 
@@ -51,12 +54,14 @@ public final class CardKit {
 
     /**
      * 卡片首行：左侧名称 + 状态徽标，右侧操作按钮（编辑/删除/使用等）。
-     * <p>宽度不够时 HBox 会把所有可压缩的子节点一起往最小宽度压，所以默认情况下名称过长会
-     * 连带把徽标与按钮的文字挤成省略号。这里只让名称可压缩（过长则省略号截断，并挂 tooltip
-     * 便于看全名），其余节点的最小宽度钉在首选宽度上，保证操作入口始终完整可见。</p>
+     * <p>名称锁在 {@link #NAME_SLOT} 宽槽位内（过长省略号截断并挂 tooltip 便于看全名），
+     * 标题行吸收剩余宽度，使徽标左缘在同页卡片间保持同一竖线；空间不足时只压缩名称，
+     * 徽标与操作按钮的最小宽度钉在首选宽度上，保证操作入口始终完整可见。</p>
      */
     public static HBox cardHeadRow(Label name, Label badge, Button... actions) {
         name.setMinWidth(0);
+        name.setPrefWidth(NAME_SLOT);
+        name.setMaxWidth(NAME_SLOT);
         name.setTextOverrun(OverrunStyle.ELLIPSIS);
         name.setTooltip(new Tooltip(name.getText()));
         badge.setMinWidth(Region.USE_PREF_SIZE);
@@ -64,13 +69,11 @@ public final class CardKit {
         HBox titleRow = new HBox(10, name, badge);
         titleRow.setAlignment(Pos.CENTER_LEFT);
         titleRow.setMaxWidth(Double.MAX_VALUE);
-
-        Region sp = new Region();
-        HBox.setHgrow(sp, Priority.ALWAYS);
+        HBox.setHgrow(titleRow, Priority.ALWAYS);
 
         HBox head = new HBox();
         head.setAlignment(Pos.CENTER_LEFT);
-        head.getChildren().addAll(titleRow, sp);
+        head.getChildren().add(titleRow);
         for (Button action : actions) {
             action.setMinWidth(Region.USE_PREF_SIZE);
             head.getChildren().add(action);

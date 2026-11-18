@@ -16,6 +16,7 @@
 
 package com.gettyio.gim.agent.ui.view;
 
+import com.gettyio.gim.agent.core.capability.CapabilityCodec;
 import com.gettyio.gim.agent.core.capability.McpConnectionProbe;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
@@ -23,13 +24,17 @@ import com.gettyio.gim.agent.domain.enums.McpTransportType;
 import com.gettyio.gim.agent.ui.i18n.I18n;
 import com.gettyio.gim.agent.ui.config.McpAdminService;
 import com.gettyio.gim.agent.ui.control.CardKit;
+import com.gettyio.gim.agent.ui.control.KeyValueEditor;
 import com.gettyio.gim.agent.ui.control.ToggleSwitch;
 import com.gettyio.gim.agent.ui.market.MarketService;
 import com.gettyio.gim.agent.ui.market.McpMarketDialog;
 import com.gettyio.gim.agent.ui.window.dialog.GimDialog;
 import javafx.application.Platform;
+import javafx.beans.binding.Bindings;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
+import javafx.geometry.VPos;
+import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
@@ -44,9 +49,12 @@ import javafx.scene.layout.StackPane;
 import javafx.scene.layout.TilePane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.TextAlignment;
+import javafx.stage.Stage;
 import javafx.stage.Window;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * MCP 服务页：可复用的自包含组件（页头 + 服务信息卡片 + 新增/编辑模态表单 + 删除）。
@@ -82,6 +90,15 @@ public class McpView {
     private final TextField baseUrlField = new TextField();
     private final TextField timeoutField = new TextField();
     private final ToggleSwitch enabledCheck = new ToggleSwitch();
+    /** STDIO 环境变量 / HTTP-SSE 请求头：键值对编辑器（值掩码+显形），Key 的输入口 */
+    private final KeyValueEditor envEditor = new KeyValueEditor("API_KEY", "sk-…");
+    private final KeyValueEditor headersEditor = new KeyValueEditor("Authorization", "Bearer sk-…");
+    private final Label commandHint = hintLabel();
+    private final Label argsHint = hintLabel();
+    private final Label envHint = hintLabel();
+    private final Label headersHint = hintLabel();
+    /** 当前对话框内的表单栅格：切换传输类型时原地重建行（null 表示对话框未开） */
+    private GridPane formGrid;
 
     public McpView(McpAdminService mcpAdminService, MarketService marketService) {
         this.mcpAdminService = mcpAdminService;
@@ -143,6 +160,11 @@ public class McpView {
 
         transportCombo.getItems().setAll(
                 McpTransportType.STDIO.name(), McpTransportType.HTTP.name(), McpTransportType.SSE.name());
+        // 语义化 placeholder：命令是可执行程序，参数是按顺序传给它的 argv（两种写法都收）
+        commandField.setPromptText("npx / uvx / node");
+        argsField.setPromptText("[\"-y\", \"@scope/package\", \"arg\"]");
+        baseUrlField.setPromptText("https://example.com/mcp");
+        transportCombo.valueProperty().addListener((obs, was, now) -> rebuildForm());
 
         grid.getStyleClass().add("card-grid");
         grid.setHgap(14);
@@ -244,14 +266,23 @@ public class McpView {
         del.getStyleClass().addAll("link-btn", "link-btn-danger");
         HBox head = CardKit.cardHeadRow(name, badge, test, edit, del);
 
-        VBox card = new VBox(8, head,
+        // 卡片只摆与传输类型相关的地址行；配了密钥再补一行计数（不露值）
+        boolean stdio = McpTransportType.STDIO.name().equals(m.getTransportType());
+        int secretCount = stdio ? mcpAdminService.envOf(m).size() : mcpAdminService.headersOf(m).size();
+        List<Node> lines = new ArrayList<>(List.of(head,
                 CardKit.kvLine(I18n.t("settings.mcp.code"), m.getServerCode()),
                 CardKit.kvLine(I18n.t("settings.mcp.transport"), m.getTransportType()),
-                CardKit.kvLine(I18n.t("settings.mcp.command"), m.getCommand()),
-                CardKit.kvLine(I18n.t("settings.mcp.baseUrl"), m.getBaseUrl()),
+                CardKit.kvLine(I18n.t(stdio ? "settings.mcp.command" : "settings.mcp.baseUrl"),
+                        stdio ? m.getCommand() : m.getBaseUrl()),
                 CardKit.kvLine(I18n.t("settings.mcp.timeout"), String.valueOf(m.getTimeout())),
                 CardKit.kvNodeLine(I18n.t("common.status"), statusVal),
-                probeRow);
+                probeRow));
+        if (secretCount > 0) {
+            lines.add(4, CardKit.kvLine(I18n.t(stdio ? "settings.mcp.env" : "settings.mcp.headers"),
+                    String.valueOf(secretCount)));
+        }
+        VBox card = new VBox(8);
+        card.getChildren().addAll(lines);
         card.getStyleClass().add("provider-card");
         card.setMinWidth(340);
         card.setMaxWidth(CARD_WIDTH);
@@ -273,13 +304,15 @@ public class McpView {
                 ? "settings.mcp.addTitle" : "settings.mcp.editTitle"));
 
         if (editing == null) {
+            formGrid = null;
             clearForm();
         } else {
+            formGrid = null;
             loadToForm(editing);
         }
 
         GridPane form = buildForm();
-        form.setPrefWidth(440);
+        form.setPrefWidth(640);
 
         Button cancel = new Button(I18n.t("common.cancel"));
         cancel.setOnAction(e -> shell.stage().close());
@@ -302,16 +335,100 @@ public class McpView {
         g.getStyleClass().add("form-card");
         g.setHgap(14);
         g.setVgap(10);
-        int r = 0;
-        g.addRow(r++, new Label(I18n.t("settings.mcp.code")), codeField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.name")), nameField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.transport")), transportCombo);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.command")), commandField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.args")), argsField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.baseUrl")), baseUrlField);
-        g.addRow(r++, new Label(I18n.t("settings.mcp.timeout")), timeoutField);
-        g.addRow(r, new Label(I18n.t("common.enable")), enabledCheck);
+        formGrid = g;
+        fillForm(g);
         return g;
+    }
+
+    /** 切换传输类型：只摆当前分区的行重建表单，隐藏行不占 GridPane 行距；重建后对话框跟随自适应尺寸。 */
+    private void rebuildForm() {
+        if (formGrid == null) {
+            return;
+        }
+        boolean comboFocused = transportCombo.isFocused();
+        formGrid.getChildren().clear();
+        fillForm(formGrid);
+        if (comboFocused) {
+            transportCombo.requestFocus();
+        }
+        Platform.runLater(() -> {
+            if (formGrid.getScene() != null && formGrid.getScene().getWindow() instanceof Stage stage) {
+                stage.sizeToScene();
+            }
+        });
+    }
+
+    /** 表单行：公共行 + 当前传输类型分区行 + 收尾行；控件节点复用，重建不丢已填值。 */
+    private void fillForm(GridPane g) {
+        int r = 0;
+        g.addRow(r++, formLabel("settings.mcp.code"), grow(codeField));
+        g.addRow(r++, formLabel("settings.mcp.name"), grow(nameField));
+        g.addRow(r++, formLabel("settings.mcp.transport"), grow(transportCombo));
+        // 按传输类型分区：STDIO 才摆命令/参数/环境变量，HTTP/SSE 才摆基础地址/请求头
+        if (McpTransportType.STDIO.name().equals(transportCombo.getValue())) {
+            Label commandLabel = formLabel("settings.mcp.command");
+            commandHint.setText(I18n.t("settings.mcp.command.hint"));
+            VBox commandCell = new VBox(4, commandField, commandHint);
+            g.addRow(r++, commandLabel, grow(commandCell));
+            centerOnFirst(commandLabel, commandField);
+            Label argsLabel = formLabel("settings.mcp.args");
+            argsHint.setText(I18n.t("settings.mcp.args.hint"));
+            VBox argsCell = new VBox(4, argsField, argsHint);
+            g.addRow(r++, argsLabel, grow(argsCell));
+            centerOnFirst(argsLabel, argsField);
+            Label envLabel = formLabel("settings.mcp.env");
+            envHint.setText(I18n.t("settings.mcp.env.hint"));
+            VBox envCell = new VBox(4, envEditor.getNode(), envHint);
+            g.addRow(r++, envLabel, grow(envCell));
+            centerOnFirst(envLabel, envEditor.anchorHeightProperty());
+        } else {
+            g.addRow(r++, formLabel("settings.mcp.baseUrl"), grow(baseUrlField));
+            Label headersLabel = formLabel("settings.mcp.headers");
+            headersHint.setText(I18n.t("settings.mcp.headers.hint"));
+            VBox headersCell = new VBox(4, headersEditor.getNode(), headersHint);
+            g.addRow(r++, headersLabel, grow(headersCell));
+            centerOnFirst(headersLabel, headersEditor.anchorHeightProperty());
+        }
+        g.addRow(r++, formLabel("settings.mcp.timeout"), grow(timeoutField));
+        g.addRow(r, formLabel("common.enable"), enabledCheck);
+    }
+
+    /** 表单标题：最小宽锁预宽，「参数（JSON 数组）」这类长标题不被列压缩省略号截断。 */
+    private static Label formLabel(String key) {
+        Label label = new Label(I18n.t(key));
+        label.setMinWidth(Region.USE_PREF_SIZE);
+        return label;
+    }
+
+    /** 标题与输入框同水平中线：顶对齐单元格后按首个控件的高度差平移（灰字提示不参与对齐）。 */
+    private static void centerOnFirst(Label label, Region first) {
+        centerOnFirst(label, first.heightProperty());
+    }
+
+    /** 同口径的锚高度版：键值对编辑器以首行输入框（无行时添加按钮）为锚。 */
+    private static void centerOnFirst(Label label, javafx.beans.property.ReadOnlyDoubleProperty anchorHeight) {
+        GridPane.setValignment(label, VPos.TOP);
+        label.translateYProperty().bind(Bindings.createDoubleBinding(
+                () -> Math.max(0, (anchorHeight.get() - label.getHeight()) / 2),
+                anchorHeight, label.heightProperty()));
+    }
+
+    /** 第二列单元随表单宽度拉伸（键值对编辑器需要整行宽）。 */
+    private static <T extends Node> T grow(T cell) {
+        GridPane.setHgrow(cell, Priority.ALWAYS);
+        if (cell instanceof Region region) {
+            region.setMaxWidth(Double.MAX_VALUE);
+        }
+        return cell;
+    }
+
+    /** 表单内语义提示：小字灰文、可换行。 */
+    private static Label hintLabel() {
+        Label label = new Label();
+        label.getStyleClass().add("row-desc");
+        label.setWrapText(true);
+        label.setMinWidth(0);
+        return label;
     }
 
     private void clearForm() {
@@ -321,6 +438,8 @@ public class McpView {
         argsField.clear();
         baseUrlField.clear();
         timeoutField.setText("30");
+        envEditor.setEntries(Map.of());
+        headersEditor.setEntries(Map.of());
         transportCombo.setValue(McpTransportType.STDIO.name());
         enabledCheck.setSelected(true);
         codeField.setDisable(false);
@@ -335,6 +454,8 @@ public class McpView {
         commandField.setText(m.getCommand());
         argsField.setText(m.getArgsJson());
         baseUrlField.setText(m.getBaseUrl());
+        envEditor.setEntries(mcpAdminService.envOf(m));
+        headersEditor.setEntries(mcpAdminService.headersOf(m));
         timeoutField.setText(String.valueOf(m.getTimeout()));
         enabledCheck.setSelected(EnabledStatus.isEnabled(m.getEnabled()));
     }
@@ -342,6 +463,15 @@ public class McpView {
     private boolean commitForm() {
         if (codeField.getText().isBlank()) {
             statusLabel.setText(I18n.t("settings.status.mcpCodeEmpty"));
+            return false;
+        }
+        boolean stdio = McpTransportType.STDIO.name().equals(transportCombo.getValue());
+        if (stdio && commandField.getText().isBlank()) {
+            statusLabel.setText(I18n.t("settings.status.mcpCommandEmpty"));
+            return false;
+        }
+        if (!stdio && baseUrlField.getText().isBlank()) {
+            statusLabel.setText(I18n.t("settings.status.mcpUrlEmpty"));
             return false;
         }
         McpServerConfig m = new McpServerConfig();
@@ -353,14 +483,13 @@ public class McpView {
         m.setBaseUrl(baseUrlField.getText().trim());
         m.setTimeout(parseInt(timeoutField.getText(), 30));
         m.setEnabled(enabledCheck.isSelected() ? 1 : 0);
-        // 保留库中未暴露于表单的字段（环境变量 / 请求头 JSON / 连接状态）
+        // 键值对编辑器录入的密钥（此处收明文，save 时由服务加密入库）
+        m.setEnvJson(CapabilityCodec.writeStringMap(envEditor.collect()));
+        m.setHeadersJson(CapabilityCodec.writeStringMap(headersEditor.collect()));
+        // 保留库中未暴露于表单的连接状态
         mcpAdminService.list().stream()
                 .filter(ex -> ex.getServerCode().equals(m.getServerCode()))
-                .findFirst().ifPresent(ex -> {
-                    m.setEnvJson(ex.getEnvJson());
-                    m.setHeadersJson(ex.getHeadersJson());
-                    m.setStatus(ex.getStatus());
-                });
+                .findFirst().ifPresent(ex -> m.setStatus(ex.getStatus()));
         mcpAdminService.save(m);
         statusLabel.setText(I18n.t("settings.status.savedMcp", m.getServerCode()));
         reload();
@@ -388,7 +517,7 @@ public class McpView {
         collapseProbe(probe);
         String code = m.getServerCode();
         Thread worker = new Thread(() -> {
-            McpConnectionProbe.ProbeResult result = McpConnectionProbe.probe(m);
+            McpConnectionProbe.ProbeResult result = mcpAdminService.probe(m);
             Platform.runLater(() -> {
                 trigger.setDisable(false);
                 renderProbeResult(probe, result);

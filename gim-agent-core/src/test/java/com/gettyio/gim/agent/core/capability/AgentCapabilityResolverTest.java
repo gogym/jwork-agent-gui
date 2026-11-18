@@ -20,14 +20,19 @@ import com.gettyio.gim.agent.core.chat.HarnessAgentGateway;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.persist.SqliteConnectionProvider;
 import com.gettyio.gim.agent.domain.entity.AgentDefinition;
+import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
+import com.gettyio.gim.agent.domain.security.SecretCipher;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
+import java.util.Base64;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
@@ -54,10 +59,11 @@ class AgentCapabilityResolverTest {
     private AgentCapabilityResolver resolver;
     private HarnessAgentGateway gateway;
     private Set<String> applied;
+    private GimDatabase db;
 
     @BeforeEach
     void setUp() {
-        GimDatabase db = new GimDatabase(new SqliteConnectionProvider(temp.resolve("gim.db")));
+        db = new GimDatabase(new SqliteConnectionProvider(temp.resolve("gim.db")));
         db.initSchema();
         SkillPackage office = new SkillPackage();
         office.setSkillCode("office-documents");
@@ -66,7 +72,7 @@ class AgentCapabilityResolverTest {
         office.setEnabled(1);
         db.skillDao().insert(office);
 
-        resolver = new AgentCapabilityResolver(db);
+        resolver = new AgentCapabilityResolver(db, null);
         gateway = mock(HarnessAgentGateway.class);
         // setSkillAllowlist 是 void，用 doAnswer 抓真实入参：null 与空集在 verify 里区分不开
         applied = null;
@@ -128,5 +134,49 @@ class AgentCapabilityResolverTest {
         resolver.applyTo(gateway, def(null));
         verify(gateway).setToolsConfig(org.mockito.ArgumentMatchers.argThat(cfg -> cfg.getMcpServers().isEmpty()),
                 any());
+    }
+
+    @Test
+    @DisplayName("MCP 密钥：库中密文在翻译配置时解密回明文下发")
+    void mcpSecretsDecryptedOnApply() {
+        SecretCipher cipher = new SecretCipher() {
+            @Override
+            public String encrypt(String plainText) {
+                return prefix() + Base64.getEncoder().encodeToString(plainText.getBytes(StandardCharsets.UTF_8));
+            }
+
+            @Override
+            public String decrypt(String cipherText) {
+                return new String(Base64.getDecoder().decode(cipherText.substring(prefix().length())),
+                        StandardCharsets.UTF_8);
+            }
+
+            @Override
+            public String prefix() {
+                return "t:";
+            }
+        };
+        McpServerConfig row = new McpServerConfig();
+        row.setServerCode("s1");
+        row.setServerName("联网搜索");
+        row.setTransportType("HTTP");
+        row.setBaseUrl("https://example.com/mcp");
+        row.setEnabled(1);
+        row.setHeadersJson(McpSecrets.writeMap(Map.of("Authorization", "Bearer sk-1"), cipher));
+        db.mcpServerDao().insert(row);
+
+        io.agentscope.harness.agent.tools.ToolsConfig[] captured =
+                new io.agentscope.harness.agent.tools.ToolsConfig[1];
+        doAnswer(inv -> {
+            captured[0] = inv.getArgument(0);
+            return null;
+        }).when(gateway).setToolsConfig(any(), any());
+        AgentDefinition d = def(null);
+        d.setMcpServersJson(CapabilityCodec.writeCodes(List.of("s1")));
+        new AgentCapabilityResolver(db, cipher).applyTo(gateway, d);
+
+        assertNotNull(captured[0]);
+        assertEquals("Bearer sk-1",
+                captured[0].getMcpServers().get("s1").getHeaders().get("Authorization"));
     }
 }

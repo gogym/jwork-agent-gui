@@ -22,6 +22,7 @@ import com.gettyio.gim.agent.domain.entity.AgentDefinition;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.entity.SkillPackage;
 import com.gettyio.gim.agent.domain.enums.EnabledStatus;
+import com.gettyio.gim.agent.domain.security.SecretCipher;
 import io.agentscope.harness.agent.tools.McpServerRegistrationResult;
 import io.agentscope.harness.agent.tools.ToolsConfig;
 import org.slf4j.Logger;
@@ -59,9 +60,12 @@ public class AgentCapabilityResolver {
     private static final String STATUS_DISCONNECTED = "DISCONNECTED";
 
     private final GimDatabase db;
+    /** MCP env/headers 值入库加密，翻译配置时解密回明文；null 按明文读（单测） */
+    private final SecretCipher cipher;
 
-    public AgentCapabilityResolver(GimDatabase db) {
+    public AgentCapabilityResolver(GimDatabase db, SecretCipher cipher) {
         this.db = db;
+        this.cipher = cipher;
     }
 
     /**
@@ -120,7 +124,7 @@ public class AgentCapabilityResolver {
                 continue;
             }
             try {
-                out.put(code, McpServerConfigs.from(row));
+                out.put(code, McpServerConfigs.from(row, cipher));
             } catch (RuntimeException e) {
                 log.warn("MCP 服务配置无法翻译，跳过: {}", code, e);
             }

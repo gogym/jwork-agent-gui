@@ -19,6 +19,7 @@ package com.gettyio.gim.agent.core.capability;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -108,6 +109,20 @@ public final class CapabilityCodec {
         } catch (Exception e) {
             log.warn("JSON 对象解析失败，忽略该字段: {}", json, e);
             return Map.of();
+        }
+    }
+
+    /** 写 {@code {"K":"V"}} 形态的字符串映射（MCP 环境变量 / 请求头）；null/空映射写 {@code {}}，null 值落空串。 */
+    public static String writeStringMap(Map<String, String> map) {
+        ObjectNode node = MAPPER.createObjectNode();
+        if (map != null) {
+            map.forEach((key, value) -> node.put(key, value == null ? "" : value));
+        }
+        try {
+            return MAPPER.writeValueAsString(node);
+        } catch (Exception e) {
+            // ObjectNode 序列化不会失败，兜底即可
+            return "{}";
         }
     }
 

@@ -258,7 +258,7 @@ public final class AppContext implements AutoCloseable {
                 securityAdmin.getImageBaseUrl(),
                 securityAdmin.getImageModel(),
                 securityAdmin.getImageApiKeyPlain()));
-        this.capabilities = new AgentCapabilityResolver(db);
+        this.capabilities = new AgentCapabilityResolver(db, secrets);
         this.dockerProbe = DockerAvailabilityProbe.handshake();
         this.skillService = new SkillService(paths, db);
         this.appShell = new AppShell();
@@ -298,7 +298,7 @@ public final class AppContext implements AutoCloseable {
         this.proxyManager = new ProxyManager(db, secrets);
         proxyManager.apply();
         this.agentAdmin = new AgentAdminService(db, gateway);
-        this.mcpAdmin = new McpAdminService(db, agentAdmin);
+        this.mcpAdmin = new McpAdminService(db, agentAdmin, secrets);
         this.promptTemplateAdmin = new PromptTemplateAdminService(db);
         this.taskAdmin = new TaskAdminService(db, schedulerService, taskExecutor);
         this.localAuth = new LocalAuthService(paths.authFile());

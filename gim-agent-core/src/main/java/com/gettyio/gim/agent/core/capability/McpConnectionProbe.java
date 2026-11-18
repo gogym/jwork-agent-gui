@@ -17,6 +17,7 @@
 package com.gettyio.gim.agent.core.capability;
 
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
+import com.gettyio.gim.agent.domain.security.SecretCipher;
 import io.agentscope.core.tool.mcp.McpClientBuilder;
 import io.agentscope.core.tool.mcp.McpClientWrapper;
 import org.slf4j.Logger;
@@ -61,9 +62,20 @@ public final class McpConnectionProbe {
      * @return 探测结果；任何失败都折叠为 error 文本，不抛异常
      */
     public static ProbeResult probe(McpServerConfig row) {
+        return probe(row, null);
+    }
+
+    /**
+     * 探测单个 MCP 服务（同步阻塞，调用方应在后台线程执行）。
+     *
+     * @param row mcp_servers 表记录
+     * @param cipher 密钥解密器；null 表示 env/headers 按明文读
+     * @return 探测结果；任何失败都折叠为 error 文本，不抛异常
+     */
+    public static ProbeResult probe(McpServerConfig row, SecretCipher cipher) {
         io.agentscope.harness.agent.tools.McpServerConfig cfg;
         try {
-            cfg = McpServerConfigs.from(row);
+            cfg = McpServerConfigs.from(row, cipher);
         } catch (RuntimeException e) {
             return failure(e);
         }

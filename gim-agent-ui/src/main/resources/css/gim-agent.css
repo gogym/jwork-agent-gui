@@ -1344,6 +1344,10 @@
     -fx-hgap: 10;
     -fx-vgap: 10;
 }
+/* MCP 表单键值行（环境变量/请求头）：眼睛按钮叠放字段内部右缘，加宽右内衬避让（与登录页同口径） */
+.form-card .text-field.has-reveal,
+.form-card .password-field.has-reveal { -fx-padding: 7 34 7 12; }
+.kv-editor .kv-name { -fx-pref-width: 150; -fx-min-width: 110; }
 
 /* ---------- 设置：分组卡片 + 行式布局（对标 Qoder） ---------- */
 .settings-group-title {

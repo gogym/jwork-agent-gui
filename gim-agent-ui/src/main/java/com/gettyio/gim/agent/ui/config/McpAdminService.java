@@ -16,11 +16,16 @@
 
 package com.gettyio.gim.agent.ui.config;
 
+import com.gettyio.gim.agent.core.capability.CapabilityCodec;
+import com.gettyio.gim.agent.core.capability.McpConnectionProbe;
+import com.gettyio.gim.agent.core.capability.McpSecrets;
 import com.gettyio.gim.agent.domain.GimDatabase;
 import com.gettyio.gim.agent.domain.entity.McpServerConfig;
 import com.gettyio.gim.agent.domain.enums.McpTransportType;
+import com.gettyio.gim.agent.domain.security.SecretCipher;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * MCP 服务配置管理：mcp_servers 表增删改查与启禁。
@@ -28,6 +33,8 @@ import java.util.List;
  * AgentScope 真正建连并把工具注册进 Toolkit（见 {@code AgentCapabilityResolver}）；
  * 未被任何智能体声明的服务不连接，因此本服务不代指“已连接”；status 由运行时注册结果与「测试连接」探测共同回写。</p>
  * <p>配置变更要让引用它的智能体运行时重建，否则旧客户端会继续提供旧工具集。</p>
+ * <p>环境变量 / 请求头的值经 {@link McpSecrets} 逐个加密入库（与提供商 API Key 同用
+ * {@link SecretCipher}）；表单回填与「测试连接」走本服务的解密入口，库中不留明文密钥。</p>
  *
  * @author gogym
  */
@@ -35,10 +42,12 @@ public class McpAdminService {
 
     private final GimDatabase db;
     private final AgentAdminService agentAdminService;
+    private final SecretCipher secrets;
 
-    public McpAdminService(GimDatabase db, AgentAdminService agentAdminService) {
+    public McpAdminService(GimDatabase db, AgentAdminService agentAdminService, SecretCipher secrets) {
         this.db = db;
         this.agentAdminService = agentAdminService;
+        this.secrets = secrets;
     }
 
     public List<McpServerConfig> list() {
@@ -58,6 +67,9 @@ public class McpAdminService {
         if (m.getStatus() == null || m.getStatus().isBlank()) {
             m.setStatus("UNKNOWN");
         }
+        // 密钥值加密入库：入参约定为明文 JSON（表单 / 市场模板）；已密文值不二次加密，重复保存幂等
+        m.setEnvJson(encryptMap(m.getEnvJson()));
+        m.setHeadersJson(encryptMap(m.getHeadersJson()));
         boolean exists = db.mcpServerDao().findByCode(m.getServerCode()).isPresent();
         if (exists) {
             db.mcpServerDao().update(m);
@@ -94,5 +106,26 @@ public class McpAdminService {
     /** 测试连接恢复后让引用该服务的智能体运行时失效，下轮对话即会以新连接重试。 */
     public void refreshAgentRuntimes(String serverCode) {
         agentAdminService.onMcpServerChanged(serverCode);
+    }
+
+    /** 表单回填用的明文环境变量（值就地解密；UI 再以掩码呈现）。 */
+    public Map<String, String> envOf(McpServerConfig m) {
+        return McpSecrets.readMap(m.getEnvJson(), secrets);
+    }
+
+    /** 表单回填用的明文请求头（值就地解密；UI 再以掩码呈现）。 */
+    public Map<String, String> headersOf(McpServerConfig m) {
+        return McpSecrets.readMap(m.getHeadersJson(), secrets);
+    }
+
+    /** 测试连接：带密钥解密器按配置真实建连一次（同步阻塞，调用方应在后台线程执行）。 */
+    public McpConnectionProbe.ProbeResult probe(McpServerConfig m) {
+        return McpConnectionProbe.probe(m, secrets);
+    }
+
+    /** null/空白保持原样（从未配置）；其余按明文映射读入后加密写回。 */
+    private String encryptMap(String json) {
+        return json == null || json.isBlank() ? json
+                : McpSecrets.writeMap(CapabilityCodec.readStringMap(json), secrets);
     }
 }
