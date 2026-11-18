@@ -168,11 +168,9 @@ final class BackupRestoreSettingsPanel {
         SecretField pwd = new SecretField(webDavSyncService::passwordState,
                 webDavSyncService::savePassword, webDavSyncService::clearPassword);
         pwd.field().setPromptText(I18n.t("settings.secret.prompt"));
-        pwd.field().setMaxWidth(200);
         SecretField pass = new SecretField(webDavSyncService::passphraseState,
                 webDavSyncService::savePassphrase, webDavSyncService::clearPassphrase);
         pass.field().setPromptText(I18n.t("settings.secret.prompt"));
-        pass.field().setMaxWidth(200);
 
         String[] intervalOpts = {I18n.t("settings.sync.interval.off"), I18n.t("settings.sync.interval.6h"),
                 I18n.t("settings.sync.interval.12h"), I18n.t("settings.sync.interval.24h")};

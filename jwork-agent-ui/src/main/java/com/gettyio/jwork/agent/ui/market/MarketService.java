@@ -81,7 +81,7 @@ public class MarketService {
 
     private static final Logger log = LoggerFactory.getLogger(MarketService.class);
 
-    /** 技能市场源：GitHub 官方仓库检索接口，按 {@code agent-skills} 主题分页浏览社区技能。 */
+    /** 技能市场默认源：GitHub 官方仓库检索接口，按 {@code agent-skills} 主题分页浏览社区技能。 */
     private static final String GITHUB_SEARCH_URL = "https://api.github.com/search/repositories";
     private static final String GITHUB_ZIP_BASE = "https://codeload.github.com/";
     private static final String SKILL_TOPIC = "agent-skills";
@@ -94,6 +94,9 @@ public class MarketService {
 
     /** MCP 市场源地址设置键（留空回退系统属性/内置默认）。 */
     public static final String KEY_REGISTRY_URL = "app.market.mcp.registryUrl";
+
+    /** 技能市场源地址设置键（留空回退系统属性/内置默认）。 */
+    public static final String KEY_SKILL_SEARCH_URL = "app.market.skill.searchUrl";
 
     /** 常见 MCP 运行依赖的内置获取指引（依赖检测引导用）。 */
     private static final Map<String, String> DEPENDENCY_HOMEPAGES = Map.ofEntries(
@@ -177,7 +180,7 @@ public class MarketService {
             }
         }
         String query = kw.isBlank() ? "topic:" + SKILL_TOPIC : kw + " topic:" + SKILL_TOPIC;
-        String url = GITHUB_SEARCH_URL + "?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+        String url = skillSearchBaseUrl() + "?q=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
                 + "&per_page=" + SKILL_PAGE_SIZE + "&page=" + page + "&sort=stars&order=desc";
         List<MarketSkill> items = githubSearch(url);
         // GitHub 无游标：本页满额即视为还有下一页，返回页码 +1
@@ -336,6 +339,38 @@ public class MarketService {
     public void setRegistryUrl(String url) {
         if (db != null) {
             db.settingDao().upsert(KEY_REGISTRY_URL, url == null ? "" : url.trim(), "MCP 市场源地址");
+        }
+    }
+
+    /** 技能市场生效地址：优先级——设置页配置 &gt; 系统属性 {@code jwork.market.skill.search} &gt; 内置默认。 */
+    public String skillSearchBaseUrl() {
+        String base = getSkillSearchUrlConfigured();
+        if (base.isEmpty()) {
+            base = System.getProperty("jwork.market.skill.search", "").trim();
+        }
+        if (base.isEmpty()) {
+            base = GITHUB_SEARCH_URL;
+        }
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base;
+    }
+
+    /** 内置默认源（GitHub 仓库检索接口），供设置页占位提示。 */
+    public String defaultSkillSearchUrl() {
+        return GITHUB_SEARCH_URL;
+    }
+
+    /** 设置页存储的原始配置值（可能为空）；未配置或无库时返回空串。 */
+    public String getSkillSearchUrlConfigured() {
+        return db == null ? "" : db.settingDao().getValue(KEY_SKILL_SEARCH_URL).orElse("").trim();
+    }
+
+    /** 写入技能市场源地址；留空即回退系统属性/内置默认。 */
+    public void setSkillSearchUrl(String url) {
+        if (db != null) {
+            db.settingDao().upsert(KEY_SKILL_SEARCH_URL, url == null ? "" : url.trim(), "技能市场源地址");
         }
     }
 

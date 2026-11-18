@@ -55,7 +55,6 @@ final class ImageSettingsPanel {
         SecretField apiKey = new SecretField(securityAdminService::getImageApiKeyState,
                 securityAdminService::setImageApiKey, securityAdminService::clearImageApiKey);
         apiKey.field().setPromptText(I18n.t("settings.secret.prompt"));
-        apiKey.field().setMaxWidth(200);
 
         Runnable save = () -> {
             securityAdminService.setImageBaseUrl(urlField.getText());

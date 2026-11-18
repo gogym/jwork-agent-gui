@@ -26,6 +26,7 @@ import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -33,7 +34,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * 密钥输入行：密码框 + 存储状态标签 + 「清除」按钮，图像生成 / 联网搜索 / 向量库 / WebDAV 四处共用。
+ * 密钥输入行：密码框 + 存储状态徽章 + 图标「清除」按钮，图像生成 / 联网搜索 / 向量库 / WebDAV 四处共用。
  *
  * <p>它刻意<b>不回填已存密钥明文</b>。回填会让「留空」有两种解释——用户真想清空，还是压根没碰这格？
  * 旧实现按后者落一个空串，于是一次瞬时解密失败加一次失焦就把用户配好的 Key 抹掉了。这里的口径：</p>
@@ -43,6 +44,8 @@ import java.util.function.Supplier;
  *   <li>「未配置」与「已配置但本机解不开」分开显示——后者是换机器或换了 Windows 账户，
  *       该提示重录，而不是让人以为从没配过。</li>
  * </ul>
+ * <p>状态以语义色胶囊徽章呈现（未配置灰 / 已保存绿 / 解不开红 / 旧明文蓝），长解释收进 tooltip；
+ * 「清除」为垃圾桶图标按钮，仅已配置时出现，避免裸文字链接的视觉噪声。</p>
  *
  * @author gogym
  */
@@ -66,8 +69,14 @@ public final class SecretField {
         this.stateRead = stateRead;
         this.writer = writer;
         this.clearer = clearer;
-        stateLabel.getStyleClass().add(UiStyles.ROW_DESC);
-        clearButton.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
+        field.setPrefWidth(260);
+        stateLabel.getStyleClass().add("badge");
+        stateLabel.setMinWidth(Region.USE_PREF_SIZE);
+        Label clearIcon = new Label("\uE74D");
+        clearIcon.getStyleClass().add("icon");
+        clearButton.setGraphic(clearIcon);
+        clearButton.getStyleClass().addAll("icon-btn", "icon-btn-danger");
+        clearButton.setMinWidth(Region.USE_PREF_SIZE);
         clearButton.setOnAction(e -> {
             clearer.run();
             field.clear();
@@ -84,7 +93,7 @@ public final class SecretField {
         applyI18n();
     }
 
-    /** 密码框本体：供调用方设 promptText、最大宽度与栅格拉伸。 */
+    /** 密码框本体：供调用方设 promptText 与样式类；宽度由本控件统一持有（260px）。 */
     public PasswordField field() {
         return field;
     }
@@ -100,11 +109,21 @@ public final class SecretField {
     }
 
     /**
-     * 状态 → 短标签文案。
+     * 状态徽章刷新：短文案 + 语义色胶囊 + 长解释 tooltip。
      * <p>不便摆整行控件的场合（如代理认证那格）也能用同一套口径说话。</p>
      */
-    public static String stateText(SecretStore.State state) {
-        return I18n.t("settings.secret." + tokenOf(state));
+    public static void applyStateBadge(Label badge, SecretStore.State state) {
+        String key = tokenOf(state);
+        badge.setText(I18n.t(state == SecretStore.State.READABLE
+                ? "settings.secret.saved.short" : "settings.secret." + key));
+        badge.setTooltip(new Tooltip(I18n.t("settings.secret." + key + ".tip")));
+        badge.getStyleClass().removeAll(UiStyles.BADGE_GRAY, UiStyles.BADGE_GREEN, "badge-red", "badge-blue");
+        badge.getStyleClass().add(switch (state) {
+            case EMPTY -> UiStyles.BADGE_GRAY;
+            case READABLE -> UiStyles.BADGE_GREEN;
+            case UNREADABLE -> "badge-red";
+            case LEGACY_PLAIN -> "badge-blue";
+        });
     }
 
     private static String tokenOf(SecretStore.State state) {
@@ -118,22 +137,15 @@ public final class SecretField {
 
     /** 文案随语言切换重取；调用方在自己的 applyI18n 里带一次。 */
     public void applyI18n() {
-        clearButton.setText(I18n.t("settings.secret.clear"));
+        clearButton.setTooltip(new Tooltip(I18n.t("settings.secret.clear")));
         refresh();
     }
 
-    /** 按当前入库状态刷新标签与「清除」按钮显隐。 */
+    /** 按当前入库状态刷新徽章与「清除」按钮显隐。 */
     public void refresh() {
-        String key = tokenOf(stateRead.get());
-        stateLabel.setText(I18n.t("settings.secret." + key));
-        stateLabel.setTooltip(new Tooltip(I18n.t("settings.secret." + key + ".tip")));
-        stateLabel.getStyleClass().removeAll("status-ok", UiStyles.STATUS_BAD, "status-unknown");
-        stateLabel.getStyleClass().add(switch (key) {
-            case "none" -> "status-unknown";
-            case "unreadable" -> UiStyles.STATUS_BAD;
-            default -> "status-ok";
-        });
-        boolean configured = !"none".equals(key);
+        SecretStore.State state = stateRead.get();
+        applyStateBadge(stateLabel, state);
+        boolean configured = state != SecretStore.State.EMPTY;
         clearButton.setVisible(configured);
         clearButton.setManaged(configured);
     }

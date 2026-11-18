@@ -18,6 +18,7 @@ package com.gettyio.jwork.agent.ui.window.settings;
 
 import com.gettyio.jwork.agent.core.chat.MultiAgentGateway;
 import com.gettyio.jwork.agent.core.model.AgentScopeModelFactory;
+import com.gettyio.jwork.agent.domain.security.SecretStore;
 import com.gettyio.jwork.agent.ui.i18n.I18n;
 import com.gettyio.jwork.agent.ui.config.ProxyManager;
 import com.gettyio.jwork.agent.ui.config.SecurityAdminService;
@@ -30,7 +31,9 @@ import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
 import javafx.scene.control.PasswordField;
 import javafx.scene.control.TextField;
+import javafx.scene.control.Tooltip;
 import javafx.scene.layout.HBox;
+import javafx.scene.layout.Region;
 import javafx.scene.layout.VBox;
 
 import java.util.ArrayList;
@@ -85,13 +88,26 @@ final class NetworkSettingsPanel {
         userField.setPromptText(I18n.t("settings.proxy.username.prompt"));
         userField.setMaxWidth(200);
         PasswordField pwdField = new PasswordField();
+        pwdField.setPromptText(I18n.t("settings.secret.prompt"));
+        pwdField.setPrefWidth(200);
         // 已存密码不回显（留空即不修改）；「清除」才是撤销认证，避免瞬时解密失败 + 失焦抹掉凭据
-        Runnable refreshAuthHint = () -> pwdField.setPromptText(
-                SecretField.stateText(proxyManager.passwordState()));
+        Label authBadge = new Label();
+        authBadge.getStyleClass().add("badge");
+        authBadge.setMinWidth(Region.USE_PREF_SIZE);
+        Button clearAuth = new Button();
+        Label clearAuthIcon = new Label("\uE74D");
+        clearAuthIcon.getStyleClass().add("icon");
+        clearAuth.setGraphic(clearAuthIcon);
+        clearAuth.getStyleClass().addAll("icon-btn", "icon-btn-danger");
+        clearAuth.setTooltip(new Tooltip(I18n.t("settings.secret.clear")));
+        Runnable refreshAuthHint = () -> {
+            SecretStore.State state = proxyManager.passwordState();
+            SecretField.applyStateBadge(authBadge, state);
+            boolean configured = state != SecretStore.State.EMPTY;
+            clearAuth.setVisible(configured);
+            clearAuth.setManaged(configured);
+        };
         refreshAuthHint.run();
-        pwdField.setMaxWidth(200);
-        Button clearAuth = new Button(I18n.t("settings.secret.clear"));
-        clearAuth.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
         clearAuth.setOnAction(e -> {
             proxyManager.clearPassword();
             pwdField.clear();
@@ -119,7 +135,7 @@ final class NetworkSettingsPanel {
             }
         });
 
-        HBox authBox = new HBox(8, userField, pwdField, clearAuth);
+        HBox authBox = new HBox(8, userField, pwdField, authBadge, clearAuth);
         List<Node> rows = new ArrayList<>();
         rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.enabled"), I18n.t("settings.proxy.enabled.desc"), enabled));
         rows.add(SettingsLayout.settingRow(I18n.t("settings.proxy.host"), I18n.t("settings.proxy.host.desc"), hostField));
@@ -142,7 +158,6 @@ final class NetworkSettingsPanel {
         SecretField apiKey = new SecretField(securityAdminService::getWebSearchApiKeyState,
                 securityAdminService::setWebSearchApiKey, securityAdminService::clearWebSearchApiKey);
         apiKey.field().setPromptText(I18n.t("settings.secret.prompt"));
-        apiKey.field().setMaxWidth(360);
 
         TextField instanceField = new TextField(securityAdminService.getWebSearchBaseUrl());
         instanceField.setPromptText(I18n.t("settings.network.web.baseurl.prompt"));

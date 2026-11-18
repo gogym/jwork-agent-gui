@@ -594,9 +594,24 @@ public class SettingsWindow {
         return mcpView.getNode();
     }
 
-    /** 市场设置页：配置 MCP 市场读取的公共目录源地址（留空回退系统属性/官方默认），改完即时生效。 */
+    /** 市场设置页：配置技能/MCP 市场读取的在线源地址（留空回退系统属性/内置默认），改完即时生效。 */
     private VBox buildMarketPage() {
         VBox box = SettingsLayout.page(I18n.t("settings.menu.market"), I18n.t("settings.market.subtitle"));
+
+        TextField skillSearchField = new TextField(marketService.getSkillSearchUrlConfigured());
+        skillSearchField.setPromptText(marketService.defaultSkillSearchUrl());
+        skillSearchField.setMaxWidth(420);
+        Label skillEffectiveLabel = SettingsLayout.valueLabel(marketService.skillSearchBaseUrl());
+        Runnable saveSkill = () -> {
+            marketService.setSkillSearchUrl(skillSearchField.getText());
+            skillEffectiveLabel.setText(marketService.skillSearchBaseUrl());
+        };
+        skillSearchField.setOnAction(e -> saveSkill.run());
+        skillSearchField.focusedProperty().addListener((obs, was, now) -> {
+            if (!now) {
+                saveSkill.run();
+            }
+        });
 
         TextField registryField = new TextField(marketService.getRegistryUrlConfigured());
         registryField.setPromptText(marketService.defaultRegistryUrl());
@@ -613,11 +628,16 @@ public class SettingsWindow {
             }
         });
 
-        List<Node> rows = new ArrayList<>();
-        rows.add(SettingsLayout.settingRow(I18n.t("settings.market.mcpRegistry"),
+        List<Node> skillRows = new ArrayList<>();
+        skillRows.add(SettingsLayout.settingRow(I18n.t("settings.market.skillSearch"),
+                I18n.t("settings.market.skillSearch.desc"), skillSearchField));
+        skillRows.add(SettingsLayout.settingRow(I18n.t("settings.market.skillSearch.effective"), null, skillEffectiveLabel));
+
+        List<Node> mcpRows = new ArrayList<>();
+        mcpRows.add(SettingsLayout.settingRow(I18n.t("settings.market.mcpRegistry"),
                 I18n.t("settings.market.mcpRegistry.desc"), registryField));
-        rows.add(SettingsLayout.settingRow(I18n.t("settings.market.mcpRegistry.effective"), null, effectiveLabel));
-        box.getChildren().add(SettingsLayout.groupCard(null, rows));
+        mcpRows.add(SettingsLayout.settingRow(I18n.t("settings.market.mcpRegistry.effective"), null, effectiveLabel));
+        box.getChildren().addAll(SettingsLayout.groupCard(null, skillRows), SettingsLayout.groupCard(null, mcpRows));
         return box;
     }
 
