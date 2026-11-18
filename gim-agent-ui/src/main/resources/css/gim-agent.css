@@ -1057,11 +1057,50 @@
 .probe-hint.probe-ok { -fx-text-fill: -gim-tint-fg-3; }
 .probe-hint.probe-fail { -fx-text-fill: -gim-badge-red-fg; }
 
-/* 智能体能力多选区：一行一项，已停用项淡化；项多时内滚不撑高对话框 */
-.cap-check { -fx-font-size: 13px; -fx-text-fill: -gim-text; }
-.cap-check-disabled { -fx-text-fill: -gim-text-5; }
-.cap-scroll { -fx-background-color: transparent; -fx-border-color: -gim-border; -fx-border-radius: 6px; -fx-padding: 4 6 4 6; }
-.cap-scroll > .viewport { -fx-background-color: transparent; }
+/* 能力多选区（智能体表单）：搜索 + 计数 + 批量操作，两行行、限高内滚、细滚动条 */
+.cap-picker { -fx-spacing: 6; }
+.cap-search { -fx-font-size: 12px; -fx-padding: 5 10 5 10; }
+.cap-count { -fx-font-size: 11px; -fx-text-fill: -gim-text-5; -fx-min-width: 56; -fx-alignment: center-right; }
+.cap-list {
+    -fx-background-color: -gim-panel-2;
+    -fx-background-radius: 8;
+    -fx-border-color: -gim-border;
+    -fx-border-radius: 8;
+    -fx-padding: 4;
+}
+.cap-list > .viewport { -fx-background-color: transparent; }
+.cap-list .scroll-bar { -fx-pref-width: 8; }
+.cap-list-box { -fx-spacing: 2; -fx-padding: 2; }
+.cap-row {
+    -fx-background-color: transparent;
+    -fx-background-radius: 6;
+    -fx-padding: 5 8 5 6;
+    -fx-spacing: 10;
+    -fx-alignment: center-left;
+    -fx-cursor: hand;
+}
+.cap-row:hover { -fx-background-color: -gim-hover; }
+.cap-row-on, .cap-row-on:hover { -fx-background-color: -gim-faint-focus; }
+/* 小复选框：方格锁 14×14 px（行 fillHeight=false 保证控件不被拉伸，锁尺寸才生效）；
+   勾形内衬同步收 px；与文本间隙由行 spacing 承担 */
+.cap-row .check-box { -fx-font-size: 10px; -fx-padding: 0; }
+.cap-row .check-box > .box {
+    -fx-min-width: 14px; -fx-min-height: 14px;
+    -fx-pref-width: 14px; -fx-pref-height: 14px;
+    -fx-max-width: 14px; -fx-max-height: 14px;
+    -fx-padding: 2;
+}
+.cap-row .check-box > .box > .mark { -fx-padding: 2 3 2 3; }
+.cap-row-name { -fx-font-size: 12px; -fx-text-fill: -gim-text; }
+.cap-row-code { -fx-font-size: 10px; -fx-text-fill: -gim-text-5; }
+.cap-row-disabled .cap-row-name { -fx-text-fill: -gim-text-5; }
+.cap-tag-disabled {
+    -fx-background-color: -gim-warn-bg;
+    -fx-text-fill: -gim-warn-fg;
+    -fx-padding: 1 8 1 8;
+    -fx-font-size: 10px;
+}
+.cap-empty { -fx-font-size: 12px; -fx-text-fill: -gim-text-5; -fx-padding: 14; -fx-alignment: center; }
 
 /* ============================================================
  * 自定义标题栏（无边框窗口，替代系统顶部程序 bar）
@@ -1645,7 +1684,8 @@
 .usage-cell-num {
     -fx-font-size: 13px;
     -fx-text-fill: -gim-text-3;
-    -fx-alignment: center-right;
+    /* 表头与数据统一居中：列宽由 grid() 锁定逐行一致，同宽标签的中线即列中线 */
+    -fx-alignment: center;
     -fx-min-width: 72;
 }
 .usage-empty {

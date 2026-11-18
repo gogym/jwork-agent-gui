@@ -30,6 +30,7 @@ import javafx.scene.control.ToggleButton;
 import javafx.scene.control.ToggleGroup;
 import javafx.scene.control.Tooltip;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.ColumnConstraints;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.Priority;
@@ -270,10 +271,8 @@ public class UsageView {
     }
 
     private Node tableHeader() {
-        GridPane head = new GridPane();
-        head.getStyleClass().addAll("usage-row", "usage-row-head");
-        head.setHgap(10);
-        head.setVgap(4);
+        GridPane head = grid();
+        head.getStyleClass().add("usage-row-head");
         head.addRow(0,
                 col(I18n.t("usage.col.name")),
                 num(I18n.t("usage.metric.input")),
@@ -288,10 +287,7 @@ public class UsageView {
     }
 
     private Node tableRow(UsageRow r) {
-        GridPane row = new GridPane();
-        row.getStyleClass().add("usage-row");
-        row.setHgap(10);
-        row.setVgap(4);
+        GridPane row = grid();
         row.addRow(0,
                 nameCol(displayName(r.name())),
                 num(number(r.tokensInput())),
@@ -314,6 +310,28 @@ public class UsageView {
 
     // ---- 列 / 小工具 ----
 
+    /**
+     * 表头与数据行共用同一套列宽约束：每行是独立 GridPane，不锁列宽时弹性名称列
+     * 会按各行内容吸收宽度差，表头与数据的列就错开；数字列锁 pref 后逐行几何一致。
+     */
+    private static GridPane grid() {
+        GridPane g = new GridPane();
+        g.getStyleClass().add("usage-row");
+        g.setHgap(10);
+        g.setVgap(4);
+        ColumnConstraints name = new ColumnConstraints();
+        name.setHgrow(Priority.ALWAYS);
+        name.setMinWidth(120);
+        g.getColumnConstraints().add(name);
+        for (int i = 0; i < 8; i++) {
+            ColumnConstraints num = new ColumnConstraints();
+            num.setMinWidth(72);
+            num.setPrefWidth(88);
+            g.getColumnConstraints().add(num);
+        }
+        return g;
+    }
+
     private static Label col(String text) {
         Label l = new Label(text);
         l.getStyleClass().add("usage-cell-name");
@@ -335,6 +353,8 @@ public class UsageView {
         Label l = new Label(text);
         l.getStyleClass().add("usage-cell-num");
         l.setMinWidth(Region.USE_PREF_SIZE);
+        // 填满列宽：表头与数据同宽同基准，居中对齐才落在同一中线上
+        l.setMaxWidth(Double.MAX_VALUE);
         return l;
     }
 
@@ -356,11 +376,11 @@ public class UsageView {
 
     private static String money(double v) {
         if (v == 0.0) {
-            return "\u00A00";
+            return "0";
         }
         DecimalFormat df = new DecimalFormat("#,##0.00####",
                 java.text.DecimalFormatSymbols.getInstance(Locale.ROOT));
-        return "\u00A0" + df.format(v);
+        return df.format(v);
     }
 
     /** 毫秒耗时格式化为秒（最多 1 位小数），单位用不间断空格贴紧。 */
