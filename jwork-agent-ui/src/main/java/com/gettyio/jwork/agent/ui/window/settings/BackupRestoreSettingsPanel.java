@@ -202,7 +202,7 @@ final class BackupRestoreSettingsPanel {
         });
     }
 
-    /** 选目录 → 校验 → 非空/迁移双重确认 → 后台迁移（进度对话框可取消）→ 成功后重启抉择。 */
+    /** 选目录 → 校验 → 非空/迁移双重确认 → 后台迁移（进度对话框可取消）→ 成功后自动重启。 */
     private void handleChangeDir() {
         DirectoryChooser chooser = new DirectoryChooser();
         chooser.setTitle(I18n.t("settings.dataDir.change"));
@@ -268,31 +268,27 @@ final class BackupRestoreSettingsPanel {
                 // 否则线程静默死亡，模态进度壳永不关闭，showAndWait 冻住整窗
                 failure[0] = String.valueOf(e.getMessage());
             }
-            Platform.runLater(() -> {
-                shell.stage().close();
-                try {
-                    if (ok[0]) {
-                        int pick = JworkDialog.chooseForced(host.hostWindow(), I18n.t("settings.dataDir.change"), null,
-                                I18n.t("settings.dataDir.done"),
-                                I18n.t("settings.dataDir.restartNow"), I18n.t("settings.dataDir.restartLater"));
-                        if (pick == 0) {
-                            handleRestartNow();
-                        }
-                    } else if (failure[0] != null) {
-                        JworkDialog.message(host.hostWindow(), I18n.t("settings.dataDir.change"), null,
-                                I18n.t("settings.data.fail", failure[0]), JworkDialog.Level.ERROR);
-                    } else {
-                        host.notify("settings.dataDir.change", I18n.t("settings.dataDir.cancelled"));
-                    }
-                } catch (Throwable e) {
-                    log.error("迁移收尾对话框异常", e);
-                    host.notify("settings.dataDir.change", I18n.t("settings.data.fail", String.valueOf(e.getMessage())));
-                }
-            });
+            Platform.runLater(shell.stage()::close);
         }, "jwork-datadir-migrate");
         t.setDaemon(true);
         t.start();
         shell.showAndWait();
+        // 收尾必须在壳的嵌套事件循环完全退栈后执行：循环内再嵌套模态对话框
+        // 会致新窗不渲染（只剩模糊背板）且 showAndWait 永等，整窗冻死
+        try {
+            if (ok[0]) {
+                // 迁移完成自动重启生效（打包拉 exe、开发重组 java 命令）；失败降级手动提示
+                handleRestartNow();
+            } else if (failure[0] != null) {
+                JworkDialog.message(host.hostWindow(), I18n.t("settings.dataDir.change"), null,
+                        I18n.t("settings.data.fail", failure[0]), JworkDialog.Level.ERROR);
+            } else {
+                host.notify("settings.dataDir.change", I18n.t("settings.dataDir.cancelled"));
+            }
+        } catch (Throwable e) {
+            log.error("迁移收尾对话框异常", e);
+            host.notify("settings.dataDir.change", I18n.t("settings.data.fail", String.valueOf(e.getMessage())));
+        }
     }
 
     /** 校验错误码 → 完整词条键（保持字面量完整，i18n 闸门可扫） */
@@ -305,7 +301,7 @@ final class BackupRestoreSettingsPanel {
         };
     }
 
-    /** 立即重启：打包模式拉新进程退出；开发模式提示手动重启。 */
+    /** 立即重启：打包拉 exe、开发重组 java 命令；不可重启时提示手动。 */
     private void handleRestartNow() {
         if (!appLifecycle.relaunch()) {
             JworkDialog.message(host.hostWindow(), I18n.t("settings.dataDir.restartNow"), null,

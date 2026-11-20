@@ -39,6 +39,8 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -218,25 +220,67 @@ public class AppLifecycle {
     }
 
     /**
-     * 重启应用：以打包 exe 拉起新进程后走正常退出流程；新进程启动时从注册表解析新数据目录。
-     * 开发模式（java 启动器）或拉起失败返回 false，调用方提示手动重启。
+     * 重启应用：拉起新进程后走正常退出流程；新进程启动时从注册表解析新数据目录。
+     * 打包模式以自身 exe 拉起；开发模式以 java.home + java.class.path + sun.java.command
+     * 重组干净启动命令（不携带 jdwp/捕获代理，新实例脱离调试器）；重组失败返回 false，调用方提示手动重启。
      */
     public boolean relaunch() {
-        Optional<String> exe = packagedExecutable();
-        if (exe.isEmpty()) {
+        List<String> cmd = relaunchCommand();
+        if (cmd.isEmpty()) {
             return false;
         }
         try {
-            new ProcessBuilder(exe.get())
-                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
-                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+            // 新进程输出落临时日志：开发模式重启后若启动失败可取证（控制台已随老进程消失）
+            new ProcessBuilder(cmd)
+                    .redirectErrorStream(true)
+                    .redirectOutput(ProcessBuilder.Redirect.appendTo(
+                            Path.of(System.getProperty("java.io.tmpdir"), "jwork-relaunch.log").toFile()))
                     .start();
         } catch (IOException e) {
-            log.warn("拉起重启进程失败: {}", exe.get(), e);
+            log.warn("拉起重启进程失败: {}", cmd, e);
             return false;
         }
         exit();
         return true;
+    }
+
+    /**
+     * 重启命令行：打包=自身 exe；开发=java + 模块开放参数 + 当前 classpath + 主类。
+     * 不重建调试命令行：ProcessHandle.info().arguments() 对超长命令行可能取空，
+     * 且 jdwp/捕获代理不可复用；进程内系统属性永远可靠。
+     */
+    private static List<String> relaunchCommand() {
+        Optional<String> exe = packagedExecutable();
+        if (exe.isPresent()) {
+            return List.of(exe.get());
+        }
+        String javaHome = System.getProperty("java.home");
+        String cp = System.getProperty("java.class.path");
+        String main = System.getProperty("sun.java.command");
+        if (javaHome == null || cp == null || main == null || main.isBlank()) {
+            return List.of();
+        }
+        Path javaExe = Path.of(javaHome, "bin", isWindows() ? "java.exe" : "java");
+        if (!Files.isRegularFile(javaExe)) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        out.add(javaExe.toString());
+        out.add("-Dfile.encoding=UTF-8");
+        out.add("-Dsun.stdout.encoding=UTF-8");
+        out.add("-Dsun.stderr.encoding=UTF-8");
+        // 与 IDEA 运行配置一致的模块开放参数（JNA/JavaFX 互操作需要）
+        out.add("--add-exports=java.base/java.lang=ALL-UNNAMED");
+        out.add("--add-exports=java.desktop/sun.awt=ALL-UNNAMED");
+        out.add("--add-exports=java.desktop/sun.java2d=ALL-UNNAMED");
+        out.add("--add-opens=java.desktop/sun.awt=ALL-UNNAMED");
+        out.add("-classpath");
+        out.add(cp);
+        // sun.java.command = 主类 [程序参数]；开发入口无含空格参数，按空白切分即可
+        for (String tok : main.trim().split("\\s+")) {
+            out.add(tok);
+        }
+        return out;
     }
 
     // ===================== 关闭行为设置 =====================
