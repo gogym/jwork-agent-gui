@@ -44,11 +44,12 @@ public final class Launcher {
         // 全局灰度字体平滑：关闭 LCD 次像素渲染，消除字形边缘彩边，字体观感更干净
         System.setProperty("prism.lcdtext", "false");
         Logger log = LoggerFactory.getLogger(Launcher.class);
+        // 全局默认未捕获异常处理器同样覆盖 AWT EDT：JDK 21 已移除 sun.awt.exception.handler
+        // 机制，EventDispatchThread.processException 直接走线程 UncaughtExceptionHandler 链，
+        // 未挂线程级 handler 时回落到本默认 handler——EDT 异常（JCEF OSR 的 GLCanvas
+        // realize/绘制等）由此写入日志文件稳定取证，不再只打到 IDE 控制台 stderr。
         Thread.setDefaultUncaughtExceptionHandler((thread, throwable) ->
                 log.error("未捕获异常 on thread {}", thread.getName(), throwable));
-        // 拦截 AWT EDT 未捕获异常（JCEF OSR 的 GLCanvas realize/绘制走 EDT），写入日志文件稳定取证，
-        // 避免只打到 IDE 控制台 stderr（并被 fast-throw 优化剥掉堆栈）。
-        System.setProperty("sun.awt.exception.handler", com.gettyio.jwork.agent.ui.jcef.AwtExceptionHandler.class.getName());
         Application.launch(JworkAgentApplication.class, args);
     }
 }
