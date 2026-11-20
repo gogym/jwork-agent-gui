@@ -16,12 +16,19 @@
 
 package com.gettyio.jwork.agent.ui.jcef;
 
+import com.gettyio.jwork.agent.ui.i18n.I18n;
 import javafx.application.Platform;
+import javafx.geometry.Pos;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
+import javafx.scene.control.Button;
+import javafx.scene.control.Label;
+import javafx.scene.control.ProgressIndicator;
 import javafx.scene.image.PixelFormat;
 import javafx.scene.image.WritableImage;
 import javafx.scene.layout.StackPane;
+import javafx.scene.layout.VBox;
+import org.cef.CefApp;
 import org.cef.CefClient;
 import org.cef.CefSettings;
 import org.cef.browser.CefBrowser;
@@ -46,8 +53,10 @@ import java.awt.event.InputEvent;
 import java.net.URLEncoder;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.function.Consumer;
 
 /**
@@ -96,9 +105,25 @@ public final class JcefOsrView {
 
     private final Canvas canvas = new Canvas();
     private final StackPane host = new StackPane(canvas);
-    private final CefClient client;
-    private final CefBrowser browser;
-    private final CefMessageRouter router;
+    /** CEF 三件套：后台引导就绪后在 FX 线程装配（{@link #attachCef}）；就绪前为 null，消费点均须判空。 */
+    private volatile CefClient client;
+    private volatile CefBrowser browser;
+    private volatile CefMessageRouter router;
+    /** JS 桥参数（构造时给出，装配时使用）。 */
+    private final String queryFn;
+    private final String cancelFn;
+    private final Consumer<String> requestHandler;
+    /** 是否挂引导占位层：输入框槽位传 false，引导期全窗只留聊天区一处居中提示。 */
+    private final boolean bootOverlayEnabled;
+    /** 视图已释放：迟到的引导回调不得再往死视图上装配浏览器。 */
+    private volatile boolean disposed;
+    /** CEF 装配前到达的脚本暂存（调用方可能在 EDT），浏览器创建后按序补发。 */
+    private final Queue<String> pendingScripts = new ConcurrentLinkedQueue<>();
+    /** 引导占位层（FX 线程）：CefApp 就绪前显示；失败换错误文案 + 重试按钮；装配成功后移除。 */
+    private VBox bootOverlay;
+    private ProgressIndicator bootSpinner;
+    private Label bootLabel;
+    private Button bootRetry;
     private volatile Frame realize;
     private volatile Runnable loadEnd;
     /** native browser 创建前到达的装载请求暂存（native 在 GLCanvas 首次 paint 时才真正创建）。 */
@@ -244,12 +269,137 @@ public final class JcefOsrView {
      * @param requestHandler 收到 JS→Java 请求（JSON 字符串）时的处理，将在 FX 线程回调；可为 null
      */
     public JcefOsrView(String queryFn, String cancelFn, Consumer<String> requestHandler) {
+        this(queryFn, cancelFn, requestHandler, true);
+    }
+
+    /**
+     * @param bootOverlayEnabled 是否显示引导占位层：输入框槽位传 false——引导期只保留聊天区
+     *                           一处居中提示，避免聊天区与输入框双指示；失败时的错误与重试
+     *                           也由聊天区占位层承担（重试为全局重绑，本视图随同恢复）。
+     */
+    public JcefOsrView(String queryFn, String cancelFn, Consumer<String> requestHandler, boolean bootOverlayEnabled) {
+        this.queryFn = queryFn;
+        this.cancelFn = cancelFn;
+        this.requestHandler = requestHandler;
+        this.bootOverlayEnabled = bootOverlayEnabled;
         // 尺寸完全由 CEF 帧驱动，脱离父布局计算：Canvas 属非 resizable 节点，其宽高会被 StackPane
         // 计入 min/pref 尺寸——窗口拉宽后 canvas 变大并把宿主的最小宽度撑大，窗口缩小时布局被卡住
         // 缩不回（表现为内容不缩回、画布被居中偏移）。取消托管后宿主尺寸完全随容器，画布定位固定左上。
         canvas.setManaged(false);
         LIVE.add(this);
-        this.client = JcefRuntime.get().createClient();
+        installBootOverlay();
+
+        // 宿主尺寸变化 → 同步 OSR native 尺寸，令 Chromium 按真实视口重排重绘
+        host.widthProperty().addListener((obs, o, n) -> syncSize(n.doubleValue(), host.getHeight()));
+        host.heightProperty().addListener((obs, o, n) -> syncSize(host.getWidth(), n.doubleValue()));
+
+        // OSR 下浏览器组件（GLCanvas）藏在屏幕外帧里，收不到任何真实输入；把 JavaFX 画布上的鼠标
+        // 事件合成为 AWT 事件并 dispatch 给浏览器组件（CefBrowserOsr 已在其中注册 Mouse/Wheel 监听器，
+        // 会转成 sendMouse*Event 送达 Chromium）——否则滚轮、拖动滚动条、点击、悬停全部失效。
+        installInputForwarding();
+
+        // CEF 装配延迟到后台引导就绪：首启/数据目录丢失后 natives 可能需要解包/下载（数百 MB），
+        // 同步装配会冻住 FX 线程——主窗与登录门永远轮不到。就绪前由占位层接管显示；
+        // loadUrl/executeScript 各有暂存机制，天然兼容延迟装配。
+        subscribeBoot();
+    }
+
+    // ---------- 引导订阅与延迟装配 ----------
+
+    /** 占位层：转圈 + 状态文案 + 重试按钮（初始隐藏）；pickOnBounds 拦住鼠标穿透到画布。 */
+    private void installBootOverlay() {
+        if (!bootOverlayEnabled) {
+            return;
+        }
+        bootSpinner = new ProgressIndicator();
+        bootSpinner.setPrefSize(28, 28);
+        bootLabel = new Label(I18n.t("jcef.preparing"));
+        bootLabel.getStyleClass().add("splash-status");
+        bootLabel.setWrapText(true);
+        bootLabel.setMaxWidth(360);
+        bootRetry = new Button(I18n.t("jcef.retry"));
+        bootRetry.setVisible(false);
+        bootRetry.setManaged(false);
+        bootRetry.setOnAction(e -> rebindAll());
+        bootOverlay = new VBox(10, bootSpinner, bootLabel, bootRetry);
+        bootOverlay.setAlignment(Pos.CENTER);
+        bootOverlay.setPickOnBounds(true);
+        host.getChildren().add(bootOverlay);
+    }
+
+    /**
+     * 重试 = 全局重绑：引导失败后各视图持有的是各自那次失败的未来，只重绑本视图会让其余视图
+     * （尤其无占位层的输入框）永停旧未来。重建引导后全体在场视图重新订阅同一新未来；
+     * 已装配视图的 attachCef 有 browser 判空守卫，重订阅对其无副作用。FX 线程调用。
+     */
+    private static void rebindAll() {
+        for (JcefOsrView v : LIVE.toArray(new JcefOsrView[0])) {
+            v.subscribeBoot();
+        }
+    }
+
+    /** 订阅进程级引导未来：就绪在 FX 线程装配；失败显示错误 + 重试（重订阅即重新引导）。 */
+    private void subscribeBoot() {
+        showBootPreparing();
+        JcefRuntime.get().appAsync().whenComplete((app, err) -> Platform.runLater(() -> {
+            if (disposed) {
+                return;
+            }
+            if (err != null || app == null) {
+                showBootError(err);
+                return;
+            }
+            try {
+                attachCef(app);
+            } catch (Throwable t) {
+                log.error("JCEF 视图装配失败", t);
+                showBootError(t);
+            }
+        }));
+    }
+
+    private void showBootPreparing() {
+        if (bootOverlay == null) {
+            return;
+        }
+        bootSpinner.setVisible(true);
+        bootSpinner.setManaged(true);
+        bootLabel.setText(I18n.t("jcef.preparing"));
+        bootRetry.setVisible(false);
+        bootRetry.setManaged(false);
+    }
+
+    private void showBootError(Throwable err) {
+        log.error("JCEF 引导失败，视图保持占位", err);
+        if (bootOverlay == null) {
+            return;
+        }
+        Throwable cause = err instanceof java.util.concurrent.CompletionException && err.getCause() != null
+                ? err.getCause() : err;
+        String msg = cause == null ? "unknown" : String.valueOf(cause.getMessage());
+        bootSpinner.setVisible(false);
+        bootSpinner.setManaged(false);
+        bootLabel.setText(I18n.t("jcef.bootFail", msg));
+        bootRetry.setVisible(true);
+        bootRetry.setManaged(true);
+    }
+
+    private void hideBootOverlay() {
+        if (bootOverlay != null) {
+            host.getChildren().remove(bootOverlay);
+            bootOverlay = null;
+        }
+    }
+
+    /**
+     * CefApp 就绪（FX 线程）：装配 client/消息路由/浏览器/渲染链，补发暂存脚本、下发当前尺寸
+     * 并 realize 屏幕外宿主。装配前的各消费点（输入转发/尺寸下发/脚本）均判空容忍。
+     */
+    private void attachCef(CefApp app) {
+        if (disposed || browser != null) {
+            return;
+        }
+        this.client = app.createClient();
 
         CefMessageRouter.CefMessageRouterConfig cfg = new CefMessageRouter.CefMessageRouterConfig();
         cfg.jsQueryFunction = queryFn;
@@ -462,15 +612,23 @@ public final class JcefOsrView {
             });
         }
 
-        // 宿主尺寸变化 → 同步 OSR native 尺寸，令 Chromium 按真实视口重排重绘
-        host.widthProperty().addListener((obs, o, n) -> syncSize(n.doubleValue(), host.getHeight()));
-        host.heightProperty().addListener((obs, o, n) -> syncSize(host.getWidth(), n.doubleValue()));
-
-        // OSR 下浏览器组件（GLCanvas）藏在屏幕外帧里，收不到任何真实输入；把 JavaFX 画布上的鼠标
-        // 事件合成为 AWT 事件并 dispatch 给浏览器组件（CefBrowserOsr 已在其中注册 Mouse/Wheel 监听器，
-        // 会转成 sendMouse*Event 送达 Chromium）——否则滚轮、拖动滚动条、点击、悬停全部失效。
-        installInputForwarding();
-
+        // 装配前到达的脚本（主题刷新等）按序补发；页面装载门控的脚本仍由 loadEnd 驱动
+        String js;
+        while ((js = pendingScripts.poll()) != null) {
+            try {
+                browser.executeJavaScript(asciiEscape(js), "about:blank", 0);
+            } catch (Throwable t) {
+                log.warn("JCEF 暂存脚本补发失败", t);
+            }
+        }
+        hideBootOverlay();
+        // 占位期间的尺寸下发因 browser 为 null 被跳过：用最新目标尺寸重新触发一次。
+        // 在屏视图取宿主布局尺寸；离屏视图（导出等）无宿主布局，取此前显式给定的目标。
+        if (host.getWidth() >= 2 && host.getHeight() >= 2) {
+            syncSize(host.getWidth(), host.getHeight());
+        } else if (pendingSizeW > 0 && pendingSizeH > 0) {
+            syncSize(pendingSizeW, pendingSizeH);
+        }
         EventQueue.invokeLater(this::realizeOffscreen);
     }
 
@@ -500,7 +658,11 @@ public final class JcefOsrView {
     }
 
     private void forwardMouse(javafx.scene.input.MouseEvent e, int awtId) {
-        // 记录真实指针事件时刻：合成拖动兜底轮询据此判断真实事件是否活跃，避免重复合成
+        final CefBrowser b = browser;
+        if (b == null) {
+            return; // CEF 未装配（占位期）：输入无处可送
+        }
+        // 记录真实指针事件时刻：合成拖动兕底轮询据此判断真实事件是否活跃，避免重复合成
         lastRealPointerNs = System.nanoTime();
         // 除 Shift/Ctrl/Alt/Meta 外还必须合成「按钮按下」位：JCEF 的 JNI（N_SendMouseEvent →
         // GetCefModifiers）仅从 getModifiersEx() 提取 BUTTONx_DOWN_MASK 转成 CEF 的
@@ -524,7 +686,7 @@ public final class JcefOsrView {
         final boolean popup = button == java.awt.event.MouseEvent.BUTTON3
                 && awtId == java.awt.event.MouseEvent.MOUSE_RELEASED;
         final java.awt.event.MouseEvent ev = new java.awt.event.MouseEvent(
-                browser.getUIComponent(), awtId, System.currentTimeMillis(), mods,
+                b.getUIComponent(), awtId, System.currentTimeMillis(), mods,
                 (int) e.getX(), (int) e.getY(), Math.max(1, e.getClickCount()), popup, button);
         dispatchToBrowser(ev);
         if (awtId == java.awt.event.MouseEvent.MOUSE_RELEASED) {
@@ -635,17 +797,25 @@ public final class JcefOsrView {
 
     /** 合成 MOUSE_DRAGGED 事件（按钮位=当前按下按钮）送达浏览器组件。 */
     private void synthDragToBrowser(int x, int y) {
+        final CefBrowser b = browser;
+        if (b == null) {
+            return;
+        }
         final int mods = buttonDownMaskOf(pressedButton);
         final java.awt.event.MouseEvent ev = new java.awt.event.MouseEvent(
-                browser.getUIComponent(), java.awt.event.MouseEvent.MOUSE_DRAGGED,
+                b.getUIComponent(), java.awt.event.MouseEvent.MOUSE_DRAGGED,
                 System.currentTimeMillis(), mods, x, y, 1, false, java.awt.event.MouseEvent.NOBUTTON);
         dispatchToBrowser(ev);
     }
 
     /** 合成 MOUSE_RELEASED 事件送达浏览器组件。 */
     private void synthReleaseToBrowser(int x, int y) {
+        final CefBrowser b = browser;
+        if (b == null) {
+            return;
+        }
         final java.awt.event.MouseEvent ev = new java.awt.event.MouseEvent(
-                browser.getUIComponent(), java.awt.event.MouseEvent.MOUSE_RELEASED,
+                b.getUIComponent(), java.awt.event.MouseEvent.MOUSE_RELEASED,
                 System.currentTimeMillis(), 0, x, y, 1, false, pressedButton);
         dispatchToBrowser(ev);
     }
@@ -699,6 +869,10 @@ public final class JcefOsrView {
     }
 
     private void forwardScroll(javafx.scene.input.ScrollEvent e) {
+        final CefBrowser b = browser;
+        if (b == null) {
+            return;
+        }
         // JavaFX +Y = 向上；AWT 向上为负 rotation，故取反。
         final double notches = -e.getDeltaY() / WHEEL_NOTCH;
         final int rotation;
@@ -711,7 +885,7 @@ public final class JcefOsrView {
         }
         final int mods = awtModifiers(e.isShiftDown(), e.isControlDown(), e.isAltDown(), e.isMetaDown());
         final java.awt.event.MouseWheelEvent ev = new java.awt.event.MouseWheelEvent(
-                browser.getUIComponent(), java.awt.event.MouseEvent.MOUSE_WHEEL,
+                b.getUIComponent(), java.awt.event.MouseEvent.MOUSE_WHEEL,
                 System.currentTimeMillis(), mods, (int) e.getX(), (int) e.getY(), 0, false,
                 java.awt.event.MouseWheelEvent.WHEEL_UNIT_SCROLL, WHEEL_DELTA_UNITS, rotation);
         dispatchToBrowser(ev);
@@ -735,9 +909,13 @@ public final class JcefOsrView {
      * @param keyChar    按键字符（KEY_TYPED 用；其余传 0）
      */
     public void forwardKeyEvent(javafx.scene.input.KeyEvent e, int awtEventId, int awtKeyCode, char keyChar) {
+        final CefBrowser b = browser;
+        if (b == null) {
+            return;
+        }
         final int mods = awtModifiers(e.isShiftDown(), e.isControlDown(), e.isAltDown(), e.isMetaDown());
         final java.awt.event.KeyEvent ev = new java.awt.event.KeyEvent(
-                browser.getUIComponent(), awtEventId, System.currentTimeMillis(), mods, awtKeyCode, keyChar);
+                b.getUIComponent(), awtEventId, System.currentTimeMillis(), mods, awtKeyCode, keyChar);
         dispatchToBrowser(ev);
     }
 
@@ -774,8 +952,12 @@ public final class JcefOsrView {
     /** 合成事件在 AWT EDT 上派发给浏览器组件（其监听器继续送往 Chromium）。 */
     private void dispatchToBrowser(java.awt.event.InputEvent ev) {
         EventQueue.invokeLater(() -> {
+            final CefBrowser b = browser;
+            if (b == null) {
+                return;
+            }
             try {
-                browser.getUIComponent().dispatchEvent(ev);
+                b.getUIComponent().dispatchEvent(ev);
             } catch (Throwable t) {
                 log.debug("输入事件转发失败: {}", t.toString());
             }
@@ -838,6 +1020,7 @@ public final class JcefOsrView {
         return lastFrame;
     }
 
+    /** 浏览器实例；CEF 尚未装配（引导占位期）时为 {@code null}，调用方须判空。 */
     public CefBrowser browser() {
         return browser;
     }
@@ -852,8 +1035,14 @@ public final class JcefOsrView {
      * 渲染成 notdef 乱码。转义后 JS 源码纯 ASCII，两种编码下字节完全一致，绕开该缺陷。</p>
      */
     public void executeScript(String js) {
+        final CefBrowser b = browser;
+        if (b == null) {
+            // CEF 未装配：暂存待 attachCef 后按序补发（调用方可能在 EDT，队列须线程安全）
+            pendingScripts.add(js);
+            return;
+        }
         try {
-            browser.executeJavaScript(asciiEscape(js), "about:blank", 0);
+            b.executeJavaScript(asciiEscape(js), "about:blank", 0);
         } catch (Throwable t) {
             log.warn("JCEF executeScript 失败", t);
         }
@@ -1070,9 +1259,11 @@ public final class JcefOsrView {
         if (sizeTaskQueued.compareAndSet(false, true)) {
             EventQueue.invokeLater(() -> {
                 sizeTaskQueued.set(false);
+                final CefBrowser b = browser;
                 final int tw = pendingSizeW;
                 final int th = pendingSizeH;
-                if (tw <= 0 || th <= 0 || (tw == lastSetSizeW && th == lastSetSizeH)) {
+                // browser 为 null（未装配）时跳过且不记 lastSetSize——装配后 syncSize 会同尺寸重新下发
+                if (b == null || tw <= 0 || th <= 0 || (tw == lastSetSizeW && th == lastSetSizeH)) {
                     return;
                 }
                 lastSetSizeW = tw;
@@ -1087,7 +1278,7 @@ public final class JcefOsrView {
                 resizeGuardStartNs = System.nanoTime();
                 resizeGuardUntilNs = resizeGuardStartNs + RESIZE_GUARD_MS * 1_000_000L;
                 try {
-                    browser.getUIComponent().setSize(new Dimension(tw, th));
+                    b.getUIComponent().setSize(new Dimension(tw, th));
                 } catch (Throwable ignored) {}
             });
         }
@@ -1472,6 +1663,7 @@ public final class JcefOsrView {
 
     /** 销毁视图：停掉计时器、关闭浏览器/路由/客户端并释放屏幕外宿主窗口（各步容错）。 */
     public void dispose() {
+        disposed = true;
         LIVE.remove(this);
         final javafx.animation.PauseTransition fd = sizeFlushDelay;
         if (fd != null) {
@@ -1487,9 +1679,18 @@ public final class JcefOsrView {
         if (dp != null) {
             try { dp.stop(); } catch (Throwable ignored) {}
         }
-        try { browser.close(true); } catch (Throwable ignored) {}
-        try { router.dispose(); } catch (Throwable ignored) {}
-        try { client.dispose(); } catch (Throwable ignored) {}
+        final CefBrowser b = browser;
+        if (b != null) {
+            try { b.close(true); } catch (Throwable ignored) {}
+        }
+        final CefMessageRouter r = router;
+        if (r != null) {
+            try { r.dispose(); } catch (Throwable ignored) {}
+        }
+        final CefClient c = client;
+        if (c != null) {
+            try { c.dispose(); } catch (Throwable ignored) {}
+        }
         final Frame f = realize;
         realize = null;
         if (f != null) {

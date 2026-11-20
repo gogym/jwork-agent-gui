@@ -126,7 +126,8 @@ public final class JcefComposer {
 
     /** 构建输入框：装配 OSR 视图、键盘/IME 事件链、主题监听并装载 composer 页面。 */
     public JcefComposer() {
-        this.view = new JcefOsrView(QUERY_FN, CANCEL_FN, this::dispatch);
+        // 不挂引导占位层：引导期全窗只留聊天区一处居中提示，输入框槽位静默待就绪
+        this.view = new JcefOsrView(QUERY_FN, CANCEL_FN, this::dispatch, false);
         this.host = view.node();
         this.host.setFocusTraversable(true);
 

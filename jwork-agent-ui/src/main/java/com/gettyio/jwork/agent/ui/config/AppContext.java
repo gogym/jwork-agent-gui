@@ -235,6 +235,13 @@ public final class AppContext implements AutoCloseable {
     public AppContext() {
         // ---- 存储：云端恢复须先于任何 SQLite 连接建立 ----
         this.paths = new JworkPaths();
+        // sqlite-jdbc 不会创建父目录：根目录被外部删除/迁移后缺失时，开库即抛异常杀死进程。
+        // 先确保根目录存在，空根上的建库/播种/账号设置自然完成重新初始化（丢失提示由启动守卫负责）。
+        try {
+            Files.createDirectories(paths.root());
+        } catch (IOException e) {
+            throw new IllegalStateException("无法创建数据根目录: " + paths.root(), e);
+        }
         RestoreApplier.applyIfPresent(paths.dbFile(), paths.pendingRestoreFile(),
                 paths.pendingRestoreInfoFile(), paths.backupsDir());
         ConnectionProvider connection = new SqliteConnectionProvider(paths.dbFile());

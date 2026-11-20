@@ -25,6 +25,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * 进程级 JCEF 运行时单例：{@link CefApp} 全 JVM 只允许一个实例，此处惰性引导。
@@ -33,9 +35,10 @@ import java.io.File;
  * {@code onPaint} 回调送出，宿主用 {@link JcefOsrView} 把位图 blit 到 JavaFX Canvas，
  * 保留 JavaFX 侧的圆角 clip / 动画 / 事件模型，同时拿到彩色 emoji。</p>
  *
- * <p>原生库解包目录：数据根目录下的 {@code cef/}（随 {@link JworkPaths} 解析，默认 {@code ~/.jwork/cef}；
- * 首次启动 jcefmaven 从内置 jar 解包；
- * 离线随包场景由 jpackage 预置同路径后 {@link CefAppBuilder#setSkipInstallation(boolean)} 可跳过）。
+ * <p>原生库解包目录：数据根目录下的 {@code cef/}（随 {@link JworkPaths} 解析，默认 {@code ~/.jwork/cef}）。
+ * Windows x64 natives 已作为 runtime 依赖 {@code me.friwi:jcef-natives-windows-amd64} 随包
+ * （package 档平铺进 lib/ 随 msi 分发），jcefmaven 首启优先从 classpath 上的该 jar 解包，全程不联网；
+ * 数据目录被删后也仅重新解包。仅平台不匹配（非 Windows 开发机）才回退在线下载。
  * 该目录在 Windows 用户目录下可写，与安装目录解耦，兼容 Program Files 只读环境。</p>
  *
  * <p>JDK 16+ 运行 OSR 必须附带 JOGL 的模块开放参数（否则 AWT {@code GLCanvas} 因无法访问
@@ -53,6 +56,10 @@ public final class JcefRuntime {
     private static final JcefRuntime INSTANCE = new JcefRuntime();
 
     private volatile CefApp app;
+    /** 在途/已完成的引导未来：失败后下次 {@link #appAsync()} 重建它即重试。 */
+    private volatile CompletableFuture<CefApp> boot;
+    /** shutdown hook 只挂一次（重试引导会多次进入 build）。 */
+    private final AtomicBoolean hookAdded = new AtomicBoolean();
 
     private JcefRuntime() {}
 
@@ -60,11 +67,45 @@ public final class JcefRuntime {
         return INSTANCE;
     }
 
-    /** 惰性创建并返回进程级 {@link CefApp}；同步，首次调用可能触发 natives 解包（数秒）。 */
-    public synchronized CefApp app() {
-        if (app != null) {
-            return app;
+    /** 同步取进程级 {@link CefApp}：首次调用会阻塞到引导完成（可能触发 natives 解包，随包秒级；非 Windows 下载则分钟级）。 */
+    public CefApp app() {
+        return appAsync().join();
+    }
+
+    /**
+     * 后台引导：返回 {@link CefApp} 就绪时完成的未来，首次调用起 daemon 线程执行构建。
+     * <p>natives 目录缺失时需从随包 jar 解包（秒级），非 Windows 开发机则会同步下载数百 MB——绝不能在 FX 线程上跑，
+     * 否则主窗冻死在装配期。视图侧订阅本未来，就绪后在 FX 线程装配浏览器；失败后未来被丢弃，
+     * 再次调用（占位层的重试按钮）重新引导。</p>
+     */
+    public CompletableFuture<CefApp> appAsync() {
+        CompletableFuture<CefApp> f = boot;
+        if (f != null && !f.isCompletedExceptionally()) {
+            return f;
         }
+        synchronized (this) {
+            f = boot;
+            if (f == null || f.isCompletedExceptionally()) {
+                f = new CompletableFuture<>();
+                boot = f;
+                final CompletableFuture<CefApp> target = f;
+                Thread t = new Thread(() -> {
+                    try {
+                        target.complete(build());
+                    } catch (Throwable e) {
+                        log.error("JCEF 后台引导失败", e);
+                        target.completeExceptionally(e);
+                    }
+                }, "jcef-boot");
+                t.setDaemon(true);
+                t.start();
+            }
+            return f;
+        }
+    }
+
+    /** 构建进程级 {@link CefApp}（仅 jcef-boot 线程调用）；失败抛出由未来携带给订阅方。 */
+    private CefApp build() {
         try {
             CefAppBuilder b = new CefAppBuilder();
             b.setInstallDir(installDir());
@@ -86,7 +127,9 @@ public final class JcefRuntime {
                 s.root_cache_path = rootOverride;
             }
             app = b.build();
-            Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "jcef-shutdown"));
+            if (hookAdded.compareAndSet(false, true)) {
+                Runtime.getRuntime().addShutdownHook(new Thread(this::shutdown, "jcef-shutdown"));
+            }
             log.info("JCEF CefApp 就绪 installDir={}", installDir().getAbsolutePath());
             return app;
         } catch (Exception e) {
@@ -109,6 +152,7 @@ public final class JcefRuntime {
      * 进程开始退出时才跑，而 CEF 的 AWT 宿主线程正是拦住退出的那类线程，只靠 hook 会互等。</p>
      */
     public synchronized void shutdown() {
+        boot = null;
         if (app == null) {
             return;
         }

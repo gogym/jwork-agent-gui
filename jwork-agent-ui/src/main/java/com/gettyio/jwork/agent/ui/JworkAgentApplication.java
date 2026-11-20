@@ -16,6 +16,7 @@
 
 package com.gettyio.jwork.agent.ui;
 
+import com.gettyio.jwork.agent.core.JworkPaths;
 import com.gettyio.jwork.agent.domain.security.LocalAuthService;
 import com.gettyio.jwork.agent.ui.config.AppContext;
 import com.gettyio.jwork.agent.ui.controller.MainController;
@@ -46,6 +47,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.util.concurrent.CountDownLatch;
+import java.util.prefs.Preferences;
 
 /**
  * JavaFX 应用入口：{@code init()} 装配应用上下文（无头服务 + 启动工序），
@@ -64,9 +68,86 @@ public class JworkAgentApplication extends Application {
     public void init() {
         // 阶段文案推送给启动画面（notifyPreloader 可从 init 线程调用）
         notifyPreloader(new SplashPreloader.SplashProgress(I18n.t("splash.preparing")));
+        guardLostDataRoot();
         context = new AppContext();
+        markDataRootInitialized();
         context.runStartupTasks();
         notifyPreloader(new SplashPreloader.SplashProgress(I18n.t("splash.loading")));
+    }
+
+    /**
+     * 数据根丢失守卫：配置过自定义目录（{@code jwork.home} 属性 / 安装器注册表值）且成功初始化过，
+     * 但目录或库已被外部删除时，直接装配会在开库处抛异常杀死进程——用户只见闪屏消失、无任何指引。
+     * 此处在 init 早期（FX 工具包已就绪、闪屏在显）弹应用级模态强制二选一：
+     * 在原目录重新初始化（空根上建库播种，登录门自然进入账号设置），或回退默认目录 {@code ~/.jwork}。
+     * 「初始化过」标记存注册表（与 dataDir 同节点，不随数据目录删除）：安装器预写 dataDir 后的
+     * 真正首启目录尚不存在，不得误报丢失；未配置过的默认目录首启同样不弹窗。
+     * init 线程用门闩等 FX 线程上的选择结果后再继续装配。
+     */
+    private void guardLostDataRoot() {
+        String override = System.getProperty(JworkPaths.HOME_PROPERTY);
+        String installerValue = null;
+        boolean initialized = false;
+        try {
+            Preferences node = Preferences.userRoot().node("com/gettyio/jwork");
+            installerValue = node.get("dataDir", null);
+            initialized = node.getBoolean("dataDirInitialized", false);
+        } catch (SecurityException ignored) {
+            // 注册表不可读时按未配置处理（与 JworkPaths.defaultRoot 同口径）
+        }
+        boolean configured = (override != null && !override.isBlank())
+                || (installerValue != null && !installerValue.isBlank());
+        if (!configured || !initialized) {
+            return;
+        }
+        JworkPaths paths = new JworkPaths();
+        if (Files.isDirectory(paths.root()) && Files.isRegularFile(paths.dbFile())) {
+            return;
+        }
+        log.warn("数据目录已丢失: {}（目录或 jwork.db 不存在），等待用户选择恢复方式", paths.root());
+        int[] pick = {0};
+        CountDownLatch done = new CountDownLatch(1);
+        Platform.runLater(() -> {
+            try {
+                pick[0] = JworkDialog.chooseForced(null,
+                        I18n.t("startup.dataLost.title"), null,
+                        I18n.t("startup.dataLost.message", paths.root().toString()),
+                        I18n.t("startup.dataLost.reinit"),
+                        I18n.t("startup.dataLost.default"));
+            } catch (Throwable t) {
+                log.error("数据目录丢失提示弹窗失败，按原目录重新初始化继续", t);
+            } finally {
+                done.countDown();
+            }
+        });
+        try {
+            done.await();
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+        if (pick[0] == 1) {
+            // 回退默认：清掉两处覆盖来源，后续 JworkPaths 解析自然落到 ~/.jwork
+            System.clearProperty(JworkPaths.HOME_PROPERTY);
+            try {
+                Preferences.userRoot().node("com/gettyio/jwork").remove("dataDir");
+                Preferences.userRoot().node("com/gettyio/jwork").flush();
+            } catch (Exception e) {
+                log.warn("清除数据目录注册表值失败，本次启动仍按默认目录继续", e);
+                System.setProperty(JworkPaths.HOME_PROPERTY,
+                        java.nio.file.Path.of(System.getProperty("user.home"), JworkPaths.DEFAULT_ROOT_NAME).toString());
+            }
+        }
+    }
+
+    /** 组合根装配成功（库已建/已开）后落「初始化过」标记：供下次启动的丢失守卫区分首启与真丢失。 */
+    private void markDataRootInitialized() {
+        try {
+            Preferences node = Preferences.userRoot().node("com/gettyio/jwork");
+            node.putBoolean("dataDirInitialized", true);
+            node.flush();
+        } catch (Exception e) {
+            log.warn("写入数据目录初始化标记失败（不影响本次启动）", e);
+        }
     }
 
     /** JavaFX 启动入口：装配 FX 线程异常兜底、无边框透明主窗与登录门，认证通过后显示主窗并装配热键。 */

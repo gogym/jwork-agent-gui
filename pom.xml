@@ -27,6 +27,9 @@
 
         <javafx.version>21.0.8</javafx.version>
         <jcef.version>141.0.10</jcef.version>
+        <!-- CEF 原生库（Windows x64）随包构件：版本字符串须与 jcef.version 对应的 jcefmaven release 同步，
+             升级 jcef.version 时到 Maven Central 的 me/friwi/jcef-natives-windows-amd64 目录查同版构件 -->
+        <jcef.natives.version>jcef-2caef5a+cef-141.0.10+g1d65b0d+chromium-141.0.7390.123</jcef.natives.version>
         <agentscope.version>2.0.5</agentscope.version>
         <quartz.version>2.5.2</quartz.version>
         <jackson.version>2.21.4</jackson.version>
@@ -165,6 +168,14 @@
                 <groupId>me.friwi</groupId>
                 <artifactId>jcefmaven</artifactId>
                 <version>${jcef.version}</version>
+            </dependency>
+            <!-- CEF 原生库随包（约 142MB）：classpath 上有它时 jcefmaven 首启直接从本地 jar 解包到
+                 数据根 cef/，不再联网下载；删数据目录后也仅重新解包。只出 Windows x64 msi，故仅钉该平台；
+                 其他平台开发机不匹配时 builder 照旧走在线下载，不受影响 -->
+            <dependency>
+                <groupId>me.friwi</groupId>
+                <artifactId>jcef-natives-windows-amd64</artifactId>
+                <version>${jcef.natives.version}</version>
             </dependency>
             <dependency>
                 <groupId>io.github.mkpaz</groupId>

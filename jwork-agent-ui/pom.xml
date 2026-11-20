@@ -64,6 +64,13 @@
             <groupId>me.friwi</groupId>
             <artifactId>jcefmaven</artifactId>
         </dependency>
+        <!-- CEF 原生库随包（runtime）：经 package 档 copy-dependencies 平铺进 target/lib 随 msi 分发，
+             首启离线解包、不再下载（版本由根 pom 统一管理，须与 jcefmaven 版本同步） -->
+        <dependency>
+            <groupId>me.friwi</groupId>
+            <artifactId>jcef-natives-windows-amd64</artifactId>
+            <scope>runtime</scope>
+        </dependency>
         <dependency>
             <groupId>io.github.mkpaz</groupId>
             <artifactId>atlantafx-base</artifactId>
