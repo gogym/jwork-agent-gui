@@ -36,17 +36,21 @@ import java.util.concurrent.atomic.AtomicBoolean;
  * 保留 JavaFX 侧的圆角 clip / 动画 / 事件模型，同时拿到彩色 emoji。</p>
  *
  * <p>原生库解包目录：数据根目录下的 {@code cef/}（随 {@link JworkPaths} 解析，默认 {@code ~/.jwork/cef}）。
- * Windows x64 natives 已作为 runtime 依赖 {@code me.friwi:jcef-natives-windows-amd64} 随包
- * （package 档平铺进 lib/ 随 msi 分发），jcefmaven 首启优先从 classpath 上的该 jar 解包，全程不联网；
- * 数据目录被删后也仅重新解包。仅平台不匹配（非 Windows 开发机）才回退在线下载。
- * 该目录在 Windows 用户目录下可写，与安装目录解耦，兼容 Program Files 只读环境。</p>
+ * natives 已按构建平台 profile 随包（jwork-agent-ui 的 natives-windows / natives-macos-x64 /
+ * natives-macos-arm64，runtime scope 经 package 档平铺进 lib/ 随安装包分发），jcefmaven 首启优先从
+ * classpath 上的本平台 jar 解包，全程不联网；数据目录被删后也仅重新解包。
+ * 仅平台无随包 profile（如 linux）才回退在线下载。
+ * 该目录在用户目录下可写，与安装目录解耦，兼容 Program Files / Applications 只读环境。</p>
  *
  * <p>JDK 16+ 运行 OSR 必须附带 JOGL 的模块开放参数（否则 AWT {@code GLCanvas} 因无法访问
  * {@code sun.awt}/{@code sun.java2d} 内部类而抛「Unable to determine GraphicsConfiguration」，OSR 不产帧）：
  * {@code --add-exports java.base/java.lang=ALL-UNNAMED}、
  * {@code --add-exports java.desktop/sun.awt=ALL-UNNAMED}、
  * {@code --add-exports java.desktop/sun.java2d=ALL-UNNAMED}。这些参数须落在 java 命令行上，
- * 已在 IDEA 运行配置、javafx-maven-plugin 与 package-windows.ps1 三处统一注入。</p>
+ * 已在 IDEA 运行配置、javafx-maven-plugin 与 package-windows.ps1 三处统一注入；
+ * macOS 额外需要 {@code --add-opens java.desktop/sun.lwawt=ALL-UNNAMED} 与
+ * {@code --add-opens java.desktop/sun.lwawt.macosx=ALL-UNNAMED}（jcefmaven 官方 JDK16+ 要求），
+ * 仅在 mac 专属注入点追加：Debug macOS 运行配置与 package-macos.sh。</p>
  *
  * @author gogym
  */
@@ -67,14 +71,14 @@ public final class JcefRuntime {
         return INSTANCE;
     }
 
-    /** 同步取进程级 {@link CefApp}：首次调用会阻塞到引导完成（可能触发 natives 解包，随包秒级；非 Windows 下载则分钟级）。 */
+    /** 同步取进程级 {@link CefApp}：首次调用会阻塞到引导完成（可能触发 natives 解包，随包秒级；无随包 profile 的平台下载则分钟级）。 */
     public CefApp app() {
         return appAsync().join();
     }
 
     /**
      * 后台引导：返回 {@link CefApp} 就绪时完成的未来，首次调用起 daemon 线程执行构建。
-     * <p>natives 目录缺失时需从随包 jar 解包（秒级），非 Windows 开发机则会同步下载数百 MB——绝不能在 FX 线程上跑，
+     * <p>natives 目录缺失时需从随包 jar 解包（秒级），无随包 profile 的平台则会同步下载数百 MB——绝不能在 FX 线程上跑，
      * 否则主窗冻死在装配期。视图侧订阅本未来，就绪后在 FX 线程装配浏览器；失败后未来被丢弃，
      * 再次调用（占位层的重试按钮）重新引导。</p>
      */

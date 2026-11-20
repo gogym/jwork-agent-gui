@@ -1,0 +1,14 @@
+<component name="ProjectRunConfigurationManager">
+  <configuration default="false" name="Jwork Agent (Debug macOS)" type="Application" factoryName="Application">
+    <option name="MAIN_CLASS_NAME" value="com.gettyio.jwork.agent.ui.Launcher" />
+    <module name="jwork-agent-ui" />
+    <!-- mac 专属：在 Windows Debug 配置基础上追加 sun.lwawt 两条 opens（jcefmaven 官方 JDK16+ 要求）；
+         mac 开发统一走本配置，mvn javafx:run 缺这两条参数 -->
+    <option name="VM_PARAMETERS" value="-Dfile.encoding=UTF-8 -XX:-OmitStackTraceInFastThrow --add-exports=java.base/java.lang=ALL-UNNAMED --add-exports=java.desktop/sun.awt=ALL-UNNAMED --add-exports=java.desktop/sun.java2d=ALL-UNNAMED --add-opens=java.desktop/sun.awt=ALL-UNNAMED --add-opens=java.desktop/sun.lwawt=ALL-UNNAMED --add-opens=java.desktop/sun.lwawt.macosx=ALL-UNNAMED" />
+    <shortName>jworkAgentDebugMacos</shortName>
+    <Extension name="coverage" enabled="false" runner="idea" />
+    <method v="2">
+      <option name="Make" enabled="true" />
+    </method>
+  </configuration>
+</component>
