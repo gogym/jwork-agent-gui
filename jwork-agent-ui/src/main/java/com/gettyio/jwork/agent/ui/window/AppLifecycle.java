@@ -217,6 +217,28 @@ public class AppLifecycle {
         });
     }
 
+    /**
+     * 重启应用：以打包 exe 拉起新进程后走正常退出流程；新进程启动时从注册表解析新数据目录。
+     * 开发模式（java 启动器）或拉起失败返回 false，调用方提示手动重启。
+     */
+    public boolean relaunch() {
+        Optional<String> exe = packagedExecutable();
+        if (exe.isEmpty()) {
+            return false;
+        }
+        try {
+            new ProcessBuilder(exe.get())
+                    .redirectOutput(ProcessBuilder.Redirect.DISCARD)
+                    .redirectError(ProcessBuilder.Redirect.DISCARD)
+                    .start();
+        } catch (IOException e) {
+            log.warn("拉起重启进程失败: {}", exe.get(), e);
+            return false;
+        }
+        exit();
+        return true;
+    }
+
     // ===================== 关闭行为设置 =====================
 
     public Optional<String> readCloseAction() {

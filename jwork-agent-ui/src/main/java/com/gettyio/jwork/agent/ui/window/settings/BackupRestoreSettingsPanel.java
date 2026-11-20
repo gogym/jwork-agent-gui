@@ -17,6 +17,7 @@
 package com.gettyio.jwork.agent.ui.window.settings;
 
 import com.gettyio.jwork.agent.core.JworkPaths;
+import com.gettyio.jwork.agent.domain.backup.DataDirMigrator;
 import com.gettyio.jwork.agent.domain.backup.DbBackupService;
 import com.gettyio.jwork.agent.domain.entity.ChatSession;
 import com.gettyio.jwork.agent.domain.util.TimeFormats;
@@ -27,29 +28,39 @@ import com.gettyio.jwork.agent.ui.export.ExportService;
 import com.gettyio.jwork.agent.ui.export.SessionImageExporter;
 import com.gettyio.jwork.agent.ui.sync.WebDavSyncService;
 import com.gettyio.jwork.agent.ui.util.UiStyles;
+import com.gettyio.jwork.agent.ui.window.AppLifecycle;
 import com.gettyio.jwork.agent.ui.window.dialog.JworkDialog;
 import javafx.application.Platform;
 import javafx.geometry.Insets;
+import javafx.geometry.Pos;
 import javafx.scene.Node;
 import javafx.scene.control.Button;
 import javafx.scene.control.ComboBox;
 import javafx.scene.control.Label;
+import javafx.scene.control.ProgressBar;
 import javafx.scene.control.TextField;
 import javafx.scene.layout.FlowPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.stage.DirectoryChooser;
 import javafx.stage.FileChooser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.awt.Desktop;
 import java.io.File;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.CancellationException;
 import java.util.function.Supplier;
 
 /**
- * 数据与备份设置子面板：数据与路径只读概览、本地数据维护（立即备份 / 导出会话（Markdown·PDF·DOCX·
+ * 数据与备份设置子面板：数据与路径概览（数据目录可更改：迁移全部数据 + 重启生效，旧目录保留可清理）、
+ * 本地数据维护（立即备份 / 导出会话（Markdown·PDF·DOCX·
  * 长图 PNG·独立 HTML）/ 导出全库 JSON / 打开目录）与 WebDAV 云同步（地址·账号·密码·加密口令、
  * 自动周期、测试连接 / 立即同步 / 从云端恢复）。抽自 {@link SettingsWindow}，依赖
  * {@link DbBackupService}/{@link ExportService}/{@link WebDavSyncService}；
@@ -59,11 +70,15 @@ import java.util.function.Supplier;
  */
 final class BackupRestoreSettingsPanel {
 
+    private static final Logger log = LoggerFactory.getLogger(BackupRestoreSettingsPanel.class);
+
     private final SettingsWindow host;
     private final JworkPaths jworkPaths;
     private final DbBackupService dbBackupService;
     private final ExportService exportService;
     private final WebDavSyncService webDavSyncService;
+    private final DataDirMigrator dataDirMigrator;
+    private final AppLifecycle appLifecycle;
 
     /** 本页「最近备份」值标签：备份完成后就地刷新。 */
     private final Label lastBackupValueLabel = new Label("-");
@@ -83,12 +98,15 @@ final class BackupRestoreSettingsPanel {
     private Button webDavRestoreButton;
 
     BackupRestoreSettingsPanel(SettingsWindow host, JworkPaths jworkPaths, DbBackupService dbBackupService,
-                               ExportService exportService, WebDavSyncService webDavSyncService) {
+                               ExportService exportService, WebDavSyncService webDavSyncService,
+                               DataDirMigrator dataDirMigrator, AppLifecycle appLifecycle) {
         this.host = host;
         this.jworkPaths = jworkPaths;
         this.dbBackupService = dbBackupService;
         this.exportService = exportService;
         this.webDavSyncService = webDavSyncService;
+        this.dataDirMigrator = dataDirMigrator;
+        this.appLifecycle = appLifecycle;
         // 同步结果监听：成功刷新「最近同步」，失败就地展示失败原因（自动同步失败亦可见）
         webDavSyncService.addSyncListener(result -> Platform.runLater(() -> {
             if (result.success()) {
@@ -110,16 +128,189 @@ final class BackupRestoreSettingsPanel {
         return box;
     }
 
-    /** 数据与路径卡片：各数据目录的只读概览（自通用页迁入，与备份/打开目录操作聚合于一页）。 */
+    /** 数据与路径卡片：各数据目录概览（数据目录行带更改入口）+ 迁移后旧目录清理行。 */
     private VBox pathsCard() {
         List<Node> rows = new ArrayList<>();
-        rows.add(SettingsLayout.infoRow(I18n.t("settings.key.dataDir"), jworkPaths.root()));
+        rows.add(dataDirRow());
         rows.add(SettingsLayout.infoRow(I18n.t("settings.key.workspace"), jworkPaths.workspaceDir()));
         rows.add(SettingsLayout.infoRow(I18n.t("settings.key.skillsDir"), jworkPaths.skillsDir()));
         rows.add(SettingsLayout.infoRow(I18n.t("settings.key.knowledgeDir"), jworkPaths.knowledgeDir()));
         rows.add(SettingsLayout.infoRow(I18n.t("settings.key.logsDir"), jworkPaths.logsDir()));
         rows.add(SettingsLayout.infoRow(I18n.t("settings.key.db"), jworkPaths.dbFile()));
+        previousRootRow().ifPresent(rows::add);
         return SettingsLayout.groupCard(I18n.t("settings.group.paths"), rows);
+    }
+
+    /**
+     * 数据目录行：当前值 + 更改按钮。两种特殊态禁用更改并说明原因：
+     * jwork.home 系统属性覆盖（开发/运维入口优先）、注册表已提交新目录待重启。
+     */
+    private HBox dataDirRow() {
+        Button change = CardKit.iconTextButton("\uE8B7", I18n.t("settings.dataDir.change"), this::handleChangeDir);
+        HBox control = new HBox(8, SettingsLayout.valueLabel(String.valueOf(jworkPaths.root())), change);
+        // HBox 默认 TOP_LEFT 会把路径文字顶到按钮上缘，垂直居中对齐按钮中线
+        control.setAlignment(Pos.CENTER_LEFT);
+        String desc = I18n.t("settings.dataDir.desc");
+        String override = System.getProperty(JworkPaths.HOME_PROPERTY);
+        Optional<Path> pending = DataDirMigrator.registryRoot().filter(p -> !p.equals(jworkPaths.root()));
+        if (override != null && !override.isBlank()) {
+            change.setDisable(true);
+            desc = I18n.t("settings.dataDir.override");
+        } else if (pending.isPresent()) {
+            change.setDisable(true);
+            desc = I18n.t("settings.dataDir.pending", pending.get());
+            Button restart = CardKit.iconTextButton("\uE777", I18n.t("settings.dataDir.restartNow"), this::handleRestartNow);
+            control.getChildren().add(restart);
+        }
+        return SettingsLayout.settingRow(I18n.t("settings.key.dataDir"), desc, control);
+    }
+
+    /** 旧数据目录行：仅迁移标记存在时显示；清理须二次确认，后台删树成功后就地移除本行。 */
+    private Optional<HBox> previousRootRow() {
+        Optional<DataDirMigrator.PreviousRoot> prev = DataDirMigrator.readPrevious(jworkPaths.root())
+                .filter(p -> !p.dir().equals(jworkPaths.root()));
+        if (prev.isEmpty()) {
+            return Optional.empty();
+        }
+        Path old = prev.get().dir();
+        Button cleanup = CardKit.iconTextButton("\uE74D", I18n.t("settings.dataDir.cleanup"), () -> { });
+        cleanup.getStyleClass().addAll(UiStyles.LINK_BTN, UiStyles.LINK_BTN_DANGER);
+        HBox control = new HBox(8, SettingsLayout.valueLabel(String.valueOf(old)), cleanup);
+        control.setAlignment(Pos.CENTER_LEFT);
+        HBox row = SettingsLayout.settingRow(I18n.t("settings.dataDir.previous"), I18n.t("settings.dataDir.previous.desc"), control);
+        cleanup.setOnAction(e -> handleCleanupPrevious(old, row));
+        return Optional.of(row);
+    }
+
+    private void handleCleanupPrevious(Path old, HBox row) {
+        if (!JworkDialog.confirm(host.hostWindow(), I18n.t("settings.dataDir.cleanup"),
+                I18n.t("settings.dataDir.cleanup.confirm", old))) {
+            return;
+        }
+        runInBackground("settings.dataDir.cleanup", () -> {
+            try {
+                DataDirMigrator.deleteTree(old);
+                DataDirMigrator.clearPrevious(jworkPaths.root());
+            } catch (IOException e) {
+                throw new UncheckedIOException(e);
+            }
+            return Optional.of(I18n.t("settings.dataDir.cleanup.done"));
+        }, () -> {
+            if (row != null && row.getParent() instanceof VBox parent) {
+                parent.getChildren().remove(row);
+            }
+        });
+    }
+
+    /** 选目录 → 校验 → 非空/迁移双重确认 → 后台迁移（进度对话框可取消）→ 成功后重启抉择。 */
+    private void handleChangeDir() {
+        DirectoryChooser chooser = new DirectoryChooser();
+        chooser.setTitle(I18n.t("settings.dataDir.change"));
+        File initial = jworkPaths.root().toFile();
+        if (initial.isDirectory()) {
+            chooser.setInitialDirectory(initial);
+        }
+        File dir = chooser.showDialog(host.hostWindow());
+        if (dir == null) {
+            return;
+        }
+        Path target = dir.toPath().toAbsolutePath().normalize();
+        String err = dataDirMigrator.checkTarget(target);
+        if (err != null) {
+            JworkDialog.message(host.hostWindow(), I18n.t("settings.dataDir.change"), null,
+                    dirErrText(err), JworkDialog.Level.ERROR);
+            return;
+        }
+        if (!DataDirMigrator.isEmptyDir(target)
+                && !JworkDialog.confirm(host.hostWindow(), I18n.t("settings.dataDir.change"),
+                I18n.t("settings.dataDir.notEmpty"))) {
+            return;
+        }
+        if (!JworkDialog.confirm(host.hostWindow(), I18n.t("settings.dataDir.change"),
+                I18n.t("settings.dataDir.confirm", jworkPaths.root(), target))) {
+            return;
+        }
+        runMigration(target);
+    }
+
+    /** 迁移进度对话框：模态壳 + 后台线程；showAndWait 嵌套事件循环保证 runLater 进度可刷新。 */
+    private void runMigration(Path target) {
+        JworkDialog.Shell shell = JworkDialog.shell(host.hostWindow(), I18n.t("settings.dataDir.change"));
+        ProgressBar bar = new ProgressBar(0);
+        bar.setPrefWidth(320);
+        Label status = new Label(I18n.t("settings.dataDir.progress", "0", "0"));
+        status.getStyleClass().add(UiStyles.ROW_DESC);
+        boolean[] cancelled = {false};
+        boolean[] ok = {false};
+        String[] failure = {null};
+        Button cancel = new Button(I18n.t("settings.dataDir.cancel"));
+        cancel.setOnAction(e -> {
+            cancelled[0] = true;
+            cancel.setDisable(true);
+            status.setText(I18n.t("settings.dataDir.cancelling"));
+        });
+        HBox actions = new HBox(8, cancel);
+        actions.getStyleClass().add(UiStyles.DIALOG_ACTIONS);
+        shell.body().getChildren().addAll(new VBox(10, bar, status), actions);
+        Thread t = new Thread(() -> {
+            try {
+                dataDirMigrator.stage(target, (d, total) -> Platform.runLater(() -> {
+                    bar.setProgress(total == 0 ? 1 : (double) d / total);
+                    status.setText(I18n.t("settings.dataDir.progress", String.valueOf(d), String.valueOf(total)));
+                }), () -> cancelled[0]);
+                Platform.runLater(() -> status.setText(I18n.t("settings.dataDir.progressDb")));
+                DataDirMigrator.commit(target);
+                ok[0] = true;
+            } catch (CancellationException ce) {
+                log.debug("数据目录迁移被用户取消");
+            } catch (Throwable e) {
+                // Error（如类缺失的 NoClassDefFoundError）也必须走失败收尾：
+                // 否则线程静默死亡，模态进度壳永不关闭，showAndWait 冻住整窗
+                failure[0] = String.valueOf(e.getMessage());
+            }
+            Platform.runLater(() -> {
+                shell.stage().close();
+                try {
+                    if (ok[0]) {
+                        int pick = JworkDialog.chooseForced(host.hostWindow(), I18n.t("settings.dataDir.change"), null,
+                                I18n.t("settings.dataDir.done"),
+                                I18n.t("settings.dataDir.restartNow"), I18n.t("settings.dataDir.restartLater"));
+                        if (pick == 0) {
+                            handleRestartNow();
+                        }
+                    } else if (failure[0] != null) {
+                        JworkDialog.message(host.hostWindow(), I18n.t("settings.dataDir.change"), null,
+                                I18n.t("settings.data.fail", failure[0]), JworkDialog.Level.ERROR);
+                    } else {
+                        host.notify("settings.dataDir.change", I18n.t("settings.dataDir.cancelled"));
+                    }
+                } catch (Throwable e) {
+                    log.error("迁移收尾对话框异常", e);
+                    host.notify("settings.dataDir.change", I18n.t("settings.data.fail", String.valueOf(e.getMessage())));
+                }
+            });
+        }, "jwork-datadir-migrate");
+        t.setDaemon(true);
+        t.start();
+        shell.showAndWait();
+    }
+
+    /** 校验错误码 → 完整词条键（保持字面量完整，i18n 闸门可扫） */
+    private static String dirErrText(String err) {
+        return switch (err) {
+            case "sameRoot" -> I18n.t("settings.dataDir.err.sameRoot");
+            case "insideRoot" -> I18n.t("settings.dataDir.err.insideRoot");
+            case "ancestorOfRoot" -> I18n.t("settings.dataDir.err.ancestorOfRoot");
+            default -> I18n.t("settings.dataDir.err.notWritable");
+        };
+    }
+
+    /** 立即重启：打包模式拉新进程退出；开发模式提示手动重启。 */
+    private void handleRestartNow() {
+        if (!appLifecycle.relaunch()) {
+            JworkDialog.message(host.hostWindow(), I18n.t("settings.dataDir.restartNow"), null,
+                    I18n.t("settings.dataDir.restartManual"));
+        }
     }
 
     /**

@@ -18,6 +18,7 @@ package com.gettyio.jwork.agent.core;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.prefs.Preferences;
 
 /**
  * 本地数据目录约定（本地优先，数据自持）：
@@ -30,7 +31,14 @@ import java.nio.file.Paths;
  *   logs/
  *   backups/
  * </pre>
- * 根目录可通过构造参数覆盖（测试/自定义）。
+ * 根目录解析优先级（{@link #defaultRoot()}）：
+ * <ol>
+ *   <li>系统属性 {@code jwork.home}（开发/测试/运维覆盖入口）</li>
+ *   <li>安装向导写入的注册表值（HKCU\Software\JavaSoft\Prefs\com\gettyio\jwork\dataDir，
+ *       经 {@link Preferences} 读取，与 scripts/wix/main.wxs 的写入位置对齐）</li>
+ *   <li>默认 {@code ~/.jwork}</li>
+ * </ol>
+ * 根目录亦可通过构造参数覆盖（测试/自定义）。
  *
  * @author gogym
  */
@@ -38,14 +46,42 @@ public class JworkPaths {
 
     public static final String DEFAULT_ROOT_NAME = ".jwork";
 
+    /** 数据根目录的系统属性覆盖入口（优先级最高） */
+    public static final String HOME_PROPERTY = "jwork.home";
+
     private final Path root;
 
     public JworkPaths() {
-        this(Paths.get(System.getProperty("user.home"), DEFAULT_ROOT_NAME));
+        this(defaultRoot());
     }
 
     public JworkPaths(Path root) {
         this.root = root.toAbsolutePath();
+    }
+
+    /**
+     * 解析默认数据根目录：jwork.home 属性 &gt; 安装器注册表值 &gt; ~/.jwork。
+     * 注册表不可读（安全策略等）时静默回落默认目录，不阻断启动。
+     */
+    public static Path defaultRoot() {
+        String installerValue = null;
+        try {
+            installerValue = Preferences.userRoot().node("com/gettyio/jwork").get("dataDir", null);
+        } catch (SecurityException ignored) {
+            // 注册表不可读时按未配置处理
+        }
+        return resolveRoot(System.getProperty(HOME_PROPERTY), installerValue, System.getProperty("user.home"));
+    }
+
+    /** 纯函数解析（便于单测）：空白值逐级跳过，取首个非空来源 */
+    static Path resolveRoot(String override, String installerValue, String userHome) {
+        if (override != null && !override.isBlank()) {
+            return Paths.get(override.trim());
+        }
+        if (installerValue != null && !installerValue.isBlank()) {
+            return Paths.get(installerValue.trim());
+        }
+        return Paths.get(userHome, DEFAULT_ROOT_NAME);
     }
 
     public Path root() {

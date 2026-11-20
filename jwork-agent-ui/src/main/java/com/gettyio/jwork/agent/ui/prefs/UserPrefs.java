@@ -16,6 +16,8 @@
 
 package com.gettyio.jwork.agent.ui.prefs;
 
+import com.gettyio.jwork.agent.core.JworkPaths;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -24,7 +26,7 @@ import java.nio.file.Path;
 import java.util.Properties;
 
 /**
- * 用户偏好存储：{@code ~/.jwork/theme.properties}，
+ * 用户偏好存储：数据根目录下的 {@code theme.properties}（随 {@link JworkPaths} 解析，默认 {@code ~/.jwork/theme.properties}），
  * 供 UiTheme（模式/字号）与 I18n（语言）共享读写，避免多文件互相覆盖。
  *
  * @author gogym
@@ -76,6 +78,6 @@ public final class UserPrefs {
     }
 
     private static Path file() {
-        return Path.of(System.getProperty("user.home"), ".jwork", "theme.properties");
+        return new JworkPaths().root().resolve("theme.properties");
     }
 }

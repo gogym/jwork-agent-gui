@@ -1,0 +1,1317 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi"
+     xmlns:util="http://schemas.microsoft.com/wix/UtilExtension">
+
+  <?ifdef JpIsSystemWide ?>
+    <?define JpInstallScope="perMachine"?>
+  <?else?>
+    <?define JpInstallScope="perUser"?>
+  <?endif?>
+
+  <!-- 包语言 2052(zh-CN)：msi 无 ActionText 表时，安装执行阶段的状态行（如“正在复制新文件”）
+       由引擎按包语言取自 msi.dll 内建本地化资源；jpackage 模板残留的 1033+无效 LCID 会退回
+       英文模板串（ProgressDlg 状态显示 "Coping new files File: [1]..." 的根因） -->
+  <?define JpProductLanguage=2052 ?>
+  <?define JpInstallerVersion=200 ?>
+  <?define JpCompressedMsi=yes ?>
+
+  <?include $(var.JpConfigDir)/overrides.wxi ?>
+
+  <?ifdef JpAllowUpgrades ?>
+    <?define JpUpgradeVersionOnlyDetectUpgrade="no"?>
+  <?else?>
+    <?define JpUpgradeVersionOnlyDetectUpgrade="yes"?>
+  <?endif?>
+  <?ifdef JpAllowDowngrades ?>
+    <?define JpUpgradeVersionOnlyDetectDowngrade="no"?>
+  <?else?>
+    <?define JpUpgradeVersionOnlyDetectDowngrade="yes"?>
+  <?endif?>
+
+  <Product
+    Id="$(var.JpProductCode)"
+    Name="$(var.JpAppName)"
+    Language="$(var.JpProductLanguage)"
+    Version="$(var.JpAppVersion)"
+    Manufacturer="$(var.JpAppVendor)"
+    UpgradeCode="$(var.JpProductUpgradeCode)">
+
+    <Package
+      Description="$(var.JpAppDescription)"
+      Manufacturer="$(var.JpAppVendor)"
+      InstallerVersion="$(var.JpInstallerVersion)"
+      Compressed="$(var.JpCompressedMsi)"
+      InstallScope="$(var.JpInstallScope)" Platform="x64"
+    />
+
+    <Media Id="1" Cabinet="Data.cab" EmbedCab="yes" />
+
+    <Upgrade Id="$(var.JpProductUpgradeCode)">
+      <UpgradeVersion
+        OnlyDetect="$(var.JpUpgradeVersionOnlyDetectUpgrade)"
+        Property="JP_UPGRADABLE_FOUND"
+        Maximum="$(var.JpAppVersion)"
+        MigrateFeatures="yes"
+        IncludeMaximum="$(var.JpUpgradeVersionOnlyDetectUpgrade)" />
+      <UpgradeVersion
+        OnlyDetect="$(var.JpUpgradeVersionOnlyDetectDowngrade)"
+        Property="JP_DOWNGRADABLE_FOUND"
+        Minimum="$(var.JpAppVersion)"
+        MigrateFeatures="yes"
+        IncludeMinimum="$(var.JpUpgradeVersionOnlyDetectDowngrade)" />
+    </Upgrade>
+
+    <?ifndef JpAllowUpgrades ?>
+    <CustomAction Id="JpDisallowUpgrade" Error="!(loc.DisallowUpgradeErrorMessage)" />
+    <?endif?>
+    <?ifndef JpAllowDowngrades ?>
+    <CustomAction Id="JpDisallowDowngrade" Error="!(loc.DowngradeErrorMessage)" />
+    <?endif?>
+
+    <Binary Id="JpCaDll" SourceFile="wixhelper.dll"/>
+
+    <CustomAction Id="JpFindRelatedProducts" BinaryKey="JpCaDll" DllEntry="FindRelatedProductsEx" />
+
+    <!-- Standard required root -->
+    <Directory Id="TARGETDIR" Name="SourceDir"/>
+
+    <!-- 数据目录：安装器写 HKCU\Software\JavaSoft\Prefs\com\gettyio\jwork\dataDir，
+         应用经 java.util.prefs.Preferences 读取（JworkPaths.defaultRoot）。
+         升级/静默安装时先从注册表恢复已有选择，避免被默认值重置。 -->
+    <Property Id="JWORKDATA_EXISTING">
+      <RegistrySearch Id="JworkDataDirSearch" Root="HKCU"
+                      Key="Software\JavaSoft\Prefs\com\gettyio\jwork" Name="dataDir" Type="raw"/>
+    </Property>
+    <CustomAction Id="JpRestoreDataDir" Property="JWORKDATADIR" Value="[JWORKDATA_EXISTING]"/>
+    <CustomAction Id="JpSetDefaultDataDir" Property="JWORKDATADIR" Value="[%USERPROFILE]\.jwork"/>
+
+    <!-- 向导语言：同键 lang 值持久化，维护/重装时恢复上次选择；默认简中。
+         无专门语言页：两个欢迎页左下角原生语言下拉（JWORKLANG_SEL，值=显示名），
+         选择变更挂 DoAction JpApplyLang + 条件 NewDialog（JWORKLANG_DIRTY="1"）：
+         CA 用“下拉值与当前语言是否一致”辨认展开/确认语义——展开时一致不重建
+         （选择不受打扰），确认选中新语言时置 DIRTY 并写属性，同批后行条件即时
+         求值为真→重建孪生欢迎页（互跳避开 2856 自刷新），新页创建时整页已是
+         新语言——下拉选完即变。欢迎页文案控件按语言三分拆分字面量变体，
+         成对 show/hide 条件在页创建时求值选中其一。 -->
+    <Property Id="JWORKLANG" Value="zh-CN"/>
+    <Property Id="JWORKLANG_SEL"/>
+    <Property Id="JWORKLANG_DIRTY" Value="0"/>
+    <Property Id="JWORKLANG_EXISTING">
+      <RegistrySearch Id="JworkLangSearch" Root="HKCU"
+                      Key="Software\JavaSoft\Prefs\com\gettyio\jwork" Name="lang" Type="raw"/>
+    </Property>
+    <CustomAction Id="JpRestoreLang" Property="JWORKLANG" Value="[JWORKLANG_EXISTING]"/>
+    <Binary Id="JpLangScript" SourceFile="lang.js"/>
+    <CustomAction Id="JpApplyLang" BinaryKey="JpLangScript" JScriptCall="ApplyLang" Execute="immediate" Return="check"/>
+
+    <DirectoryRef Id="TARGETDIR">
+      <!-- 数据目录声明为真实 Directory：BrowseDlg 的 SetTargetPath 参数必须是目录 Id，
+           纯自定义属性会报 2343（Specified folder is invalid）；目录属性已设值时
+           引擎以其为路径，空目录无组件引用不会在磁盘创建 -->
+      <Directory Id="JWORKDATADIR" Name="JworkData" />
+      <!-- Permanent：卸载/升级后保留选择，重装时仍记住数据目录；卸载不触碰数据本身 -->
+      <Component Id="JworkDataDirRegistry" Guid="{A3F8C6D2-9B4E-4F17-8A5C-2E9D7B6F4C10}" Permanent="yes">
+        <RegistryValue Root="HKCU" Key="Software\JavaSoft\Prefs\com\gettyio\jwork"
+                       Name="dataDir" Type="string" Value="[JWORKDATADIR]" KeyPath="yes"/>
+      </Component>
+      <!-- 语言选择同样 Permanent 留存；应用侧日后可经 Preferences 读取 lang -->
+      <Component Id="JworkLangRegistry" Guid="{7E2B9D4A-5C1F-4E8B-9A3D-6F8C2B5E1D74}" Permanent="yes">
+        <RegistryValue Root="HKCU" Key="Software\JavaSoft\Prefs\com\gettyio\jwork"
+                       Name="lang" Type="string" Value="[JWORKLANG]" KeyPath="yes"/>
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="DefaultFeature" Title="!(loc.MainFeatureTitle)" Level="1">
+      <ComponentGroupRef Id="Shortcuts"/>
+      <ComponentGroupRef Id="Files"/>
+      <ComponentGroupRef Id="FileAssociations"/>
+      <ComponentRef Id="JworkDataDirRegistry"/>
+      <ComponentRef Id="JworkLangRegistry"/>
+    </Feature>
+
+    <CustomAction Id="JpSetARPINSTALLLOCATION" Property="ARPINSTALLLOCATION" Value="[INSTALLDIR]" />
+    <CustomAction Id="JpSetARPCOMMENTS" Property="ARPCOMMENTS" Value="$(var.JpAppDescription)" />
+    <CustomAction Id="JpSetARPCONTACT" Property="ARPCONTACT" Value="$(var.JpAppVendor)" />
+    <CustomAction Id="JpSetARPSIZE" Property="ARPSIZE" Value="$(var.JpAppSizeKb)" />
+
+    <?ifdef JpHelpURL ?>
+      <CustomAction Id="JpSetARPHELPLINK" Property="ARPHELPLINK" Value="$(var.JpHelpURL)" />
+    <?endif?>
+
+    <?ifdef JpAboutURL ?>
+      <CustomAction Id="JpSetARPURLINFOABOUT" Property="ARPURLINFOABOUT" Value="$(var.JpAboutURL)" />
+    <?endif?>
+
+    <?ifdef JpUpdateURL ?>
+      <CustomAction Id="JpSetARPURLUPDATEINFO" Property="ARPURLUPDATEINFO" Value="$(var.JpUpdateURL)" />
+    <?endif?>
+
+    <?ifdef JpIcon ?>
+    <Property Id="ARPPRODUCTICON" Value="JpARPPRODUCTICON"/>
+    <Icon Id="JpARPPRODUCTICON" SourceFile="$(var.JpIcon)"/>
+    <?endif?>
+
+    <!-- 三语自定义向导（单 msi，欢迎页原生语言下拉）：
+         全部 22 个 WixUI 标准页同 Id 内联重定义，文案一律 [L_*] 属性引用，默认值简中；
+         JpApplyLang JScript CA 在序列入口与下拉选择时覆写属性并替换内嵌 [ProductName]，
+         下拉确认选语言后条件重建孪生欢迎页、新页整页新语言；许可证按语言显隐三份 RTF 之一。
+         页面链：欢迎 → 许可证 → 安装位置 → 数据位置 → 快捷方式勾选 → 确认 → 进度 → 完成；
+         维护模式（修复/卸载）与恢复安装分支由 InstallUISequence 条件 Show 进入。
+         本文件由 build\gen\assemble.ps1 从 WixUIExtension 基线自动生成，勿手改。 -->
+    <UI Id="JworkWizard">
+      <TextStyle Id="WixUI_Font_Normal" FaceName="Microsoft YaHei UI" Size="9" />
+      <TextStyle Id="WixUI_Font_Bigger" FaceName="Microsoft YaHei UI" Size="12" />
+      <TextStyle Id="WixUI_Font_Title" FaceName="Microsoft YaHei UI" Size="9" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="WixUI_Font_Normal" />
+      <Property Id="WixUI_Mode" Value="InstallDir" />
+      <!-- InstallDirDlg 绑定的目录属性指向 jpackage 的 INSTALLDIR（不传 win-dir-chooser 参数，由此处声明） -->
+      <Property Id="WIXUI_INSTALLDIR" Value="INSTALLDIR" />
+
+      <Property Id="L_Next" Value="下一步(&amp;N)" />
+      <Property Id="L_Back" Value="上一步(&amp;B)" />
+      <Property Id="L_Cancel" Value="取消" />
+      <Property Id="L_Finish" Value="完成(&amp;F)" />
+      <Property Id="L_OK" Value="确定" />
+      <Property Id="L_Yes" Value="是(&amp;Y)" />
+      <Property Id="L_No" Value="否(&amp;N)" />
+      <Property Id="L_Retry" Value="重试(&amp;R)" />
+      <Property Id="L_Ignore" Value="忽略(&amp;I)" />
+      <Property Id="L_Print" Value="打印(&amp;P)" />
+      <Property Id="L_DlgTitle" Value="[ProductName] 安装程序" />
+      <Property Id="L_Welcome_Title" Value="{\WixUI_Font_Bigger}欢迎使用 [ProductName] 安装向导" />
+      <Property Id="L_Welcome_Desc" Value="安装向导将在计算机上安装 [ProductName]。单击“下一步”继续，或单击“取消”退出安装向导。" />
+      <Property Id="L_Welcome_DescUpdate" Value="安装向导将更新您计算机上的 [ProductName]。单击“下一步”继续或单击“取消”退出安装向导。" />
+      <Property Id="L_License_Title" Value="{\WixUI_Font_Title}最终用户许可协议" />
+      <Property Id="L_License_Desc" Value="请认真阅读以下许可协议" />
+      <Property Id="L_License_Accept" Value="我接受许可协议中的条款(&amp;A)" />
+      <Property Id="L_InstallDir_Title" Value="{\WixUI_Font_Title}目标文件夹" />
+      <Property Id="L_InstallDir_Desc" Value="单击“下一步”安装到默认文件夹或单击“更改”选择其他位置。" />
+      <Property Id="L_InstallDir_FolderLabel" Value="[ProductName] 安装位置:" />
+      <Property Id="L_InstallDir_Change" Value="更改(&amp;C)..." />
+      <Property Id="L_Data_Title" Value="{\WixUI_Font_Title}数据存储位置" />
+      <Property Id="L_Data_Desc" Value="选择会话数据、配置与缓存的存放目录。" />
+      <Property Id="L_Data_FolderLabel" Value="数据目录(&amp;D)：" />
+      <Property Id="L_Data_Browse" Value="浏览(&amp;B)..." />
+      <Property Id="L_Data_Hint" Value="数据独立于安装目录：卸载或升级不会删除数据。不建议将数据目录放在安装目录内部。更换数据目录后将以全新环境使用，原目录（默认 ~/.jwork）中的已有数据不会自动迁移。" />
+      <Property Id="L_Shortcut_Title" Value="{\WixUI_Font_Title}快捷方式" />
+      <Property Id="L_Shortcut_Desc" Value="选择要创建的快捷方式。" />
+      <Property Id="L_Shortcut_Desktop" Value="创建桌面快捷方式" />
+      <Property Id="L_Shortcut_StartMenu" Value="创建开始菜单快捷方式" />
+      <Property Id="L_Verify_Install" Value="安装(&amp;I)" />
+      <Property Id="L_Verify_Change" Value="更改(&amp;C)" />
+      <Property Id="L_Verify_Repair" Value="修复(&amp;P)" />
+      <Property Id="L_Verify_Remove" Value="删除(&amp;R)" />
+      <Property Id="L_Verify_Update" Value="更新(&amp;U)" />
+      <Property Id="L_Verify_InstallTitle" Value="{\WixUI_Font_Title}已准备好安装 [ProductName]" />
+      <Property Id="L_Verify_InstallText" Value="单击“安装”开始安装。单击“上一步”查看或更改任何安装设置。单击“取消”退出向导。" />
+      <Property Id="L_Verify_ChangeTitle" Value="{\WixUI_Font_Title}已准备好更改 [ProductName]" />
+      <Property Id="L_Verify_ChangeText" Value="单击“更改”开始安装。单击“上一步”查看或更改任何安装设置。单击“取消”退出向导。" />
+      <Property Id="L_Verify_RepairTitle" Value="{\WixUI_Font_Title}已准备好修复 [ProductName]" />
+      <Property Id="L_Verify_RepairText" Value="单击“修复”修复 [ProductName] 的安装。单击“上一步”检查或更改任何安装设置。单击“取消”退出向导。" />
+      <Property Id="L_Verify_RemoveTitle" Value="{\WixUI_Font_Title}已准备好删除 [ProductName]" />
+      <Property Id="L_Verify_RemoveText" Value="单击“删除”可从计算机上删除 [ProductName]。单击“上一步”检查或更改任何安装设置。单击“取消”退出向导。" />
+      <Property Id="L_Verify_UpdateTitle" Value="{\WixUI_Font_Title}已准备好更新 [ProductName]" />
+      <Property Id="L_Verify_UpdateText" Value="单击“更新”以更新计算机上的 [ProductName]。单击“上一步”检查或更改任何安装设置。单击“取消”退出向导。" />
+      <Property Id="L_Progress_TextInstalling" Value="安装向导正在安装 [ProductName]，请稍候。" />
+      <Property Id="L_Progress_TitleInstalling" Value="{\WixUI_Font_Title}正在安装 [ProductName]" />
+      <Property Id="L_Progress_TextChanging" Value="安装向导正在更改 [ProductName]，请稍候。" />
+      <Property Id="L_Progress_TitleChanging" Value="{\WixUI_Font_Title}正在更改 [ProductName]" />
+      <Property Id="L_Progress_TextRepairing" Value="安装向导正在修复 [ProductName]，请稍候。" />
+      <Property Id="L_Progress_TitleRepairing" Value="{\WixUI_Font_Title}正在修复 [ProductName]" />
+      <Property Id="L_Progress_TextRemoving" Value="安装向导正在删除 [ProductName]，请稍候。" />
+      <Property Id="L_Progress_TitleRemoving" Value="{\WixUI_Font_Title}正在删除 [ProductName]" />
+      <Property Id="L_Progress_TextUpdating" Value="安装向导正在更新 [ProductName]，请稍候。" />
+      <Property Id="L_Progress_TitleUpdating" Value="{\WixUI_Font_Title}正在更新 [ProductName]" />
+      <Property Id="L_Progress_Bar" Value="安装过程已完成" />
+      <Property Id="L_Progress_Status" Value="状态:" />
+      <Property Id="L_Exit_Title" Value="{\WixUI_Font_Bigger}[ProductName] 安装向导已完成" />
+      <Property Id="L_Exit_Desc" Value="单击“完成”按钮退出安装向导。" />
+      <Property Id="L_MaintWelcome_Desc" Value="通过安装向导可以更改在您的计算机上安装 [ProductName] 功能的方式，或将其从您的计算机中删除。单击“下一步”继续，或单击“取消”退出安装向导。" />
+      <Property Id="L_MaintType_Title" Value="{\WixUI_Font_Title}更改、修复或删除安装" />
+      <Property Id="L_MaintType_Desc" Value="选择希望执行的操作。" />
+      <Property Id="L_MaintType_ChangeText" Value="允许您更改功能的安装方式。" />
+      <Property Id="L_MaintType_ChangeDisabled" Value="[ProductName] 没有单独可选的功能。" />
+      <Property Id="L_MaintType_RepairText" Value="通过修复丢失和损坏的文件、快捷方式和注册表项，修复最近安装的软件中的错误。" />
+      <Property Id="L_MaintType_RepairDisabled" Value="[ProductName] 无法修复。" />
+      <Property Id="L_MaintType_RemoveText" Value="从您的计算机中删除 [ProductName]。" />
+      <Property Id="L_MaintType_RemoveDisabled" Value="[ProductName] 无法删除。" />
+      <Property Id="L_MaintType_ChangeTip" Value="更改安装" />
+      <Property Id="L_MaintType_RepairTip" Value="修复安装" />
+      <Property Id="L_MaintType_RemoveTip" Value="删除安装" />
+      <Property Id="L_Resume_Title" Value="{\WixUI_Font_Bigger}正在继续执行 [ProductName] 安装向导" />
+      <Property Id="L_Resume_Desc" Value="安装向导将在您的计算机上完成 [ProductName] 的安装。请单击“安装”继续，或单击“取消”退出安装向导。" />
+      <Property Id="L_Cancel_Text" Value="是否确实要取消安装 [ProductName]?" />
+      <Property Id="L_Info_IconTip" Value="信息图标" />
+      <Property Id="L_Error_Text" Value="信息文本" />
+      <Property Id="L_Fatal_Title" Value="{\WixUI_Font_Bigger}[ProductName] 安装向导提前结束" />
+      <Property Id="L_Fatal_Desc" Value="由于发生错误，[ProductName] 安装向导提前结束。您的系统尚未修改。若要稍后安装该程序，请再次运行安装向导。 单击“完成”按钮退出安装向导。" />
+      <Property Id="L_UserExit_Title" Value="{\WixUI_Font_Bigger}[ProductName] 安装向导中断" />
+      <Property Id="L_UserExit_Desc" Value="[ProductName] 安装程序已中断。您的系统尚未修改。若要稍后安装此程序，请再次运行安装程序。 单击“完成”按钮退出安装向导。" />
+      <Property Id="L_Browse_Title" Value="{\WixUI_Font_Title}更改目标文件夹" />
+      <Property Id="L_Browse_Desc" Value="浏览到目标文件夹" />
+      <Property Id="L_Browse_ComboLabel" Value="查找范围(&amp;L):" />
+      <Property Id="L_Browse_PathLabel" Value="文件夹名称(&amp;F):" />
+      <Property Id="L_Browse_UpTip" Value="向上一级" />
+      <Property Id="L_Browse_NewTip" Value="新建文件夹" />
+      <Property Id="L_InvalidDir_Text" Value="安装目录必须位于本地硬盘驱动器上。" />
+      <Property Id="L_DiskCost_Title" Value="{\WixUI_Font_Title}磁盘空间要求" />
+      <Property Id="L_DiskCost_Desc" Value="安装选择的功能所需的磁盘空间。" />
+      <Property Id="L_DiskCost_Text" Value="突出显示的卷没有足够的磁盘空间用于所选功能。您可以从突出显示的卷中删除一些文件，安装较少的功能，或者选择其他目标驱动器。" />
+      <Property Id="L_OutOfDisk_Title" Value="{\WixUI_Font_Title}磁盘空间不足" />
+      <Property Id="L_OutOfDisk_Desc" Value="安装所需的磁盘空间超出了可用磁盘空间。" />
+      <Property Id="L_OutOfDisk_Text" Value="突出显示的卷没有足够的磁盘空间用于安装当前所选功能。您可以从突出显示的卷中删除一些文件，安装较少的功能，或者选择其他目标驱动器。" />
+      <Property Id="L_OutOfRb_Text" Value="突出显示的卷没有足够的磁盘空间用于安装当前所选功能。您可以从突出显示的卷中删除一些文件，安装较少的功能，或者选择其他目标驱动器。 或者，您可以选择禁用安装程序的回滚功能。禁用回滚功能将在因任何原因中断安装时，阻止安装程序还原计算机的原始状态。如果希望冒险禁用回滚功能，请单击“是”。" />
+      <Property Id="L_FilesInUse_Title" Value="{\WixUI_Font_Title}使用中的文件" />
+      <Property Id="L_FilesInUse_Desc" Value="一些需要更新的文件当前正在使用中。" />
+      <Property Id="L_FilesInUse_Text" Value="以下应用程序正在使用需要通过此安装程序更新的文件。请关闭这些应用程序，然后单击“重试”继续安装，或单击“退出”退出安装(&amp;R)。" />
+      <Property Id="L_FilesInUse_Exit" Value="退出(&amp;X)" />
+      <Property Id="L_RM_Text" Value="以下应用程序正在使用此安装程序需要更新的文件。可以让安装向导关闭这些应用程序，稍后再尝试重新启动这些应用程序或重新启动计算机。" />
+      <Property Id="L_RM_UseRM" Value="关闭应用程序，然后尝试将其重新启动(&amp;C)。" />
+      <Property Id="L_RM_DontUseRM" Value="不关闭应用程序。需要重新启动(&amp;D)。" />
+      <Property Id="L_Wait_Text" Value="安装程序正在确定磁盘空间需求，请稍候。" />
+      <Property Id="L_Wait_Return" Value="返回(&amp;R)" />
+      <Property Id="L_Wait_IconTip" Value="感叹号图标" />
+      <Property Id="L_Prepare_Desc" Value="安装程序正在准备 [ProductName]，请稍候。" />
+
+      <!-- 数据位置页：文案走 L_Data_* 属性；语言切换仅在欢迎页，本页只读 L_* -->
+      <Dialog Id="JworkDataDlg" Width="370" Height="270" Title="[L_DlgTitle]" NoMinimize="yes">
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes"
+                 Text="[L_Data_Title]" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="30" Transparent="yes" NoPrefix="yes"
+                 Text="[L_Data_Desc]" />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" TabSkip="no"
+                 Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="FolderLabel" Type="Text" X="20" Y="70" Width="330" Height="15" NoPrefix="yes"
+                 Text="[L_Data_FolderLabel]" />
+        <Control Id="Folder" Type="PathEdit" X="20" Y="85" Width="260" Height="18"
+                 Property="JWORKDATADIR" />
+        <Control Id="Change" Type="PushButton" X="290" Y="84" Width="60" Height="18"
+                 Text="[L_Data_Browse]">
+          <!-- _BrowseProperty 须为目录 Id 字面量（同 InstallDirDlg 经 WIXUI_INSTALLDIR 间接到
+               INSTALLDIR 的机制）：BrowseDlg OK 的 SetTargetPath 参数是目录 Id，填路径字符串
+               会报 2343；JWORKDATADIR 已在 part1 声明为真实 Directory -->
+          <Publish Property="_BrowseProperty" Value="JWORKDATADIR" Order="1">1</Publish>
+          <Publish Event="SpawnDialog" Value="BrowseDlg" Order="2">1</Publish>
+        </Control>
+        <Control Id="Hint" Type="Text" X="20" Y="115" Width="330" Height="90" NoPrefix="yes"
+                 Text="[L_Data_Hint]" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17"
+                 Text="[L_Back]" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes"
+                 Text="[L_Next]" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes"
+                 Text="[L_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg">1</Publish>
+        </Control>
+      </Dialog>
+
+      <Dialog Id="BrowseDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="PathEdit" Type="PathEdit" X="25" Y="202" Width="320" Height="18" Indirect="yes" Property="_BrowseProperty" TabSkip="no" />
+        <Control Id="OK" Type="PushButton" X="240" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Text="[L_OK]">
+          <Publish Event="SetTargetPath" Value="[_BrowseProperty]" Order="1">1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="Reset" Value="0" Order="1">1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">1</Publish>
+        </Control>
+        <Control Id="ComboLabel" Type="Text" X="25" Y="58" Width="44" Height="10" TabSkip="no" Text="[L_Browse_ComboLabel]" />
+        <Control Id="DirectoryCombo" Type="DirectoryCombo" X="70" Y="55" Width="220" Height="80" Indirect="yes" Fixed="yes" Remote="yes" Property="_BrowseProperty" TabSkip="no">
+          <Subscribe Event="IgnoreChange" Attribute="IgnoreChange" />
+        </Control>
+        <Control Id="WixUI_Bmp_Up" Type="PushButton" X="298" Y="55" Width="19" Height="19" Icon="yes" FixedSize="yes" IconSize="16" TabSkip="no" Help="[L_Browse_UpTip]" Text="WixUI_Bmp_Up">
+          <Publish Event="DirectoryListUp" Value="0" Order="1">1</Publish>
+        </Control>
+        <Control Id="NewFolder" Type="PushButton" X="325" Y="55" Width="19" Height="19" Icon="yes" FixedSize="yes" IconSize="16" TabSkip="no" Help="[L_Browse_NewTip]" Text="WixUI_Bmp_New">
+          <Publish Event="DirectoryListNew" Value="0" Order="1">1</Publish>
+        </Control>
+        <Control Id="DirectoryList" Type="DirectoryList" X="25" Y="83" Width="320" Height="98" Sunken="yes" Indirect="yes" Property="_BrowseProperty" TabSkip="no" />
+        <Control Id="PathLabel" Type="Text" X="25" Y="190" Width="320" Height="10" TabSkip="no" Text="[L_Browse_PathLabel]" />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Browse_Desc]" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Browse_Title]" />
+      </Dialog>
+
+      <Dialog Id="CancelDlg" Width="260" Height="85" Title="[L_DlgTitle]">
+        <Control Id="No" Type="PushButton" X="132" Y="57" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_No]">
+          <Publish Event="EndDialog" Value="Return" Order="1">1</Publish>
+        </Control>
+        <Control Id="Yes" Type="PushButton" X="72" Y="57" Width="56" Height="17" TabSkip="no" Text="[L_Yes]">
+          <Publish Event="EndDialog" Value="Exit" Order="1">1</Publish>
+        </Control>
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="194" Height="30" NoPrefix="yes" TabSkip="yes" Text="[L_Cancel_Text]" />
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" Disabled="yes" FixedSize="yes" IconSize="32" TabSkip="yes" Help="[L_Info_IconTip]" Text="WixUI_Ico_Info" />
+      </Dialog>
+
+      <Dialog Id="DiskCostDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="OK" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_OK]">
+          <Publish Event="EndDialog" Value="Return" Order="1">1</Publish>
+        </Control>
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Text" Type="Text" X="20" Y="53" Width="330" Height="50" TabSkip="yes" Text="[L_DiskCost_Text]" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="20" Y="20" Width="280" Height="20" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_DiskCost_Desc]" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_DiskCost_Title]" />
+        <Control Id="VolumeList" Type="VolumeCostList" X="20" Y="100" Width="330" Height="120" Sunken="yes" Fixed="yes" Remote="yes" TabSkip="yes" Text="{120}{70}{70}{70}{70}" />
+      </Dialog>
+
+      <Dialog Id="ErrorDlg" Width="270" Height="105" Title="[L_DlgTitle]" ErrorDialog="yes">
+        <Control Id="ErrorText" Type="Text" X="48" Y="15" Width="205" Height="60" NoPrefix="yes" TabSkip="no" Text="[L_Error_Text]" />
+        <Control Id="Y" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="[L_Yes]">
+          <Publish Event="EndDialog" Value="ErrorYes" Order="1">1</Publish>
+        </Control>
+        <Control Id="A" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="[L_Cancel]">
+          <Publish Event="EndDialog" Value="ErrorAbort" Order="1">1</Publish>
+        </Control>
+        <Control Id="C" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="[L_Cancel]">
+          <Publish Event="EndDialog" Value="ErrorCancel" Order="1">1</Publish>
+        </Control>
+        <Control Id="ErrorIcon" Type="Icon" X="15" Y="15" Width="24" Height="24" Disabled="yes" FixedSize="yes" IconSize="32" TabSkip="yes" Help="[L_Info_IconTip]" Text="WixUI_Ico_Info" />
+        <Control Id="I" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="[L_Ignore]">
+          <Publish Event="EndDialog" Value="ErrorIgnore" Order="1">1</Publish>
+        </Control>
+        <Control Id="N" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="[L_No]">
+          <Publish Event="EndDialog" Value="ErrorNo" Order="1">1</Publish>
+        </Control>
+        <Control Id="O" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="[L_OK]">
+          <Publish Event="EndDialog" Value="ErrorOk" Order="1">1</Publish>
+        </Control>
+        <Control Id="R" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="[L_Retry]">
+          <Publish Event="EndDialog" Value="ErrorRetry" Order="1">1</Publish>
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ExitDialog" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_Finish]" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Cancel]" />
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Back]" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="135" Y="70" Width="220" Height="40" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Exit_Desc]" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Exit_Title]" />
+        <Control Id="OptionalText" Type="Text" X="135" Y="110" Width="220" Height="80" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[WIXUI_EXITDIALOGOPTIONALTEXT]">
+          <Condition Action="show">WIXUI_EXITDIALOGOPTIONALTEXT AND NOT Installed</Condition>
+        </Control>
+        <Control Id="OptionalCheckBox" Type="CheckBox" X="135" Y="190" Width="220" Height="40" Hidden="yes" Property="WIXUI_EXITDIALOGOPTIONALCHECKBOX" CheckBoxValue="1" TabSkip="no" Text="[WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT]">
+          <Condition Action="show">WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT AND NOT Installed</Condition>
+        </Control>
+      </Dialog>
+
+      <Dialog Id="FatalError" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_Finish]">
+          <Publish Event="EndDialog" Value="Exit" Order="1">1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Cancel]" />
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Back]" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Fatal_Title]" />
+        <Control Id="Description" Type="Text" X="135" Y="70" Width="220" Height="80" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Fatal_Desc]" />
+      </Dialog>
+
+      <Dialog Id="FilesInUse" Width="370" Height="270" Title="[L_DlgTitle]" Modeless="yes" KeepModeless="yes">
+        <Control Id="Retry" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_Retry]">
+          <Publish Event="EndDialog" Value="Retry" Order="1">1</Publish>
+        </Control>
+        <Control Id="Ignore" Type="PushButton" X="235" Y="243" Width="56" Height="17" TabSkip="no" Text="[L_Ignore]">
+          <Publish Event="EndDialog" Value="Ignore" Order="1">1</Publish>
+        </Control>
+        <Control Id="Exit" Type="PushButton" X="166" Y="243" Width="56" Height="17" TabSkip="no" Text="[L_FilesInUse_Exit]">
+          <Publish Event="EndDialog" Value="Exit" Order="1">1</Publish>
+        </Control>
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Text" Type="Text" X="20" Y="55" Width="330" Height="30" TabSkip="yes" Text="[L_FilesInUse_Text]" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="20" Y="23" Width="280" Height="20" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_FilesInUse_Desc]" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_FilesInUse_Title]" />
+        <Control Id="List" Type="ListBox" X="20" Y="87" Width="330" Height="130" Sunken="yes" Property="FileInUseProcess" TabSkip="yes" />
+      </Dialog>
+
+      <Dialog Id="InstallDirDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Text="[L_Next]" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" TabSkip="no" Text="[L_Back]" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+        </Control>
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="280" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_InstallDir_Desc]" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_InstallDir_Title]" />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="FolderLabel" Type="Text" X="20" Y="60" Width="290" Height="30" NoPrefix="yes" TabSkip="yes" Text="[L_InstallDir_FolderLabel]" />
+        <Control Id="Folder" Type="PathEdit" X="20" Y="100" Width="320" Height="18" Indirect="yes" Property="WIXUI_INSTALLDIR" TabSkip="no" />
+        <Control Id="ChangeFolder" Type="PushButton" X="20" Y="120" Width="56" Height="17" TabSkip="no" Text="[L_InstallDir_Change]" />
+      </Dialog>
+
+      <Dialog Id="InvalidDirDlg" Width="260" Height="85" Title="[L_DlgTitle]">
+        <Control Id="OK" Type="PushButton" X="102" Y="57" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_OK]">
+          <Publish Event="EndDialog" Value="Return" Order="1">1</Publish>
+        </Control>
+        <Control Id="Text" Type="Text" X="48" Y="22" Width="194" Height="30" TabSkip="yes" Text="[L_InvalidDir_Text]" />
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" Disabled="yes" FixedSize="yes" IconSize="32" TabSkip="yes" Help="[L_Info_IconTip]" Text="WixUI_Ico_Info" />
+      </Dialog>
+
+      <Dialog Id="LicenseAgreementDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_License_Desc]" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_License_Title]" />
+        <Control Id="LicenseAcceptedCheckBox" Type="CheckBox" X="20" Y="207" Width="330" Height="18" Property="LicenseAccepted" CheckBoxValue="1" TabSkip="no" Text="[L_License_Accept]" />
+        <Control Id="Print" Type="PushButton" X="112" Y="243" Width="56" Height="17" TabSkip="no" Text="[L_Print]">
+          <Publish Event="DoAction" Value="WixUIPrintEula" Order="1">1</Publish>
+        </Control>
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" TabSkip="no" Text="[L_Back]" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Text="[L_Next]">
+          <Condition Action="disable">LicenseAccepted &lt;&gt; "1"</Condition>
+          <Condition Action="enable">LicenseAccepted = "1"</Condition>
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+        </Control>
+        <Control Id="LicenseTextCN" Type="ScrollableText" X="20" Y="60" Width="330" Height="140" Sunken="yes" TabSkip="no">
+          <Text SourceFile="!(wix.JpLicenseRtfZhCN)" />
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="LicenseTextTW" Type="ScrollableText" X="20" Y="60" Width="330" Height="140" Sunken="yes" TabSkip="no">
+          <Text SourceFile="!(wix.JpLicenseRtfZhTW)" />
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="LicenseTextEN" Type="ScrollableText" X="20" Y="60" Width="330" Height="140" Sunken="yes" TabSkip="no">
+          <Text SourceFile="!(wix.JpLicenseRtfEn)" />
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+      </Dialog>
+
+      <Dialog Id="MaintenanceTypeDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="ChangeButton" Type="PushButton" X="40" Y="65" Width="80" Height="17" TabSkip="no" Default="yes" Help="[L_MaintType_ChangeTip]" Text="[L_Verify_Change]">
+          <Condition Action="disable">ARPNOMODIFY</Condition>
+          <Publish Property="WixUI_InstallMode" Value="Change" Order="1">1</Publish>
+        </Control>
+        <Control Id="ChangeText" Type="Text" X="60" Y="85" Width="280" Height="20" TabSkip="yes" Text="[L_MaintType_ChangeText]">
+          <Condition Action="hide">ARPNOMODIFY</Condition>
+        </Control>
+        <Control Id="ChangeDisabledText" Type="Text" X="60" Y="85" Width="280" Height="20" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_MaintType_ChangeDisabled]">
+          <Condition Action="show">ARPNOMODIFY</Condition>
+        </Control>
+        <Control Id="RepairButton" Type="PushButton" X="40" Y="118" Width="80" Height="17" TabSkip="no" Help="[L_MaintType_RepairTip]" Text="[L_Verify_Repair]">
+          <Condition Action="disable">ARPNOREPAIR</Condition>
+          <Publish Property="WixUI_InstallMode" Value="Repair" Order="1">1</Publish>
+        </Control>
+        <Control Id="RepairText" Type="Text" X="60" Y="138" Width="280" Height="30" TabSkip="yes" Text="[L_MaintType_RepairText]">
+          <Condition Action="hide">ARPNOREPAIR</Condition>
+        </Control>
+        <Control Id="RepairDisabledText" Type="Text" X="60" Y="138" Width="280" Height="30" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_MaintType_RepairDisabled]">
+          <Condition Action="show">ARPNOREPAIR</Condition>
+        </Control>
+        <Control Id="RemoveButton" Type="PushButton" X="40" Y="171" Width="80" Height="17" TabSkip="no" Help="[L_MaintType_RemoveTip]" Text="[L_Verify_Remove]">
+          <Condition Action="disable">ARPNOREMOVE</Condition>
+          <Publish Property="WixUI_InstallMode" Value="Remove" Order="1">1</Publish>
+        </Control>
+        <Control Id="RemoveText" Type="Text" X="60" Y="191" Width="280" Height="20" NoPrefix="yes" TabSkip="yes" Text="[L_MaintType_RemoveText]">
+          <Condition Action="hide">ARPNOREMOVE</Condition>
+        </Control>
+        <Control Id="RemoveDisabledText" Type="Text" X="60" Y="191" Width="280" Height="20" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_MaintType_RemoveDisabled]">
+          <Condition Action="show">ARPNOREMOVE</Condition>
+        </Control>
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" TabSkip="no" Text="[L_Back]" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Next]" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+        </Control>
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="340" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_MaintType_Title]" />
+        <Control Id="Description" Type="Text" X="25" Y="23" Width="340" Height="20" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_MaintType_Desc]" />
+      </Dialog>
+
+      <Dialog Id="MaintenanceWelcomeDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Text="下一步(&amp;N)">
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="NextTw" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Text="下一步(&amp;N)">
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="NextEn" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Text="&amp;Next">
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="CancelTw" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="CancelEn" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="上一步(&amp;B)">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="BackTw" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="上一步(&amp;B)">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="BackEn" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="&amp;Back">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}欢迎使用 $(var.JpAppName) 安装向导">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="TitleTw" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}歡迎使用 $(var.JpAppName) 安裝精靈">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="TitleEn" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}Welcome to the $(var.JpAppName) Setup Wizard">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Description" Type="Text" X="135" Y="70" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="通过安装向导可以更改在您的计算机上安装 $(var.JpAppName) 功能的方式，或将其从您的计算机中删除。单击“下一步”继续，或单击“取消”退出安装向导。">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="DescriptionTw" Type="Text" X="135" Y="70" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="透過安裝精靈可以變更在您的電腦上安裝 $(var.JpAppName) 功能的方式，或將其從您的電腦中移除。按一下「下一步」繼續，或按一下「取消」結束安裝精靈。">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="DescriptionEn" Type="Text" X="135" Y="70" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="The Setup Wizard allows you to change the way $(var.JpAppName) features are installed on your computer or to remove it from your computer. Click Next to continue or Cancel to exit the Setup Wizard.">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="LangCombo" Type="ComboBox" X="10" Y="243" Width="90" Height="120" Property="JWORKLANG_SEL" TabSkip="yes">
+          <ComboBox Property="JWORKLANG_SEL">
+            <ListItem Text="简体中文" Value="简体中文" />
+            <ListItem Text="繁體中文" Value="繁體中文" />
+            <ListItem Text="English" Value="English" />
+          </ComboBox>
+          <Publish Event="DoAction" Value="JpApplyLang" Order="1">1</Publish>
+          <Publish Event="NewDialog" Value="MaintenanceWelcomeDlgAlt" Order="2"><![CDATA[JWORKLANG_DIRTY="1"]]></Publish>
+        </Control>
+      </Dialog>
+
+      <Dialog Id="MaintenanceWelcomeDlgAlt" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Text="下一步(&amp;N)">
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="NextTw" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Text="下一步(&amp;N)">
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="NextEn" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Text="&amp;Next">
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="CancelTw" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="CancelEn" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="上一步(&amp;B)">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="BackTw" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="上一步(&amp;B)">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="BackEn" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="&amp;Back">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}欢迎使用 $(var.JpAppName) 安装向导">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="TitleTw" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}歡迎使用 $(var.JpAppName) 安裝精靈">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="TitleEn" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}Welcome to the $(var.JpAppName) Setup Wizard">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Description" Type="Text" X="135" Y="70" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="通过安装向导可以更改在您的计算机上安装 $(var.JpAppName) 功能的方式，或将其从您的计算机中删除。单击“下一步”继续，或单击“取消”退出安装向导。">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="DescriptionTw" Type="Text" X="135" Y="70" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="透過安裝精靈可以變更在您的電腦上安裝 $(var.JpAppName) 功能的方式，或將其從您的電腦中移除。按一下「下一步」繼續，或按一下「取消」結束安裝精靈。">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="DescriptionEn" Type="Text" X="135" Y="70" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="The Setup Wizard allows you to change the way $(var.JpAppName) features are installed on your computer or to remove it from your computer. Click Next to continue or Cancel to exit the Setup Wizard.">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="LangCombo" Type="ComboBox" X="10" Y="243" Width="90" Height="120" Property="JWORKLANG_SEL" TabSkip="yes">
+          <Publish Event="DoAction" Value="JpApplyLang" Order="1">1</Publish>
+          <Publish Event="NewDialog" Value="MaintenanceWelcomeDlg" Order="2"><![CDATA[JWORKLANG_DIRTY="1"]]></Publish>
+        </Control>
+      </Dialog>
+
+      <Dialog Id="MsiRMFilesInUse" Width="370" Height="270" Title="[L_DlgTitle]" Modeless="yes" KeepModeless="yes">
+        <Control Id="OK" Type="PushButton" X="240" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Text="[L_OK]">
+          <Publish Event="EndDialog" Value="Return" Order="1">1</Publish>
+          <Publish Event="RMShutdownAndRestart" Value="0" Order="2">WixUIRMOption~="UseRM"</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="EndDialog" Value="Exit" Order="1">1</Publish>
+        </Control>
+        <Control Id="ShutdownOption" Type="RadioButtonGroup" X="26" Y="190" Width="305" Height="45" Property="WixUIRMOption" TabSkip="no">
+          <RadioButtonGroup Property="WixUIRMOption">
+            <RadioButton Value="UseRM" X="0" Y="0" Width="295" Height="16" Text="[L_RM_UseRM]" />
+            <RadioButton Value="DontUseRM" X="0" Y="20" Width="295" Height="16" Text="[L_RM_DontUseRM]" />
+          </RadioButtonGroup>
+        </Control>
+        <Control Id="List" Type="ListBox" X="20" Y="100" Width="330" Height="80" Sunken="yes" Property="FileInUseProcess" TabSkip="yes" />
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Text" Type="Text" X="20" Y="55" Width="330" Height="45" TabSkip="yes" Text="[L_RM_Text]" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="20" Y="23" Width="280" Height="20" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_FilesInUse_Desc]" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_FilesInUse_Title]" />
+      </Dialog>
+
+      <Dialog Id="OutOfDiskDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="OK" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_OK]">
+          <Publish Event="EndDialog" Value="Return" Order="1">1</Publish>
+        </Control>
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Text" Type="Text" X="20" Y="53" Width="330" Height="60" TabSkip="yes" Text="[L_OutOfDisk_Text]" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="20" Y="20" Width="280" Height="20" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_OutOfDisk_Desc]" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_OutOfDisk_Title]" />
+        <Control Id="VolumeList" Type="VolumeCostList" X="20" Y="120" Width="330" Height="100" Sunken="yes" Fixed="yes" Remote="yes" TabSkip="yes" Text="{120}{70}{70}{70}{70}" />
+      </Dialog>
+
+      <Dialog Id="OutOfRbDiskDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="No" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_No]">
+          <Publish Event="EndDialog" Value="Return" Order="1">1</Publish>
+        </Control>
+        <Control Id="Yes" Type="PushButton" X="240" Y="243" Width="56" Height="17" TabSkip="no" Text="[L_Yes]">
+          <Publish Event="EnableRollback" Value="False" Order="1">1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">1</Publish>
+        </Control>
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Text" Type="Text" X="20" Y="53" Width="330" Height="90" TabSkip="yes" Text="[L_OutOfRb_Text]" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="20" Y="20" Width="280" Height="20" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_OutOfDisk_Desc]" />
+        <Control Id="Title" Type="Text" X="15" Y="6" Width="200" Height="15" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_OutOfDisk_Title]" />
+        <Control Id="VolumeList" Type="VolumeCostList" X="20" Y="150" Width="330" Height="70" Sunken="yes" Fixed="yes" Remote="yes" ShowRollbackCost="yes" TabSkip="yes" Text="{120}{70}{70}{70}{70}" />
+      </Dialog>
+
+      <Dialog Id="PrepareDlg" Width="370" Height="270" Title="[L_DlgTitle]" Modeless="yes">
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+        </Control>
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="135" Y="70" Width="220" Height="20" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Prepare_Desc]" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}[ProductName]" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="yes" Text="[L_Back]" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="yes" Text="[L_Next]" />
+        <Control Id="ActionData" Type="Text" X="135" Y="125" Width="220" Height="30" Transparent="yes" NoPrefix="yes" TabSkip="yes">
+          <Subscribe Event="ActionData" Attribute="Text" />
+        </Control>
+        <Control Id="ActionText" Type="Text" X="135" Y="100" Width="220" Height="20" Transparent="yes" NoPrefix="yes" TabSkip="yes">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="ProgressDlg" Width="370" Height="270" Title="[L_DlgTitle]" Modeless="yes">
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+        </Control>
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Back]" />
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Next]" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="TextInstalling" Type="Text" X="20" Y="65" Width="330" Height="35" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TextInstalling]">
+          <Condition Action="show">NOT Installed OR (Installed AND (RESUME OR Preselected) AND NOT PATCH)</Condition>
+        </Control>
+        <Control Id="TitleInstalling" Type="Text" X="20" Y="15" Width="330" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TitleInstalling]">
+          <Condition Action="show">NOT Installed OR (Installed AND (RESUME OR Preselected) AND NOT PATCH)</Condition>
+        </Control>
+        <Control Id="TextChanging" Type="Text" X="20" Y="65" Width="330" Height="35" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TextChanging]">
+          <Condition Action="show">WixUI_InstallMode = "Change"</Condition>
+        </Control>
+        <Control Id="TitleChanging" Type="Text" X="20" Y="15" Width="330" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TitleChanging]">
+          <Condition Action="show">WixUI_InstallMode = "Change"</Condition>
+        </Control>
+        <Control Id="TextRepairing" Type="Text" X="20" Y="65" Width="330" Height="35" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TextRepairing]">
+          <Condition Action="show">WixUI_InstallMode = "Repair"</Condition>
+        </Control>
+        <Control Id="TitleRepairing" Type="Text" X="20" Y="15" Width="330" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TitleRepairing]">
+          <Condition Action="show">WixUI_InstallMode = "Repair"</Condition>
+        </Control>
+        <Control Id="TextRemoving" Type="Text" X="20" Y="65" Width="330" Height="35" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TextRemoving]">
+          <Condition Action="show">WixUI_InstallMode = "Remove"</Condition>
+        </Control>
+        <Control Id="TitleRemoving" Type="Text" X="20" Y="15" Width="330" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TitleRemoving]">
+          <Condition Action="show">WixUI_InstallMode = "Remove"</Condition>
+        </Control>
+        <Control Id="TextUpdating" Type="Text" X="20" Y="65" Width="330" Height="35" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TextUpdating]">
+          <Condition Action="show">WixUI_InstallMode = "Update"</Condition>
+        </Control>
+        <Control Id="TitleUpdating" Type="Text" X="20" Y="15" Width="330" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Progress_TitleUpdating]">
+          <Condition Action="show">WixUI_InstallMode = "Update"</Condition>
+        </Control>
+        <Control Id="ActionText" Type="Text" X="70" Y="115" Width="285" Height="10" TabSkip="yes">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="ProgressBar" Type="ProgressBar" X="20" Y="130" Width="330" Height="10" Disabled="yes" ProgressBlocks="yes" TabSkip="yes" Text="[L_Progress_Bar]">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+        <Control Id="StatusLabel" Type="Text" X="20" Y="115" Width="50" Height="10" TabSkip="yes" Text="[L_Progress_Status]" />
+      </Dialog>
+
+      <Dialog Id="ResumeDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Install" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" ElevationShield="yes" TabSkip="no" Text="[L_Verify_Install]">
+          <Condition Action="show">ALLUSERS</Condition>
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="5">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="6">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="InstallNoShield" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" TabSkip="no" Default="yes" Text="[L_Verify_Install]">
+          <Condition Action="show">NOT ALLUSERS</Condition>
+          <Publish Event="SpawnWaitDialog" Value="WaitForCostingDlg" Order="1">!(wix.WixUICostingPopupOptOut) OR CostingComplete = 1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="5">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="6">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+        </Control>
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="Back" Type="PushButton" X="156" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Back]" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Resume_Desc]" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Resume_Title]" />
+      </Dialog>
+
+      <Dialog Id="UserExit" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Finish" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_Finish]">
+          <Publish Event="EndDialog" Value="Exit" Order="1">1</Publish>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Cancel]" />
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="[L_Back]" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_UserExit_Title]" />
+        <Control Id="Description" Type="Text" X="135" Y="80" Width="220" Height="80" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_UserExit_Desc]" />
+      </Dialog>
+
+      <Dialog Id="VerifyReadyDlg" Width="370" Height="270" Title="[L_DlgTitle]" TrackDiskSpace="yes">
+        <Control Id="Install" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" ElevationShield="yes" TabSkip="no" Text="[L_Verify_Install]">
+          <Condition Action="show">NOT Installed AND ALLUSERS</Condition>
+          <Condition Action="enable">NOT Installed</Condition>
+          <Condition Action="default">NOT Installed</Condition>
+          <Publish Event="EndDialog" Value="Return" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="2">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="5">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="InstallNoShield" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" TabSkip="no" Text="[L_Verify_Install]">
+          <Condition Action="show">NOT Installed AND NOT ALLUSERS</Condition>
+          <Condition Action="enable">NOT Installed</Condition>
+          <Condition Action="default">NOT Installed</Condition>
+          <Publish Event="EndDialog" Value="Return" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="2">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="5">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="Change" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" ElevationShield="yes" TabSkip="no" Text="[L_Verify_Change]">
+          <Condition Action="show">WixUI_InstallMode = "Change" AND ALLUSERS AND (ADDLOCAL OR REMOVE)</Condition>
+          <Condition Action="enable">WixUI_InstallMode = "Change"</Condition>
+          <Condition Action="default">WixUI_InstallMode = "Change"</Condition>
+          <Publish Event="EndDialog" Value="Return" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="2">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="5">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="ChangeNoShield" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" TabSkip="no" Text="[L_Verify_Change]">
+          <Condition Action="show">WixUI_InstallMode = "Change" AND (NOT ALLUSERS OR (NOT ADDLOCAL AND NOT REMOVE))</Condition>
+          <Condition Action="enable">WixUI_InstallMode = "Change"</Condition>
+          <Condition Action="default">WixUI_InstallMode = "Change"</Condition>
+          <Publish Event="EndDialog" Value="Return" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="2">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="5">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="Repair" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" TabSkip="no" Default="yes" Text="[L_Verify_Repair]">
+          <Condition Action="show">WixUI_InstallMode = "Repair"</Condition>
+          <Condition Action="enable">WixUI_InstallMode = "Repair"</Condition>
+          <Condition Action="default">WixUI_InstallMode = "Repair"</Condition>
+          <Publish Event="ReinstallMode" Value="ecmus" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="Reinstall" Value="All" Order="2">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="3">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="5">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="6">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="7">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="Remove" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" ElevationShield="yes" TabSkip="no" Text="[L_Verify_Remove]">
+          <Condition Action="show">WixUI_InstallMode = "Remove" AND ALLUSERS</Condition>
+          <Condition Action="enable">WixUI_InstallMode = "Remove"</Condition>
+          <Publish Event="Remove" Value="All" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="5">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="6">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="RemoveNoShield" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" TabSkip="no" Text="[L_Verify_Remove]">
+          <Condition Action="show">WixUI_InstallMode = "Remove" AND NOT ALLUSERS</Condition>
+          <Condition Action="enable">WixUI_InstallMode = "Remove"</Condition>
+          <Publish Event="Remove" Value="All" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="2">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="5">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="6">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="Update" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" ElevationShield="yes" TabSkip="no" Text="[L_Verify_Update]">
+          <Condition Action="show">WixUI_InstallMode = "Update" AND ALLUSERS</Condition>
+          <Condition Action="enable">WixUI_InstallMode = "Update"</Condition>
+          <Publish Event="EndDialog" Value="Return" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="2">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="5">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="UpdateNoShield" Type="PushButton" X="212" Y="243" Width="80" Height="17" Hidden="yes" Disabled="yes" TabSkip="no" Text="[L_Verify_Update]">
+          <Condition Action="show">WixUI_InstallMode = "Update" AND NOT ALLUSERS</Condition>
+          <Condition Action="enable">WixUI_InstallMode = "Update"</Condition>
+          <Publish Event="EndDialog" Value="Return" Order="1">OutOfDiskSpace &lt;&gt; 1</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfRbDiskDlg" Order="2">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND (PROMPTROLLBACKCOST="P" OR NOT PROMPTROLLBACKCOST)</Publish>
+          <Publish Event="EndDialog" Value="Return" Order="3">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="EnableRollback" Value="False" Order="4">OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 0 AND PROMPTROLLBACKCOST="D"</Publish>
+          <Publish Event="SpawnDialog" Value="OutOfDiskDlg" Order="5">(OutOfDiskSpace = 1 AND OutOfNoRbDiskSpace = 1) OR (OutOfDiskSpace = 1 AND PROMPTROLLBACKCOST="F")</Publish>
+        </Control>
+        <Control Id="InstallTitle" Type="Text" X="15" Y="15" Width="300" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Verify_InstallTitle]">
+          <Condition Action="show">NOT Installed</Condition>
+        </Control>
+        <Control Id="InstallText" Type="Text" X="25" Y="70" Width="320" Height="80" Hidden="yes" TabSkip="yes" Text="[L_Verify_InstallText]">
+          <Condition Action="show">NOT Installed</Condition>
+        </Control>
+        <Control Id="ChangeTitle" Type="Text" X="15" Y="15" Width="300" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Verify_ChangeTitle]">
+          <Condition Action="show">WixUI_InstallMode = "Change"</Condition>
+        </Control>
+        <Control Id="ChangeText" Type="Text" X="25" Y="70" Width="320" Height="80" Hidden="yes" TabSkip="yes" Text="[L_Verify_ChangeText]">
+          <Condition Action="show">WixUI_InstallMode = "Change"</Condition>
+        </Control>
+        <Control Id="RepairTitle" Type="Text" X="15" Y="15" Width="300" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Verify_RepairTitle]">
+          <Condition Action="show">WixUI_InstallMode = "Repair"</Condition>
+        </Control>
+        <Control Id="RepairText" Type="Text" X="25" Y="70" Width="320" Height="80" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Verify_RepairText]">
+          <Condition Action="show">WixUI_InstallMode = "Repair"</Condition>
+        </Control>
+        <Control Id="RemoveTitle" Type="Text" X="15" Y="15" Width="300" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Verify_RemoveTitle]">
+          <Condition Action="show">WixUI_InstallMode = "Remove"</Condition>
+        </Control>
+        <Control Id="RemoveText" Type="Text" X="25" Y="70" Width="320" Height="80" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Verify_RemoveText]">
+          <Condition Action="show">WixUI_InstallMode = "Remove"</Condition>
+        </Control>
+        <Control Id="UpdateTitle" Type="Text" X="15" Y="15" Width="300" Height="15" Hidden="yes" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Verify_UpdateTitle]">
+          <Condition Action="show">WixUI_InstallMode = "Update"</Condition>
+        </Control>
+        <Control Id="UpdateText" Type="Text" X="25" Y="70" Width="320" Height="80" Hidden="yes" NoPrefix="yes" TabSkip="yes" Text="[L_Verify_UpdateText]">
+          <Condition Action="show">WixUI_InstallMode = "Update"</Condition>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="[L_Cancel]">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+        </Control>
+        <Control Id="Back" Type="PushButton" X="156" Y="243" Width="56" Height="17" TabSkip="no" Text="[L_Back]">
+          <Condition Action="default">WixUI_InstallMode = "Remove"</Condition>
+        </Control>
+        <Control Id="BannerBitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="44" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Banner" />
+        <Control Id="BannerLine" Type="Line" X="0" Y="44" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+      </Dialog>
+
+      <Dialog Id="WaitForCostingDlg" Width="260" Height="85" Title="[L_DlgTitle]">
+        <Control Id="Return" Type="PushButton" X="102" Y="57" Width="56" Height="17" TabSkip="no" Default="yes" Cancel="yes" Text="[L_Wait_Return]">
+          <Publish Event="EndDialog" Value="Exit" Order="1">1</Publish>
+        </Control>
+        <Control Id="Text" Type="Text" X="48" Y="15" Width="194" Height="30" TabSkip="yes" Text="[L_Wait_Text]" />
+        <Control Id="Icon" Type="Icon" X="15" Y="15" Width="24" Height="24" Disabled="yes" FixedSize="yes" IconSize="32" TabSkip="yes" Help="[L_Wait_IconTip]" Text="WixUI_Ico_Exclam" />
+      </Dialog>
+
+      <Dialog Id="WelcomeDlg" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Text="下一步(&amp;N)">
+          <Publish Property="WixUI_InstallMode" Value="Update" Order="1">Installed AND PATCH</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="NextTw" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Text="下一步(&amp;N)">
+          <Publish Property="WixUI_InstallMode" Value="Update" Order="1">Installed AND PATCH</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="NextEn" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Text="&amp;Next">
+          <Publish Property="WixUI_InstallMode" Value="Update" Order="1">Installed AND PATCH</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="CancelTw" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="CancelEn" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="上一步(&amp;B)">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="BackTw" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="上一步(&amp;B)">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="BackEn" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="&amp;Back">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="安装向导将在计算机上安装 $(var.JpAppName)。单击“下一步”继续，或单击“取消”退出安装向导。">
+          <Condition Action="show">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="hide">Installed AND PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="DescriptionTw" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="安裝精靈將在電腦上安裝 $(var.JpAppName)。按一下「下一步」繼續，或按一下「取消」結束安裝精靈。">
+          <Condition Action="show">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="hide">Installed AND PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="DescriptionEn" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="The Setup Wizard will install $(var.JpAppName) on your computer. Click Next to continue or Cancel to exit the Setup Wizard.">
+          <Condition Action="show">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="hide">Installed AND PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="PatchDescription" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="安装向导将更新您计算机上的 $(var.JpAppName)。单击“下一步”继续或单击“取消”退出安装向导。">
+          <Condition Action="show">Installed AND PATCH</Condition>
+          <Condition Action="hide">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="PatchDescriptionTw" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="安裝精靈將更新您電腦上的 $(var.JpAppName)。按一下「下一步」繼續，或按一下「取消」結束安裝精靈。">
+          <Condition Action="show">Installed AND PATCH</Condition>
+          <Condition Action="hide">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="PatchDescriptionEn" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="The Setup Wizard will update $(var.JpAppName) on your computer. Click Next to continue or Cancel to exit the Setup Wizard.">
+          <Condition Action="show">Installed AND PATCH</Condition>
+          <Condition Action="hide">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}欢迎使用 $(var.JpAppName) 安装向导">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="TitleTw" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}歡迎使用 $(var.JpAppName) 安裝精靈">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="TitleEn" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}Welcome to the $(var.JpAppName) Setup Wizard">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="LangCombo" Type="ComboBox" X="10" Y="243" Width="90" Height="120" Property="JWORKLANG_SEL" TabSkip="yes">
+          <Publish Event="DoAction" Value="JpApplyLang" Order="1">1</Publish>
+          <Publish Event="NewDialog" Value="WelcomeDlgAlt" Order="2"><![CDATA[JWORKLANG_DIRTY="1"]]></Publish>
+        </Control>
+      </Dialog>
+
+      <Dialog Id="WelcomeDlgAlt" Width="370" Height="270" Title="[L_DlgTitle]">
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Default="yes" Text="下一步(&amp;N)">
+          <Publish Property="WixUI_InstallMode" Value="Update" Order="1">Installed AND PATCH</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="NextTw" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Text="下一步(&amp;N)">
+          <Publish Property="WixUI_InstallMode" Value="Update" Order="1">Installed AND PATCH</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="NextEn" Type="PushButton" X="236" Y="243" Width="56" Height="17" TabSkip="no" Text="&amp;Next">
+          <Publish Property="WixUI_InstallMode" Value="Update" Order="1">Installed AND PATCH</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Cancel="yes" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="CancelTw" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="CancelEn" Type="PushButton" X="304" Y="243" Width="56" Height="17" TabSkip="no" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="CancelDlg" Order="1">1</Publish>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Bitmap" Type="Bitmap" X="0" Y="0" Width="370" Height="234" Disabled="yes" TabSkip="no" Text="WixUI_Bmp_Dialog" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="上一步(&amp;B)">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="BackTw" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="上一步(&amp;B)">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="BackEn" Type="PushButton" X="180" Y="243" Width="56" Height="17" Disabled="yes" TabSkip="no" Text="&amp;Back">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="BottomLine" Type="Line" X="0" Y="234" Width="370" Height="0" Disabled="yes" TabSkip="yes" />
+        <Control Id="Description" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="安装向导将在计算机上安装 $(var.JpAppName)。单击“下一步”继续，或单击“取消”退出安装向导。">
+          <Condition Action="show">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="hide">Installed AND PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="DescriptionTw" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="安裝精靈將在電腦上安裝 $(var.JpAppName)。按一下「下一步」繼續，或按一下「取消」結束安裝精靈。">
+          <Condition Action="show">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="hide">Installed AND PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="DescriptionEn" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="The Setup Wizard will install $(var.JpAppName) on your computer. Click Next to continue or Cancel to exit the Setup Wizard.">
+          <Condition Action="show">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="hide">Installed AND PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="PatchDescription" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="安装向导将更新您计算机上的 $(var.JpAppName)。单击“下一步”继续或单击“取消”退出安装向导。">
+          <Condition Action="show">Installed AND PATCH</Condition>
+          <Condition Action="hide">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="PatchDescriptionTw" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="安裝精靈將更新您電腦上的 $(var.JpAppName)。按一下「下一步」繼續，或按一下「取消」結束安裝精靈。">
+          <Condition Action="show">Installed AND PATCH</Condition>
+          <Condition Action="hide">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="PatchDescriptionEn" Type="Text" X="135" Y="80" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="The Setup Wizard will update $(var.JpAppName) on your computer. Click Next to continue or Cancel to exit the Setup Wizard.">
+          <Condition Action="show">Installed AND PATCH</Condition>
+          <Condition Action="hide">NOT Installed OR NOT PATCH</Condition>
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="Title" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}欢迎使用 $(var.JpAppName) 安装向导">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-CN"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-CN"]]></Condition>
+        </Control>
+        <Control Id="TitleTw" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}歡迎使用 $(var.JpAppName) 安裝精靈">
+          <Condition Action="show"><![CDATA[JWORKLANG="zh-TW"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"zh-TW"]]></Condition>
+        </Control>
+        <Control Id="TitleEn" Type="Text" X="135" Y="20" Width="220" Height="60" Transparent="yes" NoPrefix="yes" TabSkip="yes" Text="{\WixUI_Font_Bigger}Welcome to the $(var.JpAppName) Setup Wizard">
+          <Condition Action="show"><![CDATA[JWORKLANG="en"]]></Condition>
+          <Condition Action="hide"><![CDATA[JWORKLANG<>"en"]]></Condition>
+        </Control>
+        <Control Id="LangCombo" Type="ComboBox" X="10" Y="243" Width="90" Height="120" Property="JWORKLANG_SEL" TabSkip="yes">
+          <Publish Event="DoAction" Value="JpApplyLang" Order="1">1</Publish>
+          <Publish Event="NewDialog" Value="WelcomeDlg" Order="2"><![CDATA[JWORKLANG_DIRTY="1"]]></Publish>
+        </Control>
+      </Dialog>
+
+<!-- fragment 自带属性（ErrorDlg 引擎挂接 / RM 默认选项） -->
+      <Property Id="ErrorDialog" Value="ErrorDlg" />
+      <Property Id="WixUIRMOption" Value="UseRM" />
+
+      <!-- 不写 DialogRef：WiX3 linker 解析引用优先库 fragment，DialogRef 会把扩展库
+           同 Id 对话框拉入与本地定义撞车（LGHT0091）。本地定义在 Product 内无条件链入，
+           Publish/Show 中的对话框名是运行时字符串，无需链接期引用。
+           例外：ShortcutPromptDlg 定义在独立 fragment（jpackage 资源覆盖版），扩展库无同 Id
+           符号，必须经 DialogRef 链入，否则不进 Dialog 表（ICE44）。 -->
+      <DialogRef Id="ShortcutPromptDlg" />
+
+      <Publish Dialog="BrowseDlg" Control="OK" Event="DoAction" Value="WixUIValidatePath" Order="3">1</Publish>
+      <Publish Dialog="BrowseDlg" Control="OK" Event="SpawnDialog" Value="InvalidDirDlg" Order="4"><![CDATA[WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="EndDialog" Value="Return" Order="999">1</Publish>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg">NOT Installed</Publish>
+      <Publish Dialog="WelcomeDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">Installed AND PATCH</Publish>
+      <!-- 欢迎页三分拆分控件的繁中/英文 Next 变体（Id 后缀 Tw/En）同步分支接线：
+           基 Id 变体由上面两行覆盖，fragment 里没有这些控件的事件行 -->
+      <Publish Dialog="WelcomeDlg" Control="NextTw" Event="NewDialog" Value="LicenseAgreementDlg">NOT Installed</Publish>
+      <Publish Dialog="WelcomeDlg" Control="NextTw" Event="NewDialog" Value="VerifyReadyDlg">Installed AND PATCH</Publish>
+      <Publish Dialog="WelcomeDlg" Control="NextEn" Event="NewDialog" Value="LicenseAgreementDlg">NOT Installed</Publish>
+      <Publish Dialog="WelcomeDlg" Control="NextEn" Event="NewDialog" Value="VerifyReadyDlg">Installed AND PATCH</Publish>
+      <!-- Alt 孪生页（下拉确认选语言后重建到此页）：导航分支与原页镜像一致，
+           Cancel/InstallMode 行随 fragment children 自动拷贝 -->
+      <Publish Dialog="WelcomeDlgAlt" Control="Next" Event="NewDialog" Value="LicenseAgreementDlg">NOT Installed</Publish>
+      <Publish Dialog="WelcomeDlgAlt" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">Installed AND PATCH</Publish>
+      <Publish Dialog="WelcomeDlgAlt" Control="NextTw" Event="NewDialog" Value="LicenseAgreementDlg">NOT Installed</Publish>
+      <Publish Dialog="WelcomeDlgAlt" Control="NextTw" Event="NewDialog" Value="VerifyReadyDlg">Installed AND PATCH</Publish>
+      <Publish Dialog="WelcomeDlgAlt" Control="NextEn" Event="NewDialog" Value="LicenseAgreementDlg">NOT Installed</Publish>
+      <Publish Dialog="WelcomeDlgAlt" Control="NextEn" Event="NewDialog" Value="VerifyReadyDlg">Installed AND PATCH</Publish>
+      <Publish Dialog="LicenseAgreementDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg">1</Publish>
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="InstallDirDlg">LicenseAccepted = "1"</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="LicenseAgreementDlg">1</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SetTargetPath" Value="[WIXUI_INSTALLDIR]" Order="1">1</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="DoAction" Value="WixUIValidatePath" Order="2">NOT WIXUI_DONTVALIDATEPATH</Publish>
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="SpawnDialog" Value="InvalidDirDlg" Order="3"><![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID<>"1"]]></Publish>
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="JworkDataDlg" Order="4"><![CDATA[NOT WIXUI_DONTVALIDATEPATH AND WIXUI_INSTALLDIR_VALID="1"]]></Publish>
+      <Publish Dialog="InstallDirDlg" Control="Next" Event="NewDialog" Value="JworkDataDlg" Order="4">WIXUI_DONTVALIDATEPATH</Publish>
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Property="_BrowseProperty" Value="[WIXUI_INSTALLDIR]" Order="1">1</Publish>
+      <Publish Dialog="InstallDirDlg" Control="ChangeFolder" Event="SpawnDialog" Value="BrowseDlg" Order="2">1</Publish>
+      <Publish Dialog="JworkDataDlg" Control="Back" Event="NewDialog" Value="InstallDirDlg">1</Publish>
+      <Publish Dialog="JworkDataDlg" Control="Next" Event="NewDialog" Value="ShortcutPromptDlg">1</Publish>
+      <Publish Dialog="ShortcutPromptDlg" Control="Back" Event="NewDialog" Value="JworkDataDlg">1</Publish>
+      <Publish Dialog="ShortcutPromptDlg" Control="Next" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="ShortcutPromptDlg">NOT Installed</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="MaintenanceTypeDlg">Installed AND NOT PATCH</Publish>
+      <Publish Dialog="VerifyReadyDlg" Control="Back" Event="NewDialog" Value="WelcomeDlg">Installed AND PATCH</Publish>
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="NextTw" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+      <Publish Dialog="MaintenanceWelcomeDlg" Control="NextEn" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+      <Publish Dialog="MaintenanceWelcomeDlgAlt" Control="Next" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+      <Publish Dialog="MaintenanceWelcomeDlgAlt" Control="NextTw" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+      <Publish Dialog="MaintenanceWelcomeDlgAlt" Control="NextEn" Event="NewDialog" Value="MaintenanceTypeDlg">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="RepairButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="RemoveButton" Event="NewDialog" Value="VerifyReadyDlg">1</Publish>
+      <Publish Dialog="MaintenanceTypeDlg" Control="Back" Event="NewDialog" Value="MaintenanceWelcomeDlg">1</Publish>
+    </UI>
+    <!-- jpackage 默认生成的 ui.wxf 带 UIRef WixUI_InstallDir，会拉入扩展库整套对话框
+         fragment 与本地同 Id 定义撞车（LGHT0091），且 WiX3 linker 解析引用优先库 fragment，
+         本地影子 UI 无效。解法：scripts/wix/ui.wxf 覆盖版把该 UIRef 换成 WixUI_Common
+         （仅位图/图标 Binary 与 UIText），对话框引用全部解析到本地定义。 -->
+    <UIRef Id="WixUI_Common" />
+    <!-- 许可证页内容：三语各一份 RTF（build/gen/make-license-rtf.ps1 从 license-src 生成，
+         经 package-windows.ps1 4.1 补拷进 config），LicenseAgreementDlg 内三个 ScrollableText
+         按 JWORKLANG 显隐其一；双语同屏版 license.rtf 仅作 jpackage license-file 参数入参保留 -->
+    <WixVariable Id="JpLicenseRtfZhCN" Value="$(var.JpConfigDir)\license-zh-cn.rtf" />
+    <WixVariable Id="JpLicenseRtfZhTW" Value="$(var.JpConfigDir)\license-zh-tw.rtf" />
+    <WixVariable Id="JpLicenseRtfEn" Value="$(var.JpConfigDir)\license-en.rtf" />
+    <!-- 品牌位图覆盖 WiX 默认 banner/dialog（默认 banner 右侧是红色禁止地球图标） -->
+    <WixVariable Id="WixUIBannerBmp" Value="$(var.JpConfigDir)\banner.bmp" />
+    <WixVariable Id="WixUIDialogBmp" Value="$(var.JpConfigDir)\dialog.bmp" />
+    <UIRef Id="JworkWizard"/>
+
+    <InstallExecuteSequence>
+      <Custom Action="JpSetARPINSTALLLOCATION" After="CostFinalize">Not Installed</Custom>
+      <Custom Action="JpSetARPCOMMENTS" After="CostFinalize">Not Installed</Custom>
+      <Custom Action="JpSetARPCONTACT" After="CostFinalize">Not Installed</Custom>
+      <Custom Action="JpSetARPSIZE" After="CostFinalize">Not Installed</Custom>
+      <?ifdef JpHelpURL ?>
+        <Custom Action="JpSetARPHELPLINK" After="CostFinalize">Not Installed</Custom>
+      <?endif?>
+      <?ifdef JpAboutURL ?>
+        <Custom Action="JpSetARPURLINFOABOUT" After="CostFinalize">Not Installed</Custom>
+      <?endif?>
+      <?ifdef JpUpdateURL ?>
+        <Custom Action="JpSetARPURLUPDATEINFO" After="CostFinalize">Not Installed</Custom>
+      <?endif?>
+
+      <?ifndef JpAllowUpgrades ?>
+      <Custom Action="JpDisallowUpgrade" After="JpFindRelatedProducts">JP_UPGRADABLE_FOUND</Custom>
+      <?endif?>
+      <?ifndef JpAllowDowngrades ?>
+      <Custom Action="JpDisallowDowngrade" After="JpFindRelatedProducts">JP_DOWNGRADABLE_FOUND</Custom>
+      <?endif?>
+      <RemoveExistingProducts Before="CostInitialize"/>
+      <Custom Action="JpFindRelatedProducts" After="FindRelatedProducts"/>
+      <!-- 静默路径（msiexec /qn）跳过 UI，数据目录与语言恢复须在执行序列同样生效 -->
+      <Custom Action="JpRestoreDataDir" After="AppSearch">JWORKDATA_EXISTING</Custom>
+      <Custom Action="JpSetDefaultDataDir" After="AppSearch">NOT JWORKDATA_EXISTING</Custom>
+      <Custom Action="JpRestoreLang" After="AppSearch">JWORKLANG_EXISTING</Custom>
+    </InstallExecuteSequence>
+
+    <InstallUISequence>
+      <Custom Action="JpFindRelatedProducts" After="FindRelatedProducts"/>
+      <Custom Action="JpRestoreDataDir" After="AppSearch">JWORKDATA_EXISTING</Custom>
+      <Custom Action="JpSetDefaultDataDir" After="AppSearch">NOT JWORKDATA_EXISTING</Custom>
+      <Custom Action="JpRestoreLang" After="AppSearch">JWORKLANG_EXISTING</Custom>
+      <!-- 首页渲染前应用语言（恢复值或默认简中），初始化 JWORKLANG_SEL 并替换文案内嵌 [ProductName] -->
+      <Custom Action="JpApplyLang" After="JpRestoreLang"/>
+      <!-- 基线序列入口（照 WixUI 各 fragment 自带 Show 复制）：欢迎/维护欢迎/恢复三选一 -->
+      <Show Dialog="WelcomeDlg" Before="ProgressDlg">NOT Installed OR PATCH</Show>
+      <Show Dialog="MaintenanceWelcomeDlg" Before="ProgressDlg">Installed AND NOT RESUME AND NOT Preselected AND NOT PATCH</Show>
+      <Show Dialog="ResumeDlg" Before="ProgressDlg">Installed AND (RESUME OR Preselected)</Show>
+      <Show Dialog="PrepareDlg" After="AppSearch"/>
+      <Show Dialog="ProgressDlg" Before="ExecuteAction"/>
+      <Show Dialog="ExitDialog" OnExit="success"/>
+      <Show Dialog="UserExit" OnExit="cancel"/>
+      <Show Dialog="FatalError" OnExit="error"/>
+    </InstallUISequence>
+
+    <!-- 库对话框 fragment 被排除后，其自带的 AdminUISequence 退出页条目须自行补齐（ICE20，照基线） -->
+    <AdminUISequence>
+      <Show Dialog="ExitDialog" OnExit="success"/>
+      <Show Dialog="UserExit" OnExit="cancel"/>
+      <Show Dialog="FatalError" OnExit="error"/>
+    </AdminUISequence>
+
+  </Product>
+</Wix>

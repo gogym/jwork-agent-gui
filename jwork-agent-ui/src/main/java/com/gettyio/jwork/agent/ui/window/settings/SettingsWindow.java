@@ -250,7 +250,9 @@ public class SettingsWindow {
     private BackupRestoreSettingsPanel backupRestorePanel() {
         if (backupRestorePanel == null) {
             backupRestorePanel = new BackupRestoreSettingsPanel(this, jworkPaths, dbBackupService,
-                    exportService, webDavSyncService);
+                    exportService, webDavSyncService,
+                    new com.gettyio.jwork.agent.domain.backup.DataDirMigrator(database, jworkPaths.root()),
+                    appLifecycle);
         }
         return backupRestorePanel;
     }

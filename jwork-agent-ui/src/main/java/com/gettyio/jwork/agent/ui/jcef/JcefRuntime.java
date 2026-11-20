@@ -16,6 +16,7 @@
 
 package com.gettyio.jwork.agent.ui.jcef;
 
+import com.gettyio.jwork.agent.core.JworkPaths;
 import me.friwi.jcefmaven.CefAppBuilder;
 import org.cef.CefApp;
 import org.cef.CefClient;
@@ -24,8 +25,6 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.File;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 /**
  * 进程级 JCEF 运行时单例：{@link CefApp} 全 JVM 只允许一个实例，此处惰性引导。
@@ -34,7 +33,8 @@ import java.nio.file.Paths;
  * {@code onPaint} 回调送出，宿主用 {@link JcefOsrView} 把位图 blit 到 JavaFX Canvas，
  * 保留 JavaFX 侧的圆角 clip / 动画 / 事件模型，同时拿到彩色 emoji。</p>
  *
- * <p>原生库解包目录：{@code ${user.home}/.jwork/cef}（首次启动 jcefmaven 从内置 jar 解包；
+ * <p>原生库解包目录：数据根目录下的 {@code cef/}（随 {@link JworkPaths} 解析，默认 {@code ~/.jwork/cef}；
+ * 首次启动 jcefmaven 从内置 jar 解包；
  * 离线随包场景由 jpackage 预置同路径后 {@link CefAppBuilder#setSkipInstallation(boolean)} 可跳过）。
  * 该目录在 Windows 用户目录下可写，与安装目录解耦，兼容 Program Files 只读环境。</p>
  *
@@ -100,8 +100,7 @@ public final class JcefRuntime {
     }
 
     private static File installDir() {
-        Path base = Paths.get(System.getProperty("user.home", "."), ".jwork", "cef");
-        return base.toFile();
+        return new JworkPaths().root().resolve("cef").toFile();
     }
 
     /**
